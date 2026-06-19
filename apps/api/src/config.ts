@@ -55,4 +55,33 @@ export const config = {
     username: process.env.SEED_ADMIN_USER || 'admin',
     password: process.env.SEED_ADMIN_PASS || 'cicanet2026',
   },
+
+  // Pasarela de pagos (Wompi — Colombia). Sandbox por defecto.
+  // Llaves en https://comercios.wompi.co (test: pub_test_/prv_test_).
+  wompi: {
+    // 'sandbox' (pruebas) o 'production'.
+    env: (process.env.WOMPI_ENV || 'sandbox').toLowerCase(),
+    publicKey: process.env.WOMPI_PUBLIC_KEY || '',
+    privateKey: process.env.WOMPI_PRIVATE_KEY || '',
+    // Secreto de integridad (firma del checkout).
+    integritySecret: process.env.WOMPI_INTEGRITY_SECRET || '',
+    // Secreto de eventos (verificación del webhook).
+    eventsSecret: process.env.WOMPI_EVENTS_SECRET || '',
+    moneda: process.env.WOMPI_CURRENCY || 'COP',
+    // A dónde vuelve el cliente tras pagar (deep link de la app o web).
+    redirectUrl: process.env.WOMPI_REDIRECT_URL || 'https://cicanet.co/pago/resultado',
+    // Datos de pago manual (Nequi/Bancolombia de la empresa) como alternativa.
+    nequiEmpresa: process.env.CICANET_NEQUI || '',
+    bancolombiaEmpresa: process.env.CICANET_BANCOLOMBIA || '',
+  },
+};
+
+/** URLs base de la API de Wompi según el entorno. */
+export const wompiUrls = {
+  get api(): string {
+    return config.wompi.env === 'production'
+      ? 'https://production.wompi.co/v1'
+      : 'https://sandbox.wompi.co/v1';
+  },
+  checkout: 'https://checkout.wompi.co/p/',
 };

@@ -170,6 +170,33 @@ model Pago {
   @@map("pago")
 }
 
+/// Transacción de pasarela (Wompi). Fuente de verdad del ciclo de pago en línea,
+/// desacoplada de la facturación (P1): existe aunque aún no haya factura formal.
+/// Cuando hay factura, se enlaza (facturaId) y al aprobarse se marca pagada.
+model PagoTransaccion {
+  id            String   @id @default(uuid()) @db.Uuid
+  /// Referencia única que enviamos a Wompi (idempotencia).
+  referencia    String   @unique
+  proveedor     String   @default("wompi")
+  /// Id de la transacción en Wompi (se llena al confirmar).
+  proveedorTxId String?  @map("proveedor_tx_id")
+  montoCents    Int      @map("monto_cents")
+  moneda        String   @default("COP")
+  /// CREADA | PENDIENTE | APROBADA | RECHAZADA | ANULADA | ERROR
+  estado        String   @default("CREADA")
+  metodo        String? // PSE | NEQUI | CARD | BANCOLOMBIA_TRANSFER | ...
+  descripcion   String?
+  emailCliente  String?  @map("email_cliente")
+  facturaId     String?  @map("factura_id") @db.Uuid
+  clienteId     String?  @map("cliente_id") @db.Uuid
+  creadoPor     String?  @map("creado_por")
+  datosWompi    Json?    @map("datos_wompi") @db.JsonB
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@map("pago_transaccion")
+}
+
 /// Bitácora de auditoría: todo cambio sensible (quién, qué, cuándo).
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid

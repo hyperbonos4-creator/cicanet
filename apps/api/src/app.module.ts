@@ -6,6 +6,7 @@ import { NetworkModule } from './network/network.module';
 import { GeoModule } from './geo/geo.module';
 import { InfraModule } from './infra/infra.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { PaymentsModule } from './payments/payments.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -17,6 +18,7 @@ import { HealthController } from './health.controller';
     GeoModule,
     InfraModule,
     ClientesModule,
+    PaymentsModule,
   ],
   controllers: [HealthController],
 })

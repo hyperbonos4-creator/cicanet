@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cicanet_mobile/core/theme/app_theme.dart';
 import 'package:cicanet_mobile/core/uds/uds.dart';
 import 'package:cicanet_mobile/features/auth/auth_notifier.dart';
+import 'package:cicanet_mobile/features/pagos/pago_screen.dart';
 
 /// Inicio: estado del servicio del cliente. Los valores se conectarán a los
 /// endpoints del portal del cliente (PLAN-MAESTRO P5/P6). Hoy muestra la
@@ -69,7 +70,11 @@ class HomeScreen extends ConsumerWidget {
             SizedBox(height: UDS.space.s3),
             Row(
               children: [
-                Expanded(child: CicaButton(label: 'Pagar', leftIcon: Icons.payments_outlined, onPressed: () => _todo(context, 'Pago (Wompi)'))),
+                Expanded(child: CicaButton(label: 'Pagar', leftIcon: Icons.payments_outlined, onPressed: () {
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const PagoScreen(montoCents: 7000000, descripcion: 'Plan Hogar 300 Megas · Junio 2026'),
+                  ));
+                })),
                 SizedBox(width: UDS.space.s3),
                 Expanded(child: CicaButton(label: 'Soporte', leftIcon: Icons.support_agent_outlined, variant: CicaButtonVariant.secondary, onPressed: () => _todo(context, 'Soporte'))),
               ],

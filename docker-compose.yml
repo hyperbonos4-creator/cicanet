@@ -103,6 +103,16 @@ services:
       SEED_ADMIN_PASS: ${SEED_ADMIN_PASS:-cicanet2026}
       DATABASE_URL: postgres://${POSTGRES_USER:-cicanet}:${POSTGRES_PASSWORD:-cicanet_dev}@postgres:5432/${POSTGRES_DB:-cicanet}
       REDIS_URL: redis://redis:6379
+      # Pasarela de pagos (Wompi)
+      WOMPI_ENV: ${WOMPI_ENV:-sandbox}
+      WOMPI_PUBLIC_KEY: ${WOMPI_PUBLIC_KEY:-}
+      WOMPI_PRIVATE_KEY: ${WOMPI_PRIVATE_KEY:-}
+      WOMPI_INTEGRITY_SECRET: ${WOMPI_INTEGRITY_SECRET:-}
+      WOMPI_EVENTS_SECRET: ${WOMPI_EVENTS_SECRET:-}
+      WOMPI_CURRENCY: ${WOMPI_CURRENCY:-COP}
+      WOMPI_REDIRECT_URL: ${WOMPI_REDIRECT_URL:-https://cicanet.co/pago/resultado}
+      CICANET_NEQUI: ${CICANET_NEQUI:-}
+      CICANET_BANCOLOMBIA: ${CICANET_BANCOLOMBIA:-}
     volumes:
       - ./apps/api:/app
       - /app/node_modules
