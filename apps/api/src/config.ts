@@ -74,6 +74,22 @@ export const config = {
     nequiEmpresa: process.env.CICANET_NEQUI || '',
     bancolombiaEmpresa: process.env.CICANET_BANCOLOMBIA || '',
   },
+
+  // WhatsApp self-hosted vía Evolution API (gateway open-source). El teléfono de
+  // la empresa se vincula escaneando un QR y queda como emisor/receptor. El
+  // backend lo consume por la red interna de Docker (no expuesto a internet).
+  evolution: {
+    // Habilita la integración cuando WHATSAPP_PROVIDER=evolution.
+    enabled: (process.env.WHATSAPP_PROVIDER || 'evolution').toLowerCase() === 'evolution',
+    apiUrl: (process.env.EVOLUTION_API_URL || 'http://evolution-api:8080').replace(/\/$/, ''),
+    apiKey: process.env.EVOLUTION_API_KEY || '',
+    // Una instancia por operación (multi-tenant si algún día hay varias).
+    instance: process.env.EVOLUTION_INSTANCE || 'cicanet',
+    // URL que Evolution invoca al backend para entregar QR/estado/mensajes.
+    // El secreto se añade en el PATH (Evolution preserva el path, no el query).
+    webhookBase: process.env.EVOLUTION_WEBHOOK_URL || '',
+    webhookSecret: process.env.NOTIFICATION_WEBHOOK_SECRET || '',
+  },
 };
 
 /** URLs base de la API de Wompi según el entorno. */

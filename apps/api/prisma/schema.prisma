@@ -197,6 +197,18 @@ model PagoTransaccion {
   @@map("pago_transaccion")
 }
 
+/// Configuración clave/valor de la plataforma (editable desde el panel admin).
+/// Ej.: "soporte_whatsapp" → { numero, mensaje, habilitado }. Reutilizable para
+/// futuras configuraciones (config_facturacion, etc.) sin nuevas migraciones.
+model Setting {
+  clave         String   @id
+  valor         Json     @db.JsonB
+  actualizadoPor String? @map("actualizado_por")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  @@map("setting")
+}
+
 /// Bitácora de auditoría: todo cambio sensible (quién, qué, cuándo).
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid

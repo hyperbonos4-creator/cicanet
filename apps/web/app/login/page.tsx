@@ -1,25 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { login } from "../../lib/api";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Leemos del DOM (no solo del estado) para que el autocompletado del
+    // navegador funcione aunque no dispare onChange en React.
+    const form = e.currentTarget;
+    const data = new FormData(form);
+    const u = String(data.get("username") ?? username).trim();
+    const p = String(data.get("password") ?? password);
+
+    if (!u || !p) {
+      setError("Ingresa tu usuario y contraseña.");
+      return;
+    }
+
     setError(null);
     setLoading(true);
     try {
-      await login(username.trim(), password);
-      router.replace("/");
-      router.refresh();
+      await login(u, p);
+      // Navegación dura: garantiza que el middleware reevalúe con la cookie
+      // recién creada (evita rebotes a /login vía proxy/ngrok).
+      window.location.assign("/");
     } catch (err: any) {
       setError(err.message || "No se pudo iniciar sesión");
       setLoading(false);
@@ -55,6 +66,7 @@ export default function LoginPage() {
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-cica-muted">Usuario</span>
             <input
+              name="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoFocus
@@ -68,6 +80,7 @@ export default function LoginPage() {
             <span className="text-xs font-semibold text-cica-muted">Contraseña</span>
             <input
               type="password"
+              name="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
@@ -84,7 +97,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading || !username || !password}
+            disabled={loading}
             className="btn-cica mt-1 w-full disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Ingresando…" : "Ingresar"}

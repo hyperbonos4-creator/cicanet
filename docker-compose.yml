@@ -113,6 +113,16 @@ services:
       WOMPI_REDIRECT_URL: ${WOMPI_REDIRECT_URL:-https://cicanet.co/pago/resultado}
       CICANET_NEQUI: ${CICANET_NEQUI:-}
       CICANET_BANCOLOMBIA: ${CICANET_BANCOLOMBIA:-}
+      # WhatsApp self-hosted vía Evolution API (gateway interno, no expuesto).
+      # El teléfono de la empresa se vincula por QR desde el panel (sección Soporte).
+      WHATSAPP_PROVIDER: ${WHATSAPP_PROVIDER:-evolution}
+      EVOLUTION_API_URL: http://evolution-api:8080
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-cicanet-evolution-dev-key}
+      EVOLUTION_INSTANCE: ${EVOLUTION_INSTANCE:-cicanet}
+      # Evolution entrega QR/estado/mensajes por evento → webhook al backend
+      # (red interna de Docker). El secreto se añade en el PATH.
+      EVOLUTION_WEBHOOK_URL: http://api:4000/api/whatsapp/webhook/evolution
+      NOTIFICATION_WEBHOOK_SECRET: ${NOTIFICATION_WEBHOOK_SECRET:-cicanet-webhook-secret-dev}
     volumes:
       - ./apps/api:/app
       - /app/node_modules
@@ -146,10 +156,70 @@ services:
       - "3080:3000"
     networks: [cicanet-net]
 
+  # ---- WhatsApp self-hosted: Evolution API + DB y Redis DEDICADOS ----
+  #  La empresa vincula su teléfono escaneando el QR desde el panel (Soporte).
+  #  SEGURIDAD: no se expone a internet (solo loopback 127.0.0.1:8080 para debug);
+  #  el backend lo consume por la red interna http://evolution-api:8080.
+  #  Protegido por AUTHENTICATION_API_KEY (= EVOLUTION_API_KEY del backend).
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: cicanet-evolution
+    restart: unless-stopped
+    depends_on:
+      - evolution-db
+      - evolution-redis
+    ports:
+      - "127.0.0.1:8080:8080"   # solo loopback (no expuesto a internet)
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-cicanet-evolution-dev-key}
+      SERVER_URL: http://evolution-api:8080
+      # Persistencia de sesiones en Postgres dedicado (sobreviven reinicios).
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:evolution@evolution-db:5432/evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      # Cache en Redis dedicado.
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: "false"
+      # El webhook se configura por instancia desde el backend (no global).
+      WEBHOOK_GLOBAL_ENABLED: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    networks: [cicanet-net]
+
+  evolution-db:
+    image: postgres:16-alpine
+    container_name: cicanet-evolution-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_pgdata:/var/lib/postgresql/data
+    networks: [cicanet-net]
+
+  evolution-redis:
+    image: redis:7-alpine
+    container_name: cicanet-evolution-redis
+    restart: unless-stopped
+    volumes:
+      - evolution_redis:/data
+    networks: [cicanet-net]
+
 volumes:
   pg_data:
   redis_data:
   minio_data:
+  evolution_instances:
+  evolution_pgdata:
+  evolution_redis:
 
 networks:
   cicanet-net:

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cicanet_mobile/core/theme/app_theme.dart';
 import 'package:cicanet_mobile/core/uds/uds.dart';
 import 'package:cicanet_mobile/features/auth/auth_notifier.dart';
+import 'package:cicanet_mobile/features/soporte/soporte_actions.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -45,7 +46,7 @@ class ProfileScreen extends ConsumerWidget {
                 children: [
                   _tile(Icons.lock_outline, 'Cambiar contraseña', () {}),
                   Divider(height: 1, color: UDS.border.subtle),
-                  _tile(Icons.support_agent_outlined, 'Soporte', () {}),
+                  _tile(Icons.support_agent_outlined, 'Soporte', () => abrirSoporteWhatsapp(context, ref)),
                   Divider(height: 1, color: UDS.border.subtle),
                   _tile(Icons.info_outline, 'Acerca de CICANET', () {}),
                 ],

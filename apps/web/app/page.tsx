@@ -9,6 +9,7 @@ import AppShell, { type Section } from "../components/AppShell";
 import OperacionPanel from "../components/panels/OperacionPanel";
 import ClientesPanel from "../components/panels/ClientesPanel";
 import InfraPanel from "../components/panels/InfraPanel";
+import SoportePanel from "../components/panels/SoportePanel";
 import ClientesModule from "../components/clientes/ClientesModule";
 import {
   SOCKET_URL,
@@ -211,6 +212,13 @@ export default function Page() {
       {section === "clientes" && (
         <div className="h-full overflow-y-auto p-6">
           <ClientesModule canEdit={!!canEdit} napOptions={napOptions} stats={cliStats} onChanged={refreshCliStats} />
+        </div>
+      )}
+
+      {/* ===== Soporte ===== */}
+      {section === "soporte" && (
+        <div className="h-full overflow-y-auto p-6">
+          <SoportePanel canEdit={user?.role === "admin"} />
         </div>
       )}
 

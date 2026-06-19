@@ -1,0 +1,14 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { SupportModule } from '../support/support.module';
+import { WhatsappController } from './whatsapp.controller';
+import { WhatsappService } from './whatsapp.service';
+import { RolesGuard } from '../auth/guards';
+
+@Module({
+  imports: [AuthModule, SupportModule],
+  controllers: [WhatsappController],
+  providers: [WhatsappService, RolesGuard],
+  exports: [WhatsappService],
+})
+export class WhatsappModule {}

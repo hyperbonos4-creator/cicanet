@@ -7,6 +7,8 @@ import { GeoModule } from './geo/geo.module';
 import { InfraModule } from './infra/infra.module';
 import { ClientesModule } from './clientes/clientes.module';
 import { PaymentsModule } from './payments/payments.module';
+import { SupportModule } from './support/support.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -19,6 +21,8 @@ import { HealthController } from './health.controller';
     InfraModule,
     ClientesModule,
     PaymentsModule,
+    SupportModule,
+    WhatsappModule,
   ],
   controllers: [HealthController],
 })

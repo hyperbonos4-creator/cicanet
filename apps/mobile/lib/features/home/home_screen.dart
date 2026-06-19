@@ -4,6 +4,7 @@ import 'package:cicanet_mobile/core/theme/app_theme.dart';
 import 'package:cicanet_mobile/core/uds/uds.dart';
 import 'package:cicanet_mobile/features/auth/auth_notifier.dart';
 import 'package:cicanet_mobile/features/pagos/pago_screen.dart';
+import 'package:cicanet_mobile/features/soporte/soporte_actions.dart';
 
 /// Inicio: estado del servicio del cliente. Los valores se conectarán a los
 /// endpoints del portal del cliente (PLAN-MAESTRO P5/P6). Hoy muestra la
@@ -76,7 +77,7 @@ class HomeScreen extends ConsumerWidget {
                   ));
                 })),
                 SizedBox(width: UDS.space.s3),
-                Expanded(child: CicaButton(label: 'Soporte', leftIcon: Icons.support_agent_outlined, variant: CicaButtonVariant.secondary, onPressed: () => _todo(context, 'Soporte'))),
+                Expanded(child: CicaButton(label: 'Soporte', leftIcon: Icons.support_agent_outlined, variant: CicaButtonVariant.secondary, onPressed: () => abrirSoporteWhatsapp(context, ref))),
               ],
             ),
             SizedBox(height: UDS.space.s5),
@@ -101,8 +102,4 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
       );
-
-  void _todo(BuildContext context, String what) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$what — próximamente')));
-  }
 }

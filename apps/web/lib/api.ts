@@ -30,8 +30,10 @@ export function setSession(accessToken: string, refreshToken: string, user: Sess
   localStorage.setItem(TOKEN_KEY, accessToken);
   localStorage.setItem(REFRESH_KEY, refreshToken);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
-  // cookie para el middleware (1 día)
-  document.cookie = `${TOKEN_KEY}=${accessToken}; path=/; max-age=86400; samesite=lax`;
+  // cookie para el middleware (1 día). Secure cuando se sirve por HTTPS (ngrok),
+  // para que el navegador la acepte/envíe de forma fiable.
+  const secure = window.location.protocol === "https:" ? "; secure" : "";
+  document.cookie = `${TOKEN_KEY}=${accessToken}; path=/; max-age=86400; samesite=lax${secure}`;
 }
 
 export function clearSession() {
@@ -425,4 +427,58 @@ export function updateCliente(id: string, input: ClienteInput): Promise<Cliente>
 }
 export function deleteCliente(id: string): Promise<{ id: string }> {
   return authFetch(`/clientes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- Soporte (canal de WhatsApp configurable por el admin) ----
+export type SupportWhatsapp = {
+  numero: string;
+  numeroFormateado: string;
+  mensaje: string;
+  habilitado: boolean;
+  url: string | null;
+};
+
+export function getSupportWhatsapp(): Promise<SupportWhatsapp> {
+  return authFetch("/support/whatsapp");
+}
+
+export function setSupportWhatsapp(input: {
+  numero: string;
+  mensaje?: string;
+  habilitado?: boolean;
+}): Promise<SupportWhatsapp> {
+  return authFetch("/support/whatsapp", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+// ---- WhatsApp self-hosted (Evolution): vinculación por QR + bandeja ----
+export type WaStatus = {
+  state: "idle" | "connecting" | "qr" | "open" | "close";
+  qrDataUrl: string | null;
+  numero: string | null;
+};
+
+export type WaChat = {
+  jid: string;
+  numero: string;
+  nombre: string | null;
+  ultimoMensaje: string;
+  entrante: boolean;
+  ts: number;
+  noLeidos: number;
+};
+
+export function whatsappStatus(): Promise<WaStatus> {
+  return authFetch("/whatsapp/status");
+}
+export function whatsappConnect(): Promise<WaStatus> {
+  return authFetch("/whatsapp/connect", { method: "POST" });
+}
+export function whatsappLogout(): Promise<{ ok: boolean }> {
+  return authFetch("/whatsapp/session", { method: "DELETE" });
+}
+export function whatsappChats(): Promise<WaChat[]> {
+  return authFetch("/whatsapp/chats");
 }
