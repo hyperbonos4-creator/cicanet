@@ -1,0 +1,185 @@
+// ============================================================
+//  CICANET · Schema Prisma — P0 (modelo normalizado del CRM)
+//
+//  Convenciones:
+//  - Tablas en SINGULAR (cliente, servicio, ...) para NO colisionar con
+//    las tablas geo de Fase 1 creadas por infra/postgres/init/01-schema.sql
+//    (que son plurales: clientes, nodos_red, areas_cobertura...).
+//  - Los campos de "estado/tipo" son TEXT (String) — NO enums Prisma — para
+//    evitar chocar con los TYPE ... AS ENUM ya creados por el init SQL.
+//    La validación vive en los DTO (class-validator) + la máquina de estados.
+//  - Geometría: por ahora se guardan lat/lng como Float. La columna PostGIS
+//    se añade en P4 (IPAM/topología) vía SQL crudo.
+//
+//  Sincronización en P0: `prisma db push` (sin historial de migraciones),
+//  porque la BD ya tiene tablas administradas por SQL-init. Las migraciones
+//  versionadas se formalizan cuando las tablas geo migren bajo Prisma.
+// ============================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  // La imagen corre sobre node:20-alpine (musl + OpenSSL 3). Incluimos el
+  // binario del engine para ese target además del nativo del host.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Persona o empresa suscriptora. Bloque 1 del formulario (identificación).
+model Cliente {
+  id            String   @id @default(uuid()) @db.Uuid
+  codigo        String   @unique // CLI-0001 — identificador público visible
+  tipoDocumento String   @map("tipo_documento")
+  documento     String   @unique
+  nombre        String
+  tipoCliente   String   @map("tipo_cliente")
+  email         String?
+  telefonoMovil String?  @map("telefono_movil")
+  telefonoFijo  String?  @map("telefono_fijo")
+
+  estado        String   @default("activo") // activo|suspendido|retirado|moroso
+  notas         String?
+
+  creadoPor     String?  @map("creado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  servicios Servicio[]
+  puntos    PuntoInstalacion[]
+
+  @@map("cliente")
+}
+
+/// Dirección física de instalación. Bloque 2 del formulario.
+model PuntoInstalacion {
+  id           String  @id @default(uuid()) @db.Uuid
+  clienteId    String  @map("cliente_id") @db.Uuid
+  cliente      Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  direccion    String
+  barrio       String?
+  comuna       String?
+  ciudad       String
+  departamento String?
+  estrato      Int?
+  lat          Float?
+  lng          Float?
+  referencias  String?
+
+  servicios Servicio[]
+
+  @@map("punto_instalacion")
+}
+
+/// Catálogo comercial de planes. Se llena/usa en P1 (facturación).
+/// En P0 existe la tabla pero los datos del plan viven denormalizados en Servicio.
+model Plan {
+  id               String  @id @default(uuid()) @db.Uuid
+  nombre           String  @unique
+  velocidadBajada  Int     @map("velocidad_bajada")
+  velocidadSubida  Int     @map("velocidad_subida")
+  precio           Decimal @db.Decimal(12, 2)
+  iva              Decimal @default(0) @db.Decimal(5, 2)
+  tecnologia       String
+  activo           Boolean @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  servicios Servicio[]
+
+  @@map("plan")
+}
+
+/// La "línea" de internet: conecta cliente + punto + plan. Bloques 3 y 4.
+/// Un cliente puede tener varios servicios (1→N), aunque el form crea uno.
+model Servicio {
+  id        String           @id @default(uuid()) @db.Uuid
+  clienteId String           @map("cliente_id") @db.Uuid
+  cliente   Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  puntoId   String           @map("punto_id") @db.Uuid
+  punto     PuntoInstalacion @relation(fields: [puntoId], references: [id], onDelete: Cascade)
+  planId    String?          @map("plan_id") @db.Uuid
+  plan      Plan?            @relation(fields: [planId], references: [id])
+
+  // Plan/datos técnicos (bloque 3) — denormalizado en P0
+  planNombre      String  @map("plan_nombre")
+  velocidadBajada Int?    @map("velocidad_bajada")
+  velocidadSubida Int?    @map("velocidad_subida")
+  tecnologia      String
+  napId           String? @map("nap_id")
+  puerto          Int?
+  onuSerial       String? @map("onu_serial")
+  ip              String?
+  vlan            Int?
+  usuarioPppoe    String? @map("usuario_pppoe") // se usa en P2 (RADIUS)
+  fechaInstalacion DateTime? @map("fecha_instalacion") @db.Date
+  estado          String  @default("instalacion_pendiente") // máquina de estados
+
+  // Facturación y contrato (bloque 4) — denormalizado en P0
+  cicloFacturacion    String?  @map("ciclo_facturacion")
+  diaCorte            Int?     @map("dia_corte")
+  metodoPago          String?  @map("metodo_pago")
+  tarifa              Decimal? @db.Decimal(12, 2)
+  saldo               Decimal? @db.Decimal(12, 2)
+  numeroContrato      String?  @map("numero_contrato")
+  fechaInicioContrato DateTime? @map("fecha_inicio_contrato") @db.Date
+  fechaFinContrato    DateTime? @map("fecha_fin_contrato") @db.Date
+
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  facturas Factura[]
+
+  @@map("servicio")
+}
+
+/// Esqueleto de factura — se desarrolla en P1.
+model Factura {
+  id               String   @id @default(uuid()) @db.Uuid
+  servicioId       String   @map("servicio_id") @db.Uuid
+  servicio         Servicio @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+  periodo          String // "2026-06"
+  subtotal         Decimal  @db.Decimal(12, 2)
+  iva              Decimal  @default(0) @db.Decimal(12, 2)
+  total            Decimal  @db.Decimal(12, 2)
+  estado           String   @default("pendiente") // pendiente|pagada|vencida|anulada
+  fechaEmision     DateTime @map("fecha_emision") @db.Date
+  fechaVencimiento DateTime @map("fecha_vencimiento") @db.Date
+  pdfUrl           String?  @map("pdf_url")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  pagos Pago[]
+
+  @@map("factura")
+}
+
+/// Esqueleto de pago — se desarrolla en P3.
+model Pago {
+  id                String   @id @default(uuid()) @db.Uuid
+  facturaId         String   @map("factura_id") @db.Uuid
+  factura           Factura  @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  monto             Decimal  @db.Decimal(12, 2)
+  metodo            String // wompi|efectivo|transferencia|...
+  referenciaExterna String?  @unique @map("referencia_externa") // idempotencia
+  estado            String   @default("pendiente") // aprobado|rechazado|pendiente
+  pagadoEn          DateTime? @map("pagado_en")
+  creadoEn          DateTime @default(now()) @map("creado_en")
+
+  @@map("pago")
+}
+
+/// Bitácora de auditoría: todo cambio sensible (quién, qué, cuándo).
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  actor     String? // username del staff (del JWT)
+  accion    String // create|update|delete
+  entidad   String // "cliente", ...
+  entidadId String?  @map("entidad_id")
+  diff      Json?    @db.JsonB
+  ts        DateTime @default(now())
+
+  @@index([entidad, entidadId])
+  @@map("audit_log")
+}

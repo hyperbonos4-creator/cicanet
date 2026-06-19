@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #04060c;
+  color: #e9edf5;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Utilidades de marca CICANET ---- */
+@layer components {
+  .glass {
+    @apply bg-cica-panel/70 backdrop-blur-xl border border-cica-border/80 rounded-2xl shadow-panel;
+  }
+  .glass-soft {
+    @apply bg-cica-panel/50 backdrop-blur-md border border-cica-border/60 rounded-xl;
+  }
+  /* Texto metálico: plata → dorado → ámbar (igual que el logotipo) */
+  .cica-gradient-text {
+    background: linear-gradient(95deg, #ffffff 0%, #f5c518 52%, #c8860d 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .btn-cica {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+           text-cica-black transition-all duration-200;
+    background: linear-gradient(95deg, #c8860d, #f5c518);
+    box-shadow: 0 0 18px rgba(245, 197, 24, 0.35);
+  }
+  .btn-cica:hover {
+    box-shadow: 0 0 28px rgba(245, 197, 24, 0.6);
+    transform: translateY(-1px);
+  }
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #222b40;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c8860d;
+}
+
+/* ---- Marcadores de red (NAP/POP) ---- */
+.nap-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+.nap-marker:hover {
+  transform: scale(1.25);
+}
+.nap-marker::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0.45;
+  animation: ringPulse 2s ease-out infinite;
+}
+@keyframes ringPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+.nap-available {
+  background: #f5c518;
+  color: #f5c518;
+  box-shadow: 0 0 14px #f5c518;
+}
+.nap-near {
+  background: #ffb02e;
+  color: #ffb02e;
+  box-shadow: 0 0 14px #ffb02e;
+}
+.nap-full {
+  background: #ff4d6d;
+  color: #ff4d6d;
+  box-shadow: 0 0 14px #ff4d6d;
+}
+.pop-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #c8860d, #f5c518);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 20px rgba(245, 197, 24, 0.8);
+  cursor: pointer;
+}
+
+/* ---- Popups de MapLibre con tema oscuro ---- */
+.maplibregl-popup-content {
+  background: rgba(14, 19, 34, 0.95) !important;
+  color: #e9edf5 !important;
+  border: 1px solid #222b40 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 22px rgba(245, 197, 24, 0.18) !important;
+  backdrop-filter: blur(12px);
+  padding: 14px 16px !important;
+  font-family: var(--font-sans);
+}
+.maplibregl-popup-tip {
+  border-top-color: rgba(14, 19, 34, 0.95) !important;
+  border-bottom-color: rgba(14, 19, 34, 0.95) !important;
+}
+.maplibregl-popup-close-button {
+  color: #8b96ac !important;
+  font-size: 18px !important;
+  padding: 4px 8px !important;
+}
+.maplibregl-ctrl-group {
+  background: rgba(14, 19, 34, 0.9) !important;
+  border: 1px solid #222b40 !important;
+}
+.maplibregl-ctrl-group button {
+  background: transparent !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid #222b40 !important;
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(4, 6, 12, 0.6) !important;
+}
+.maplibregl-ctrl-attrib a {
+  color: #8b96ac !important;
+}

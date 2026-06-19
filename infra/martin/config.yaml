@@ -1,0 +1,12 @@
+# Martin — servidor de tiles vectoriales sobre PostGIS
+# Publica automáticamente las tablas con columna geométrica como capas MVT.
+# Acceso: http://localhost:3001/{tabla}/{z}/{x}/{y}
+listen_addresses: "0.0.0.0:3000"
+
+postgres:
+  connection_string: ${DATABASE_URL}
+  # Auto-descubre tablas geométricas (nodos_red, areas_cobertura, segmentos_fibra, clientes)
+  auto_publish:
+    tables:
+      from_schemas:
+        - public

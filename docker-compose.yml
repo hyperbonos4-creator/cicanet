@@ -1,0 +1,146 @@
+# ============================================================
+#  CICANET · Stack completo (desarrollo con hot-reload)
+#
+#  Un solo comando levanta TODO:
+#      docker compose up
+#
+#  - API y Web montan el código y recompilan solas al guardar
+#    (no hay que reconstruir imágenes en cada cambio).
+#  - Infra (Postgres+PostGIS, Redis, MinIO, Martin) persiste en volúmenes.
+#
+#  Variables opcionales en .env (ver .env.example). Todo tiene default.
+# ============================================================
+name: cicanet
+
+services:
+  # ---- Base de datos principal + geografía ----
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: cicanet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cicanet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cicanet_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-cicanet}
+    # No se publica al host para no chocar con otros stacks en :5432.
+    # La API lo alcanza por la red interna (host "postgres").
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cicanet} -d ${POSTGRES_DB:-cicanet}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [cicanet-net]
+
+  # ---- Cache, sesiones, OTP, colas (BullMQ) ----
+  redis:
+    image: redis:7-alpine
+    container_name: cicanet-redis
+    restart: unless-stopped
+    # Solo red interna (host "redis"); no se publica para evitar conflictos.
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [cicanet-net]
+
+  # ---- Almacenamiento de objetos (facturas PDF, fotos) ----
+  minio:
+    image: minio/minio:latest
+    container_name: cicanet-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-cicanet}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-cicanet_dev}
+    # Solo red interna (host "minio"); no se publica para evitar conflictos en :9000/:9001.
+    volumes:
+      - minio_data:/data
+    networks: [cicanet-net]
+
+  # ---- Tiles vectoriales sobre PostGIS para el mapa ----
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    container_name: cicanet-martin
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-cicanet}:${POSTGRES_PASSWORD:-cicanet_dev}@postgres:5432/${POSTGRES_DB:-cicanet}
+    command: ["--config", "/config.yaml"]
+    volumes:
+      - ./infra/martin/config.yaml:/config.yaml:ro
+    # Solo red interna (host "martin"); el frontend aún usa tiles CARTO, no se publica.
+    networks: [cicanet-net]
+
+  # ---- API (NestJS) — hot-reload ----
+  api:
+    build:
+      context: ./apps/api
+      target: dev
+    container_name: cicanet-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      API_PORT: "4000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3080}
+      GEOCODER_PROVIDER: ${GEOCODER_PROVIDER:-mapbox}
+      MAPBOX_TOKEN: ${MAPBOX_TOKEN:-}
+      GOOGLE_MAPS_KEY: ${GOOGLE_MAPS_KEY:-}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-cicanet-dev-access-secret-change-me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-cicanet-dev-refresh-secret-change-me}
+      SEED_ADMIN_USER: ${SEED_ADMIN_USER:-admin}
+      SEED_ADMIN_PASS: ${SEED_ADMIN_PASS:-cicanet2026}
+      DATABASE_URL: postgres://${POSTGRES_USER:-cicanet}:${POSTGRES_PASSWORD:-cicanet_dev}@postgres:5432/${POSTGRES_DB:-cicanet}
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks: [cicanet-net]
+
+  # ---- Web (Next.js) — hot-reload ----
+  web:
+    build:
+      context: ./apps/web
+      target: dev
+    container_name: cicanet-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api}
+      NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:4000/realtime}
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3080:3000"
+    networks: [cicanet-net]
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+
+networks:
+  cicanet-net:
+    driver: bridge

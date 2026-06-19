@@ -1,0 +1,33 @@
+{
+  "name": "cicanet-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CICANET — Plataforma integral de gestión para ISP (CRM, facturación, pagos, red y mapa de cobertura en tiempo real)",
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "up": "docker compose up -d --build",
+    "up:logs": "docker compose up --build",
+    "down": "docker compose down",
+    "stop": "docker compose stop",
+    "logs": "docker compose logs -f",
+    "ps": "docker compose ps",
+    "rebuild": "docker compose build --no-cache",
+    "reset": "docker compose down -v",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

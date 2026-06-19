@@ -1,0 +1,150 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
+import type { Request } from 'express';
+import { InfraService } from './infra.service';
+import { JwtAuthGuard, Roles, RolesGuard } from '../auth/guards';
+
+const ASSET_TYPES = [
+  'POP', 'OLT', 'Switch', 'Router', 'NAP', 'Splitter',
+  'UPS', 'Servidor', 'Camara', 'Fibra', 'Empalme', 'ONU', 'Cliente',
+];
+
+class CreateAssetDto {
+  @IsIn(ASSET_TYPES)
+  tipo: any;
+
+  @IsOptional() @IsString() nombre?: string;
+  @IsOptional() @IsString() direccion?: string;
+  @IsOptional() @IsNumber() lng?: number;
+  @IsOptional() @IsNumber() lat?: number;
+  @IsOptional() @IsString() marca?: string;
+  @IsOptional() @IsString() modelo?: string;
+  @IsOptional() @IsString() serie?: string;
+  @IsOptional() @IsString() estado?: string;
+  @IsOptional() @IsInt() puertosTotal?: number;
+  @IsOptional() @IsInt() puertosUsados?: number;
+  @IsOptional() @IsNumber() planMensual?: number;
+  @IsOptional() atributos?: Record<string, any>;
+}
+
+class SetParentDto {
+  @IsOptional() @IsString() parentId?: string | null;
+}
+
+class EvaluateConstructionDto {
+  @IsNumber() lng: number;
+  @IsNumber() lat: number;
+}
+
+class CreateFiberDto {
+  @IsOptional() @IsString() nombre?: string;
+  @IsOptional() @IsIn(['monomodo', 'multimodo']) tipoFibra?: 'monomodo' | 'multimodo';
+  @IsOptional() @IsInt() hilos?: number;
+  @IsOptional() @IsString() origenId?: string;
+  @IsOptional() @IsString() destinoId?: string;
+  @IsOptional() @IsString() origenDireccion?: string;
+  @IsOptional() @IsString() destinoDireccion?: string;
+  @IsOptional() origen?: { lng: number; lat: number };
+  @IsOptional() destino?: { lng: number; lat: number };
+}
+
+/** Gemelo Digital de la Red. Lectura: autenticado. Mutación: admin/operador. */
+@Controller('infra')
+@UseGuards(JwtAuthGuard)
+export class InfraController {
+  constructor(private readonly infra: InfraService) {}
+
+  @Get('bundle')
+  bundle() {
+    return this.infra.getBundle();
+  }
+
+  /** Modo construcción / simulador de venta: evalúa un punto del mapa. */
+  @Post('construction/evaluate')
+  evaluateConstruction(@Body() dto: EvaluateConstructionDto) {
+    return this.infra.evaluateConstruction(dto.lng, dto.lat);
+  }
+
+  @Get('assets')
+  assets() {
+    return this.infra.listAssets();
+  }
+
+  @Get('assets/:id')
+  assetDetail(@Param('id') id: string) {
+    return this.infra.getAssetDetail(id);
+  }
+
+  @Put('assets/:id/parent')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  setParent(@Param('id') id: string, @Body() dto: SetParentDto) {
+    return this.infra.setParent(id, dto.parentId ?? null);
+  }
+
+  @Post('assets')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  createAsset(@Body() dto: CreateAssetDto, @Req() req: Request) {
+    // Los puertos van dentro de atributos (capacidad de NAP/CTO); el plan mensual es del Cliente.
+    const atributos = { ...(dto.atributos || {}) };
+    if (dto.puertosTotal != null) atributos.puertosTotal = dto.puertosTotal;
+    if (dto.puertosUsados != null) atributos.puertosUsados = dto.puertosUsados;
+    return this.infra.createAsset({
+      tipo: dto.tipo,
+      nombre: dto.nombre,
+      direccion: dto.direccion,
+      lng: dto.lng,
+      lat: dto.lat,
+      marca: dto.marca,
+      modelo: dto.modelo,
+      serie: dto.serie,
+      estado: dto.estado,
+      planMensual: dto.planMensual,
+      atributos,
+      creadoPor: (req as any).user?.username,
+    });
+  }
+
+  @Delete('assets/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  deleteAsset(@Param('id') id: string) {
+    return this.infra.deleteAsset(id);
+  }
+
+  @Get('fiber')
+  fiber() {
+    return this.infra.listFiber();
+  }
+
+  @Post('fiber')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  createFiber(@Body() dto: CreateFiberDto, @Req() req: Request) {
+    return this.infra.createFiber({ ...dto, creadoPor: (req as any).user?.username });
+  }
+
+  @Delete('fiber/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  deleteFiber(@Param('id') id: string) {
+    return this.infra.deleteFiber(id);
+  }
+}
