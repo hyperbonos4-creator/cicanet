@@ -24,6 +24,7 @@
 param(
   [string]$AuthToken = "",
   [int]$Port = 3080,
+  [string]$Domain = "",
   [switch]$Up
 )
 
@@ -90,8 +91,26 @@ if ($webOk) { Write-Ok "El web responde." }
 else { Write-WarnMsg "El web no respondio aun en :$Port. Si no esta arriba, ejecuta: docker compose up -d (o usa -Up)." }
 
 # --- 4) Abrir el tunel --------------------------------------------------------
+# Dominio estatico (recomendado): no cambia entre reinicios, asi NO hay que
+# recompilar la app cada vez. Se resuelve de (en orden) -Domain,
+# $env:NGROK_DOMAIN, o el archivo scripts\.ngrok-domain (no versionado).
+$domainFile = Join-Path $PSScriptRoot ".ngrok-domain"
+$useDomain = $Domain
+if (-not $useDomain -and $env:NGROK_DOMAIN) { $useDomain = $env:NGROK_DOMAIN }
+if (-not $useDomain -and (Test-Path $domainFile)) {
+  $useDomain = (Get-Content $domainFile | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -First 1).Trim()
+}
+if ($Domain) { Set-Content -Path $domainFile -Value $Domain -Encoding ascii }
+
 Write-Step "Abriendo tunel ngrok hacia el web (puerto $Port)..."
 $ngrokArgs = @("http", "$Port", "--host-header=rewrite", "--log=stdout")
+if ($useDomain) {
+  $ngrokArgs += "--url=$useDomain"
+  Write-Ok "Usando dominio estatico: $useDomain"
+} else {
+  Write-WarnMsg "Sin dominio estatico: la URL sera aleatoria y cambiara al reiniciar."
+  Write-WarnMsg "Reserva tu dominio GRATIS en https://dashboard.ngrok.com/domains y vuelve a correr con -Domain <tu-dominio>."
+}
 $proc = Start-Process -FilePath $ngrok -ArgumentList $ngrokArgs -PassThru -WindowStyle Hidden
 
 # Recuperar la URL publica desde la API local de ngrok (puerto 4040).

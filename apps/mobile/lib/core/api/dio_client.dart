@@ -33,7 +33,12 @@ class DioClient {
         connectTimeout: const Duration(seconds: 15),
         // Generoso: el asistente IA (Qwen3 local) puede tardar en responder.
         receiveTimeout: const Duration(seconds: 120),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          // Evita la pagina-aviso del plan gratuito de ngrok en llamadas API
+          // (inofensivo cuando el backend no esta detras de ngrok).
+          'ngrok-skip-browser-warning': 'true',
+        },
       ),
     );
 
@@ -90,7 +95,10 @@ class DioClient {
         }
         final raw = Dio(BaseOptions(
           baseUrl: _dio.options.baseUrl,
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+          },
         ));
         final res = await raw.post('/auth/refresh', data: {'refreshToken': refreshToken});
         final data = res.data as Map<String, dynamic>?;
