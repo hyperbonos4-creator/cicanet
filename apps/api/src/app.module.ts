@@ -17,6 +17,7 @@ import { OrdenesModule } from './ordenes/ordenes.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { InvoicingModule } from './invoicing/invoicing.module';
 import { CollectionsModule } from './collections/collections.module';
+import { BillingModule } from './billing/billing.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -39,6 +40,7 @@ import { HealthController } from './health.controller';
     AccountingModule,
     InvoicingModule,
     CollectionsModule,
+    BillingModule,
   ],
   controllers: [HealthController],
 })

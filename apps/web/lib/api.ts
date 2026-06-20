@@ -965,3 +965,23 @@ export function carteraResumen(): Promise<{ totalCartera: number; totalVencido: 
 export function carteraCliente(id: string): Promise<{ clienteId: string; total: number; vencido: number; facturas: any[] }> {
   return authFetch(`/collections/cliente/${encodeURIComponent(id)}`);
 }
+
+// ---- Facturación recurrente (módulo billing) ----
+export type BillingPreview = {
+  periodo: string;
+  facturasAGenerar: number;
+  totalAFacturar: number;
+  items: { cliente: string; plan: string; subtotal: number; iva: number; total: number; dias: number; prorrateo: boolean }[];
+};
+export type BillingRun = { periodo: string; dryRun: boolean; generadas: number; contabilizadas: number; totalFacturado: number; errores: { cliente: string; error: string }[] };
+export type SuspensionResult = { aplicado: boolean; diasGracia: number; facturasVencidas: number; marcadasVencidas: number; serviciosASuspender: number; detalle: { codigo: string; nombre: string }[] };
+
+export function billingPreview(periodo: string): Promise<BillingPreview> {
+  return authFetch(`/billing/preview?periodo=${encodeURIComponent(periodo)}`);
+}
+export function billingRun(periodo: string, dryRun = false): Promise<BillingRun> {
+  return authFetch("/billing/run", { method: "POST", body: JSON.stringify({ periodo, dryRun }) });
+}
+export function suspenderMorosos(aplicar: boolean, diasGracia?: number): Promise<SuspensionResult> {
+  return authFetch("/billing/suspender-morosos", { method: "POST", body: JSON.stringify({ aplicar, diasGracia }) });
+}

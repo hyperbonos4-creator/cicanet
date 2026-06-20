@@ -16,6 +16,9 @@ import {
   cerrarPeriodo,
   getAging,
   getAgingPorZona,
+  billingPreview,
+  billingRun,
+  suspenderMorosos,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -23,16 +26,18 @@ import {
   type PeriodoContable,
   type Aging,
   type AgingZona,
+  type BillingPreview as BillingPreviewT,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "facturacion" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
 
-const TABS: { key: Tab; label: string }[] = [
+const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "dashboard", label: "Resumen" },
   { key: "cartera", label: "Cartera" },
+  { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
   { key: "cuentas", label: "Plan de cuentas" },
@@ -40,15 +45,16 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "periodos", label: "Periodos" },
 ];
 
-export default function ContabilidadModule({ canEdit }: { canEdit: boolean }) {
+export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: boolean; isAdmin: boolean }) {
   const [tab, setTab] = useState<Tab>("dashboard");
+  const tabs = TABS.filter((t) => !t.soloAdmin || isAdmin);
   return (
     <div className="mx-auto max-w-6xl">
       <h2 className="mb-1 text-xl font-extrabold text-white">Contabilidad</h2>
       <p className="mb-4 text-xs text-cica-muted">Libros, cartera y reportes financieros de CICANET (PUC Colombia, doble partida).</p>
 
       <div className="mb-5 flex flex-wrap gap-2 border-b border-cica-border/60 pb-2">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -63,6 +69,7 @@ export default function ContabilidadModule({ canEdit }: { canEdit: boolean }) {
 
       {tab === "dashboard" && <DashboardTab />}
       {tab === "cartera" && <CarteraTab />}
+      {tab === "facturacion" && <FacturacionTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
       {tab === "cuentas" && <CuentasTab />}
@@ -92,6 +99,88 @@ function DashboardTab() {
         <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
       </div>
+    </div>
+  );
+}
+
+/* ===================== Facturación recurrente ===================== */
+function FacturacionTab() {
+  const ahora = new Date();
+  const periodoActual = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`;
+  const [periodo, setPeriodo] = useState(periodoActual);
+  const [preview, setPreview] = useState<BillingPreviewT | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function cargarPreview() {
+    setErr(null); setResult(null); setPreview(null);
+    try { setPreview(await billingPreview(periodo)); } catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { cargarPreview(); /* eslint-disable-next-line */ }, [periodo]);
+
+  async function ejecutar() {
+    if (!confirm(`¿Generar las facturas del periodo ${periodo}? Esto crea facturas reales y las contabiliza.`)) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await billingRun(periodo, false);
+      setResult(`✓ ${r.generadas} factura(s) generadas, ${r.contabilizadas} contabilizadas, total ${money(r.totalFacturado)}. Errores: ${r.errores.length}`);
+      cargarPreview();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  async function suspender() {
+    if (!confirm("¿Suspender a los clientes morosos (pasada la gracia)? Cambia su servicio a 'suspendido'.")) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await suspenderMorosos(true);
+      setResult(`Suspensión aplicada: ${r.serviciosASuspender} servicio(s) suspendido(s), ${r.marcadasVencidas} factura(s) marcadas vencidas.`);
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="glass p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Periodo a facturar">
+            <input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={input} />
+          </Field>
+          <button onClick={ejecutar} disabled={busy || !preview?.facturasAGenerar} className="rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">
+            {busy ? "Procesando…" : `Generar ${preview?.facturasAGenerar ?? 0} factura(s)`}
+          </button>
+          <button onClick={suspender} disabled={busy} className="rounded-lg border border-status-sin/40 px-4 py-2 text-sm font-semibold text-status-sin hover:bg-status-sin/10">
+            Suspender morosos
+          </button>
+        </div>
+        {err && <div className="mt-3 rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{err}</div>}
+        {result && <div className="mt-3 rounded-lg border border-status-ftth/40 bg-status-ftth/10 px-3 py-2 text-xs text-status-ftth">{result}</div>}
+      </div>
+
+      {preview && (
+        <div className="glass p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Previsualización (no factura aún)</div>
+            <div className="text-sm font-bold text-cica-gold">{money(preview.totalAFacturar)}</div>
+          </div>
+          {preview.facturasAGenerar === 0 ? (
+            <p className="text-xs text-cica-muted">No hay servicios pendientes de facturar en {periodo} (ya facturados o sin tarifa).</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead><tr className="text-cica-muted"><th className="text-left">Cliente</th><th className="text-left">Plan</th><th className="text-right">Días</th><th className="text-right px-2">Total</th></tr></thead>
+              <tbody>
+                {preview.items.map((it, i) => (
+                  <tr key={i} className="border-t border-cica-border/30">
+                    <td className="py-1 text-cica-silver">{it.cliente}</td>
+                    <td className="text-cica-muted">{it.plan}{it.prorrateo ? " (prorrateo)" : ""}</td>
+                    <td className="text-right text-cica-muted">{it.dias}</td>
+                    <td className="text-right px-2 text-cica-silver">{money(it.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -39,18 +39,17 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Web** (workspace contador, pestaña "Cartera"): KPIs, antigüedad, por zona/NAP, clientes morosos. ✅
 - **Verificado en vivo:** buckets exactos (porVencer/1-30/31-60/+90), cartera por barrio, total/vencido cuadran.
 
-### T1.2 — Facturación recurrente por ciclo (la columna vertebral)
-- **Modelo Prisma:** `CicloFacturacion`, `CargoRecurrente` (plan, arriendo equipo,
-  descuento), `FacturaInterna` (borrador comercial antes del documento fiscal).
+### T1.2 — Facturación recurrente por ciclo (la columna vertebral) ✅ (2026-06-20)
 - **Backend** `apps/api/src/billing/`:
-  - Job mensual: genera facturas de todos los servicios `activo` del ciclo.
-  - **Prorrateo** por días para altas/cambios de plan a mitad de ciclo.
-  - Encadena: factura interna → `invoicing` (DIAN) → asiento contable.
-  - `POST /billing/run` (manual/dry-run), `GET /billing/preview`.
-- **Suspensión por mora:** regla configurable (días de gracia) → cambia estado de
-  servicio (máquina de estados existente) y notifica.
-- **Aceptación:** un "run" de prueba genera N facturas, las contabiliza y deja la
-  cartera cuadrada; un dry-run no escribe nada.
+  - `preview` (dry-run sin escribir), `run` (genera + contabiliza), `suspender-morosos`. ✅
+  - **Prorrateo** por días para altas a mitad de ciclo. ✅
+  - **Idempotencia** garantizada por índice único `(servicioId, periodo)` en BD. ✅
+  - Contabiliza cada factura (Dr 130505 CxC, Cr 414505 Ingreso, Cr 240805 IVA). ✅
+  - Config en `Setting` (diaCorte, IVA, días de gracia). ✅
+- **Suspensión por mora:** marca facturas vencidas y suspende servicio/cliente pasada la gracia. ✅
+- **Web:** pestaña "Facturación" (preview, generar, suspender) — solo admin. ✅
+- **Verificado:** preview 2 facturas/$135k, run contabiliza ambas, 2ª corrida idempotente (0), suspensión dry-run correcta.
+- **Pendiente (cuando haya certs DIAN):** encadenar emisión electrónica por factura vía `invoicing`.
 
 ### T1.3 — Conciliación bancaria
 - **Modelo Prisma:** `CuentaBancaria`, `MovimientoBancario`, `ConciliacionMatch`.

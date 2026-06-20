@@ -258,7 +258,7 @@ export default function Page() {
       {/* ===== Contabilidad ===== */}
       {section === "contabilidad" && (
         <div className="h-full overflow-y-auto p-6">
-          <ContabilidadModule canEdit={user?.role === "admin" || user?.role === "contador"} />
+          <ContabilidadModule canEdit={user?.role === "admin" || user?.role === "contador"} isAdmin={user?.role === "admin"} />
         </div>
       )}
 

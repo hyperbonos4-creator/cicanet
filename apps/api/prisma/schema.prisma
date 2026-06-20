@@ -159,6 +159,9 @@ model Factura {
 
   pagos Pago[]
 
+  /// Idempotencia de la facturación recurrente: una factura por servicio y periodo.
+  @@unique([servicioId, periodo])
+  @@index([estado])
   @@map("factura")
 }
 
