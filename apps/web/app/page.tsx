@@ -115,12 +115,15 @@ export default function Page() {
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [router]);
 
-  // Contador de solicitudes de asesor pendientes (bolita en "Soporte"). Solo staff
-  // que ve el panel de Soporte (admin/operador). Se refresca cada 15s.
+  // Contadores del menú (bolitas): solicitudes de asesor y tickets pendientes.
+  // Solo staff que ve esos paneles (admin/operador). Se refrescan cada 15s.
   useEffect(() => {
     if (!user || !(user.role === "admin" || user.role === "operador")) return;
     let cancelled = false;
-    const cargar = () => whatsappHandoffsResumen().then((r) => { if (!cancelled) setSoportePend(r.pendientes); }).catch(() => {});
+    const cargar = () => {
+      whatsappHandoffsResumen().then((r) => { if (!cancelled) setSoportePend(r.pendientes); }).catch(() => {});
+      ticketStats().then((s) => { if (!cancelled) setTickStats(s); }).catch(() => {});
+    };
     cargar();
     const t = setInterval(cargar, 15000);
     return () => { cancelled = true; clearInterval(t); };
@@ -233,7 +236,7 @@ export default function Page() {
   const isMapSection = section === "red" || section === "infra";
 
   return (
-    <AppShell section={section} onSection={changeSection} user={user} onLogout={logout} live={live} ipLoc={ipLoc} badges={{ soporte: soportePend }}>
+    <AppShell section={section} onSection={changeSection} user={user} onLogout={logout} live={live} ipLoc={ipLoc} badges={{ soporte: soportePend, tickets: (tickStats?.porEstado.abierto ?? 0) + (tickStats?.porEstado.en_proceso ?? 0) }}>
       {/* ===== Dashboard ===== */}
       {section === "dashboard" && (
         <div className="h-full overflow-y-auto p-6">
