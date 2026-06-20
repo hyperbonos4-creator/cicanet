@@ -337,7 +337,7 @@ function PairByCode() {
     try {
       const r = await whatsappPair(numero);
       if (r.pairingCode) setCode(r.pairingCode);
-      else setMsg("No se pudo generar el código. Verifica el número (con indicativo) e intenta de nuevo.");
+      else setMsg("Tu gateway no entregó un código de vinculación. Usa el QR de arriba (se refresca solo) escaneándolo desde otro dispositivo.");
     } catch (e: any) {
       setMsg(e.message || "No se pudo generar el código.");
     } finally {

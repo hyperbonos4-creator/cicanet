@@ -135,8 +135,11 @@ export class WhatsappService {
     try {
       const res = await this.call(`/instance/connect/${this.inst()}?number=${e164}`, 'GET');
       const body: any = res.body;
-      const code = body?.pairingCode ?? body?.code ?? body?.qrcode?.pairingCode ?? null;
-      return { pairingCode: typeof code === 'string' && code ? code : null, numero: e164 };
+      // Solo el campo dedicado `pairingCode` es válido. `code`/`base64` traen el
+      // contenido del QR (no sirve como código para "Vincular con número").
+      const raw = typeof body?.pairingCode === 'string' ? body.pairingCode.trim() : '';
+      const valido = raw.length >= 6 && raw.length <= 12 && !raw.includes('@') && /^[A-Z0-9-]+$/i.test(raw);
+      return { pairingCode: valido ? raw : null, numero: e164 };
     } catch {
       return { pairingCode: null, numero: e164 };
     }
