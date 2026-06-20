@@ -34,6 +34,7 @@ import {
   pagarCompra,
   listReglasImpuesto,
   calcularImpuestos,
+  downloadFile,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -899,10 +900,17 @@ function ReportesTab() {
 
   return (
     <div>
-      <div className="mb-4 flex gap-2">
-        {([["balance", "Balance de comprobación"], ["resultados", "Estado de resultados"], ["general", "Balance general"]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setRep(k)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${rep === k ? "bg-cica-gold/20 text-cica-gold" : "bg-cica-border/30 text-cica-muted hover:text-cica-silver"}`}>{l}</button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          {([["balance", "Balance de comprobación"], ["resultados", "Estado de resultados"], ["general", "Balance general"]] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setRep(k)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${rep === k ? "bg-cica-gold/20 text-cica-gold" : "bg-cica-border/30 text-cica-muted hover:text-cica-silver"}`}>{l}</button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => downloadFile("/accounting/reportes/balance.csv", "balance-comprobacion.csv").catch((e) => alert(e.message))} className="rounded-lg border border-cica-border px-3 py-1.5 text-xs text-cica-silver hover:border-cica-gold/40">Exportar balance (Excel)</button>
+          <button onClick={() => downloadFile("/accounting/reportes/libro-diario.csv", "libro-diario.csv").catch((e) => alert(e.message))} className="rounded-lg border border-cica-border px-3 py-1.5 text-xs text-cica-silver hover:border-cica-gold/40">Libro diario (Excel)</button>
+          <button onClick={() => window.print()} className="rounded-lg border border-cica-border px-3 py-1.5 text-xs text-cica-silver hover:border-cica-gold/40">Imprimir / PDF</button>
+        </div>
       </div>
       {err && <Aviso texto={err} />}
       {!data && !err && <Cargando />}

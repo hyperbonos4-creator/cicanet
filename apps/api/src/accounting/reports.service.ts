@@ -167,6 +167,41 @@ export class ReportsService {
     return { cuenta: cuenta ? { codigo: cuenta.codigo, nombre: cuenta.nombre, naturaleza: cuenta.naturaleza } : null, movimientos: filas, saldoFinal: saldo };
   }
 
+  // ---- Exportables CSV (compatibles con Excel) ----
+
+  private csvEscape(v: unknown): string {
+    const s = String(v ?? '');
+    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  /** CSV del balance de comprobación (separador ';', BOM para Excel). */
+  async balanceCsv(periodo?: string): Promise<string> {
+    const bal = await this.balanceComprobacion(periodo);
+    const filas = [
+      ['Código', 'Cuenta', 'Débitos', 'Créditos', 'Saldo débito', 'Saldo crédito'],
+      ...bal.filas.map((f) => [f.codigo, f.nombre, f.debitos, f.creditos, f.saldoDebito, f.saldoCredito]),
+      ['', 'TOTALES', bal.totales.debitos, bal.totales.creditos, bal.totales.saldoDebito, bal.totales.saldoCredito],
+    ];
+    return '\uFEFF' + filas.map((r) => r.map((c) => this.csvEscape(c)).join(';')).join('\n');
+  }
+
+  /** CSV del libro diario (movimientos de los asientos contabilizados del periodo). */
+  async libroDiarioCsv(periodo?: string): Promise<string> {
+    const asientos = await this.prisma.asientoContable.findMany({
+      where: { estado: 'contabilizado', ...(periodo ? { periodo } : {}) },
+      include: { movimientos: { include: { cuenta: true, tercero: true }, orderBy: { orden: 'asc' } } },
+      orderBy: [{ fecha: 'asc' }, { numero: 'asc' }],
+      take: 5000,
+    });
+    const filas: unknown[][] = [['Comprobante', 'Fecha', 'Cuenta', 'Nombre cuenta', 'Tercero', 'Descripción', 'Débito', 'Crédito']];
+    for (const a of asientos) {
+      for (const m of a.movimientos) {
+        filas.push([a.numero, a.fecha.toISOString().slice(0, 10), m.cuentaCodigo, m.cuenta?.nombre ?? '', m.tercero?.nombre ?? '', m.descripcion ?? a.descripcion, D(m.debito), D(m.credito)]);
+      }
+    }
+    return '\uFEFF' + filas.map((r) => r.map((c) => this.csvEscape(c)).join(';')).join('\n');
+  }
+
   /** Resumen para el dashboard contable. */
   async dashboard(periodo: string) {
     const [pyg, bal, asientos] = await Promise.all([

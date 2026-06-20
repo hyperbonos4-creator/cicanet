@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Post,
   Query,
@@ -120,5 +121,20 @@ export class AccountingController {
   @Get('reportes/mayor')
   mayor(@Query('cuenta') cuenta: string, @Query('periodo') periodo?: string) {
     return this.reports.libroMayor(cuenta, periodo);
+  }
+
+  // ---- Exportables CSV (Excel) ----
+  @Get('reportes/balance.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="balance-comprobacion.csv"')
+  balanceCsv(@Query('periodo') periodo?: string) {
+    return this.reports.balanceCsv(periodo);
+  }
+
+  @Get('reportes/libro-diario.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="libro-diario.csv"')
+  libroDiarioCsv(@Query('periodo') periodo?: string) {
+    return this.reports.libroDiarioCsv(periodo);
   }
 }

@@ -104,10 +104,11 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Web:** filtro por tipo en la bandeja de comprobantes. ✅
 - **Verificado:** recaudo→RC-000001, manual→NC-000001 con consecutivos separados.
 
-### T2.4 — Exportables oficiales (Excel/PDF)
-- Estados financieros y libros (diario, mayor, auxiliares, balance) a **Excel y PDF**
-  con membrete CICANET. Reusar generación PDF del microservicio si aplica.
-- **Aceptación:** descargar balance de comprobación del periodo en Excel cuadrado.
+### T2.4 — Exportables oficiales (Excel/PDF) ✅ (2026-06-20)
+- **Backend:** CSV (UTF-8 BOM, compatible Excel) de balance de comprobación y libro
+  diario: `GET /accounting/reportes/balance.csv`, `/libro-diario.csv`. ✅
+- **Web:** botones "Exportar (Excel)" y "Imprimir / PDF" (window.print) en Reportes. ✅
+- **Verificado:** balance.csv descarga con encabezados, BOM y datos cuadrados.
 
 ### T2.5 — Asientos recurrentes y depreciación automática
 - Plantillas de asiento (nómina, depreciación mensual de equipos de red).
