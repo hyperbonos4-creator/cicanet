@@ -27,12 +27,13 @@ const ESTADO_TONE: Record<string, string> = {
 };
 
 export default function Customer360({
-  id, canEdit, onBack, onEdit,
+  id, canEdit, onBack, onEdit, onVerEnMapa,
 }: {
   id: string;
   canEdit: boolean;
   onBack: () => void;
   onEdit: (id: string) => void;
+  onVerEnMapa?: (lng: number, lat: number) => void;
 }) {
   const [data, setData] = useState<Cliente360 | null>(null);
   const [tab, setTab] = useState<Tab>("resumen");
@@ -115,6 +116,15 @@ export default function Customer360({
             </div>
             {canEdit && (
               <button onClick={() => onEdit(cliente.id)} className="btn-cica mt-4 w-full text-xs">Editar datos</button>
+            )}
+            {onVerEnMapa && ubicacion.lat != null && ubicacion.lng != null && (
+              <button
+                onClick={() => onVerEnMapa(ubicacion.lng!, ubicacion.lat!)}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-cica-steel/50 px-3 py-1.5 text-xs font-semibold text-cica-steelLight transition-colors hover:bg-cica-steel/15"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10z" /><circle cx="12" cy="11" r="2" /></svg>
+                Ver en mapa
+              </button>
             )}
             {canEdit && (
               <div className="mt-2 flex flex-wrap gap-2">

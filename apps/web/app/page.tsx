@@ -151,6 +151,14 @@ export default function Page() {
     setFocusPoint({ lng, lat, color });
   }
 
+  // Abre el mapa centrado en un punto (desde el Customer 360 → "Ver en mapa").
+  function verEnMapa(lng: number, lat: number) {
+    setSection("red");
+    setDrawing(false); setBuildMode(false); setBuildResult(null);
+    setCoverage(null); setPin(null); setPinAddress(null);
+    setFocusPoint({ lng, lat, color: "#22E0A1" });
+  }
+
   const pinColor = buildResult
     ? buildResult.resultado === "instalable" ? "#22E0A1" : "#FF4D6D"
     : !coverage
@@ -218,7 +226,7 @@ export default function Page() {
       {/* ===== Clientes ===== */}
       {section === "clientes" && (
         <div className="h-full overflow-y-auto p-6">
-          <ClientesModule canEdit={!!canEdit} napOptions={napOptions} stats={cliStats} onChanged={refreshCliStats} />
+          <ClientesModule canEdit={!!canEdit} napOptions={napOptions} stats={cliStats} onChanged={refreshCliStats} onVerEnMapa={verEnMapa} />
         </div>
       )}
 

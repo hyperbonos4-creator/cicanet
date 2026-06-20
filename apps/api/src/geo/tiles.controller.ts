@@ -1,4 +1,6 @@
 import { Controller, Get, Logger, Param, Query, Res } from '@nestjs/common';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Response } from 'express';
 import { config } from '../config';
 
@@ -16,6 +18,81 @@ import { config } from '../config';
 @Controller('tiles')
 export class TilesController {
   private readonly logger = new Logger('TilesController');
+  /** Caché en disco de la ortofoto de Medellín (independencia del servidor municipal). */
+  private readonly medellinCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'medellin');
+
+  /**
+   * Ortofoto oficial de Medellín 2024 (GeoMedellín, Creative Commons) con CACHÉ.
+   * La 1ª vez baja la tesela del servidor municipal (con cabeceras de navegador,
+   * que su WAF exige) y la guarda en disco; las siguientes se sirven desde el
+   * disco. Así CICANET NO depende de la disponibilidad del servidor de Medellín.
+   * Ruta {z}/{y}/{x} = nivel/fila/columna (orden ArcGIS), que es justo lo que
+   * MapLibre envía con el template `/tiles/medellin/{z}/{y}/{x}`.
+   */
+  @Get('medellin/:z/:y/:x')
+  async medellin(
+    @Param('z') z: string,
+    @Param('y') y: string,
+    @Param('x') x: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    // Validación estricta (solo enteros) para evitar path traversal.
+    if (![z, y, x].every((v) => /^\d+$/.test(v))) {
+      res.status(400).end();
+      return;
+    }
+
+    const dir = resolve(this.medellinCacheDir, z, y);
+    const file = resolve(dir, `${x}.jpg`);
+
+    // 1) Servir desde caché si ya existe.
+    if (existsSync(file)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable'); // 30 días
+      res.setHeader('X-Tile-Cache', 'HIT');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(readFileSync(file));
+      return;
+    }
+
+    // 2) Descargar del servidor municipal con cabeceras de navegador (su WAF las exige).
+    const url = config.geo.medellinTilesUrl
+      .replace('{z}', z)
+      .replace('{y}', y)
+      .replace('{x}', x);
+    try {
+      const upstream = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+          Referer: 'https://www.medellin.gov.co/',
+          Accept: 'image/avif,image/webp,image/png,image/*,*/*;q=0.8',
+          'Accept-Language': 'es-CO,es;q=0.9',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!upstream.ok) {
+        res.status(204).end();
+        return;
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      // Guardar en caché (best-effort; si falla, igual servimos la imagen).
+      try {
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(file, buf);
+      } catch (e: any) {
+        this.logger.warn(`No se pudo cachear ${z}/${y}/${x}: ${e.message}`);
+      }
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      res.setHeader('X-Tile-Cache', 'MISS');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(buf);
+    } catch (e: any) {
+      this.logger.warn(`Ortofoto Medellín ${z}/${y}/${x} falló: ${e.message}`);
+      res.status(204).end();
+    }
+  }
 
   @Get('satellite/:z/:x/:y')
   async satellite(

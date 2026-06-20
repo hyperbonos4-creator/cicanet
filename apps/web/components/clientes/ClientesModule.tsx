@@ -35,11 +35,13 @@ export default function ClientesModule({
   napOptions,
   stats,
   onChanged,
+  onVerEnMapa,
 }: {
   canEdit: boolean;
   napOptions: { id: string; nombre: string }[];
   stats: ClienteStats | null;
   onChanged: () => void;
+  onVerEnMapa?: (lng: number, lat: number) => void;
 }) {
   const [view, setView] = useState<View>({ mode: "list" });
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -115,6 +117,7 @@ export default function ClientesModule({
         id={view.id}
         canEdit={canEdit}
         onBack={() => setView({ mode: "list" })}
+        onVerEnMapa={onVerEnMapa}
         onEdit={async (cid) => {
           try {
             const full = await getCliente(cid);

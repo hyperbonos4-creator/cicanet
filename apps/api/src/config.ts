@@ -20,6 +20,13 @@ export const config = {
     nominatimUrl: process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org',
     // Geolocalización por IP (sin clave).
     ipApiUrl: process.env.IP_API_URL || 'http://ip-api.com/json',
+    // Ortofoto oficial de Medellín (GeoMedellín, CC). El backend la cachea y
+    // sirve por /api/tiles/medellin para NO depender del servidor municipal en
+    // caliente (tras la 1ª descarga, cada tesela se sirve desde disco).
+    // Template ArcGIS cacheado: tile/{z}/{y}/{x} (z=nivel, y=fila, x=columna).
+    medellinTilesUrl:
+      process.env.GEOMEDELLIN_TILES_URL ||
+      'https://www.medellin.gov.co/servidormapas/rest/services/ServiciosCiudad/IMAGEN_WEBM/MapServer/tile/{z}/{y}/{x}',
     // Identificación requerida por la política de uso de Nominatim.
     userAgent:
       process.env.GEO_USER_AGENT ||

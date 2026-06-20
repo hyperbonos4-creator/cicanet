@@ -6,14 +6,9 @@ import { API_URL } from "../lib/api";
 
 type FC = { type: "FeatureCollection"; features: any[] };
 
-// Ortofoto oficial de GeoMedellín (capa cliente: la pide el navegador, que sí
-// alcanza el servidor municipal aunque un backend en datacenter no pueda).
-// Déjala vacía y el botón "Ortofoto Medellín" no aparece. Para activarla, pega
-// aquí (o en NEXT_PUBLIC_GEOMEDELLIN_TILES) el endpoint de teselas del servicio
-// cacheado, con el patrón {z}/{y}/{x} de ArcGIS, p.ej.:
-//   https://www.medellin.gov.co/arcgis/rest/services/<carpeta>/IMAGEN_WEBM_2024/MapServer/tile/{z}/{y}/{x}
-const GEOMEDELLIN_TILES =
-  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_GEOMEDELLIN_TILES) || "";
+// Ortofoto oficial de Medellín 2024 (GeoMedellín, CC) servida y CACHEADA por
+// nuestro backend (/api/tiles/medellin) — independiente del servidor municipal.
+const ORTOFOTO_TILES = `${API_URL}/tiles/medellin/{z}/{y}/{x}`;
 
 type Basemap = "dark" | "satelite" | "esri" | "ortofoto";
 
@@ -191,26 +186,24 @@ export default function CoverageMap({
         layout: { visibility: "none" },
         paint: { "raster-opacity": 1 },
       });
-      // 3) Ortofoto oficial GeoMedellín (opcional, cliente). Va encima de Esri;
-      //    si una tesela no llega, se ve Esri debajo. Solo si hay endpoint.
-      if (GEOMEDELLIN_TILES) {
-        map.addSource("ortofoto", {
-          type: "raster",
-          tiles: [GEOMEDELLIN_TILES],
-          tileSize: 256,
-          minzoom: 0,
-          // El caché oficial llega ~z19; MapLibre reescala más allá (sin 404).
-          maxzoom: 19,
-          attribution: "Ortofoto 2024 © Alcaldía de Medellín · GeoMedellín (CC)",
-        });
-        map.addLayer({
-          id: "ortofoto",
-          type: "raster",
-          source: "ortofoto",
-          layout: { visibility: "none" },
-          paint: { "raster-opacity": 1 },
-        });
-      }
+      // 3) Ortofoto oficial Medellín 2024 (CC) vía proxy cacheado del backend.
+      //    Va encima de Esri; si una tesela no llega, se ve Esri debajo.
+      map.addSource("ortofoto", {
+        type: "raster",
+        tiles: [ORTOFOTO_TILES],
+        tileSize: 256,
+        minzoom: 0,
+        // Caché oficial con teselas nativas hasta z22 (nitidez a nivel de calle).
+        maxzoom: 22,
+        attribution: "Ortofoto 2024 © Alcaldía de Medellín · GeoMedellín (CC)",
+      });
+      map.addLayer({
+        id: "ortofoto",
+        type: "raster",
+        source: "ortofoto",
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 1 },
+      });
 
       // --- Comuna 1: los 12 barrios reales (contexto) ---
       map.addSource("comuna1", { type: "geojson", data: data.comuna1 as any });
@@ -640,7 +633,7 @@ export default function CoverageMap({
     { id: "dark", label: "◑ Mapa", show: true },
     { id: "satelite", label: "🛰️ Satélite HD", show: true },
     { id: "esri", label: "🌎 Esri", show: true },
-    { id: "ortofoto", label: "🏙️ Ortofoto Medellín", show: !!GEOMEDELLIN_TILES },
+    { id: "ortofoto", label: "🏙️ Ortofoto Medellín", show: true },
   ];
 
   return (
