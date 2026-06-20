@@ -33,6 +33,7 @@ import {
   evaluateConstruction,
   listTickets,
   ticketStats,
+  whatsappHandoffsResumen,
   type SessionUser,
   type CoverageResult,
   type IpLocation,
@@ -71,6 +72,7 @@ export default function Page() {
   const [infra, setInfra] = useState<InfraBundle | null>(null);
   const [cliStats, setCliStats] = useState<ClienteStats | null>(null);
   const [tickStats, setTickStats] = useState<TicketStats | null>(null);
+  const [soportePend, setSoportePend] = useState(0);
   const [drawing, setDrawing] = useState(false);
   const [drawPoints, setDrawPoints] = useState<[number, number][]>([]);
   const [ipLoc, setIpLoc] = useState<IpLocation | null>(null);
@@ -112,6 +114,17 @@ export default function Page() {
 
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [router]);
+
+  // Contador de solicitudes de asesor pendientes (bolita en "Soporte"). Solo staff
+  // que ve el panel de Soporte (admin/operador). Se refresca cada 15s.
+  useEffect(() => {
+    if (!user || !(user.role === "admin" || user.role === "operador")) return;
+    let cancelled = false;
+    const cargar = () => whatsappHandoffsResumen().then((r) => { if (!cancelled) setSoportePend(r.pendientes); }).catch(() => {});
+    cargar();
+    const t = setInterval(cargar, 15000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user]);
 
   const toggle = (k: LayerKey) => setVisibility((v) => ({ ...v, [k]: !v[k] }));
 
@@ -220,7 +233,7 @@ export default function Page() {
   const isMapSection = section === "red" || section === "infra";
 
   return (
-    <AppShell section={section} onSection={changeSection} user={user} onLogout={logout} live={live} ipLoc={ipLoc}>
+    <AppShell section={section} onSection={changeSection} user={user} onLogout={logout} live={live} ipLoc={ipLoc} badges={{ soporte: soportePend }}>
       {/* ===== Dashboard ===== */}
       {section === "dashboard" && (
         <div className="h-full overflow-y-auto p-6">

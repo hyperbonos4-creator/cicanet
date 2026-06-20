@@ -108,7 +108,7 @@ export class AgentToolsService {
         function: {
           name: 'contacto_asesor',
           description:
-            'Escala a un asesor humano: registra una solicitud que llega al panel de la empresa (un agente contactará al cliente por WhatsApp) y devuelve el enlace de WhatsApp por si el cliente prefiere escribir. Úsala cuando el cliente pida hablar con una persona o el caso requiera atención humana.',
+            'Escala a un asesor humano: registra una solicitud que llega al panel de la empresa para que un agente contacte al cliente. Usala cuando el cliente pida hablar con una persona o el caso requiera atencion humana. NO entrega enlaces ni numeros: solo confirma que un asesor se comunicara pronto.',
           parameters: { type: 'object', properties: {} },
         },
       },
@@ -481,7 +481,7 @@ export class AgentToolsService {
 
   private async contactoAsesor(ctx?: { clienteId?: string; nombre?: string }) {
     // Registrar la solicitud de asesor (handoff) para el panel de WhatsApp.
-    // Best-effort: si falla, igual devolvemos el contacto al cliente.
+    // Best-effort: si falla, igual confirmamos al cliente.
     try {
       let telefono: string | undefined;
       let nombre = ctx?.nombre;
@@ -495,16 +495,13 @@ export class AgentToolsService {
       this.logger.warn(`No se registró el handoff de asesor: ${e.message}`);
     }
 
-    const manual = await this.support.getWhatsapp();
-    const escaneado = this.whatsapp.contact(manual.mensaje);
-    const url = escaneado.habilitado ? escaneado.url : manual.url;
+    // NO se entrega enlace ni se inicia chat: el agente contacta al cliente.
     return {
-      disponible: !!url,
-      url,
+      ok: true,
       registrado: true,
-      mensaje: url
-        ? 'Listo, avisé a un asesor para que te contacte. También puedes escribirnos por WhatsApp con este enlace.'
-        : 'Listo, avisé a un asesor para que te contacte por WhatsApp lo antes posible.',
+      // El modelo debe limitarse a confirmar que un asesor se comunicará pronto.
+      mensaje: 'Listo, registré tu solicitud. Un asesor de CICANET se comunicará contigo muy pronto.',
+      instruccion_para_el_modelo: 'Responde UNICAMENTE que un asesor se comunicara con el cliente pronto. NO entregues enlaces de WhatsApp ni numeros ni digas que envias un mensaje.',
     };
   }
 

@@ -53,7 +53,7 @@ const NAV: { key: Section; label: string; sub: string; roles: string[]; icon: JS
 ];
 
 export default function AppShell({
-  section, onSection, user, onLogout, live, ipLoc, children,
+  section, onSection, user, onLogout, live, ipLoc, badges, children,
 }: {
   section: Section;
   onSection: (s: Section) => void;
@@ -61,6 +61,7 @@ export default function AppShell({
   onLogout: () => void;
   live: boolean;
   ipLoc: IpLocation | null;
+  badges?: Partial<Record<Section, number>>;
   children: React.ReactNode;
 }) {
   const current = NAV.find((n) => n.key === section) ?? NAV[0];
@@ -100,6 +101,7 @@ export default function AppShell({
         <div className="flex flex-1 flex-col gap-1 px-3 py-2">
           {visibleNav.map((n) => {
             const active = section === n.key;
+            const badge = badges?.[n.key] ?? 0;
             return (
               <button
                 key={n.key}
@@ -110,11 +112,23 @@ export default function AppShell({
                     : "text-cica-muted hover:bg-cica-border/30 hover:text-cica-silver"
                 }`}
               >
-                <span className={active ? "drop-shadow-[0_0_6px_rgba(245,197,24,0.6)]" : ""}>{n.icon}</span>
-                <span className="flex flex-col">
+                <span className={`relative ${active ? "drop-shadow-[0_0_6px_rgba(245,197,24,0.6)]" : ""}`}>
+                  {n.icon}
+                  {badge > 0 && (
+                    <span className="absolute -right-2 -top-2 grid h-4 min-w-4 animate-pulseGlow place-items-center rounded-full bg-status-sin px-1 text-[9px] font-bold leading-none text-white shadow-[0_0_8px_rgba(255,77,109,0.7)]">
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
+                </span>
+                <span className="flex flex-1 flex-col">
                   <span className="text-[13px] font-semibold leading-tight">{n.label}</span>
                   <span className="text-[10px] font-normal text-cica-muted">{n.sub}</span>
                 </span>
+                {badge > 0 && (
+                  <span className="grid h-5 min-w-5 place-items-center rounded-full bg-status-sin px-1.5 text-[10px] font-bold text-white">
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
               </button>
             );
           })}
