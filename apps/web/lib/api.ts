@@ -1047,3 +1047,12 @@ export function crearCompra(input: {
 export function pagarCompra(id: string, cuentaBanco?: string): Promise<FacturaCompra> {
   return authFetch(`/payables/${encodeURIComponent(id)}/pagar`, { method: "POST", body: JSON.stringify({ cuentaBanco }) });
 }
+
+// ---- Motor de impuestos (módulo taxes) ----
+export type ReglaImpuesto = { codigo: string; tipo: string; nombre: string; porcentaje: string; baseMinima: string; cuentaPuc: string; activa: boolean };
+export function listReglasImpuesto(tipo?: string): Promise<ReglaImpuesto[]> {
+  return authFetch(`/taxes/reglas${tipo ? `?tipo=${tipo}` : ""}`);
+}
+export function calcularImpuestos(input: { base: number; ivaMonto?: number; retefuenteCodigo?: string; aplicarReteIva?: boolean; reteIcaCodigo?: string }): Promise<{ base: number; iva: number; retefuente: number; reteIva: number; reteIca: number; netoAPagar: number }> {
+  return authFetch("/taxes/calcular", { method: "POST", body: JSON.stringify(input) });
+}

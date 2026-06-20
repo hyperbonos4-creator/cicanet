@@ -632,3 +632,21 @@ model FacturaCompra {
   @@index([proveedorId])
   @@map("factura_compra")
 }
+
+/// Regla de impuesto/retención parametrizable (la contadora la ajusta cada año).
+/// El motor calcula IVA y retenciones (retefuente/reteIVA/reteICA) respetando la
+/// base mínima, para no digitarlos a mano.
+model ReglaImpuesto {
+  codigo       String   @id // rf_compras, rf_servicios, iva_19, reteiva, reteica...
+  tipo         String   // iva | retefuente | reteiva | reteica
+  nombre       String
+  porcentaje   Decimal  @db.Decimal(8, 4)
+  /// Base mínima en COP para aplicar (0 = siempre). La contadora la actualiza por UVT.
+  baseMinima   Decimal  @default(0) @db.Decimal(16, 2) @map("base_minima")
+  /// Cuenta PUC donde se acredita el impuesto/retención.
+  cuentaPuc    String   @map("cuenta_puc")
+  activa       Boolean  @default(true)
+  creadoEn     DateTime @default(now()) @map("creado_en")
+
+  @@map("regla_impuesto")
+}

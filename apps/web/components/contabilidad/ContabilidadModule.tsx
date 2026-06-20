@@ -32,6 +32,8 @@ import {
   comprasResumen,
   crearCompra,
   pagarCompra,
+  listReglasImpuesto,
+  calcularImpuestos,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -197,6 +199,9 @@ function CompraForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
   const [retefuente, setRetefuente] = useState(0);
   const [reteIva, setReteIva] = useState(0);
   const [reteIca, setReteIca] = useState(0);
+  const [rfConcepto, setRfConcepto] = useState("");
+  const [aplicarReteIva, setAplicarReteIva] = useState(false);
+  const [aplicarReteIca, setAplicarReteIca] = useState(false);
   const [cuentas, setCuentas] = useState<CuentaContable[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -208,6 +213,19 @@ function CompraForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
   const total = subtotal + iva - retefuente - reteIva - reteIca;
 
   function setL(i: number, patch: Partial<LineaCompra>) { setLineas((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l))); }
+
+  async function sugerir() {
+    try {
+      const r = await calcularImpuestos({
+        base: subtotal,
+        ivaMonto: iva,
+        retefuenteCodigo: rfConcepto || undefined,
+        aplicarReteIva,
+        reteIcaCodigo: aplicarReteIca ? "reteica_966" : undefined,
+      });
+      setRetefuente(r.retefuente); setReteIva(r.reteIva); setReteIca(r.reteIca);
+    } catch (e: any) { setErr(e.message); }
+  }
 
   async function guardar() {
     setErr(null); setSaving(true);
@@ -250,6 +268,21 @@ function CompraForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
           </div>
         ))}
         <button onClick={() => setLineas((ls) => [...ls, { cuenta: "", base: 0, ivaPct: 0 }])} className="self-start rounded-lg border border-cica-border px-3 py-1 text-xs text-cica-silver">+ Línea</button>
+
+        <div className="flex flex-wrap items-end gap-2 rounded-lg border border-cica-border/40 p-3">
+          <Field label="Concepto retefuente">
+            <select value={rfConcepto} onChange={(e) => setRfConcepto(e.target.value)} className={input}>
+              <option value="">Sin retefuente</option>
+              <option value="rf_compras">Compras 2.5%</option>
+              <option value="rf_servicios">Servicios 4%</option>
+              <option value="rf_servicios6">Servicios 6%</option>
+              <option value="rf_honorarios">Honorarios 11%</option>
+            </select>
+          </Field>
+          <label className="flex items-center gap-1 text-[11px] text-cica-muted"><input type="checkbox" checked={aplicarReteIva} onChange={(e) => setAplicarReteIva(e.target.checked)} /> ReteIVA</label>
+          <label className="flex items-center gap-1 text-[11px] text-cica-muted"><input type="checkbox" checked={aplicarReteIca} onChange={(e) => setAplicarReteIca(e.target.checked)} /> ReteICA</label>
+          <button onClick={sugerir} className="rounded-lg border border-cica-gold/40 px-3 py-1.5 text-xs font-semibold text-cica-gold hover:bg-cica-gold/10">Sugerir retenciones</button>
+        </div>
 
         <div className="grid grid-cols-3 gap-2">
           <Field label="Retefuente"><input type="number" value={retefuente || ""} onChange={(e) => setRetefuente(Number(e.target.value))} className={input} /></Field>

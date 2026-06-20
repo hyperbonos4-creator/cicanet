@@ -21,6 +21,7 @@ import { BillingModule } from './billing/billing.module';
 import { BankingModule } from './banking/banking.module';
 import { DunningModule } from './dunning/dunning.module';
 import { PayablesModule } from './payables/payables.module';
+import { TaxesModule } from './taxes/taxes.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -47,6 +48,7 @@ import { HealthController } from './health.controller';
     BankingModule,
     DunningModule,
     PayablesModule,
+    TaxesModule,
   ],
   controllers: [HealthController],
 })

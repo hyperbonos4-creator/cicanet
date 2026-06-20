@@ -87,10 +87,15 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Verificado:** compra $1.000.000 + IVA 19% − retefuente 2.5% = $1.165.000 a pagar; pago contabilizado; balance cuadra.
 - **Pendiente (certs DIAN):** emisión de documento soporte electrónico vía `einvoice`.
 
-### T2.2 — Motor de impuestos por reglas
-- **Modelo:** `ReglaImpuesto` (IVA 19/5/0, retenciones por concepto y base mínima).
-- Aplicación automática en facturas de venta y compra (hoy es manual).
-- **Aceptación:** una factura de $100.000 + IVA 19% calcula y contabiliza $19.000 sin digitarlo.
+### T2.2 — Motor de impuestos por reglas ✅ (2026-06-20)
+- **Modelo:** `ReglaImpuesto` (IVA 19/5, retefuente compras/servicios/honorarios con
+  base mínima, reteIVA 15%, reteICA por mil), sembrada y editable por la contadora. ✅
+- **Backend** `apps/api/src/taxes/`: `GET /taxes/reglas`, `POST /taxes/reglas`,
+  `POST /taxes/calcular` (respeta base mínima; reteIVA sobre el IVA). ✅
+- **Web:** botón "Sugerir retenciones" en el formulario de compras (concepto +
+  reteIVA/reteICA) que prellena con el cálculo del motor. ✅
+- **Verificado:** compras $1M → retefuente $0 (base<$1.3M), reteIVA $28.500; servicio
+  $500k → retefuente $20.000, reteIVA $14.250, reteICA $4.830.
 
 ### T2.3 — Tipos de comprobante + consecutivos por tipo
 - Recibo de Caja (RC-), Comprobante de Egreso (CE-), Nota de Contabilidad (NC-),
