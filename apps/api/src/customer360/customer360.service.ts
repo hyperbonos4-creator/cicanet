@@ -67,6 +67,25 @@ export class Customer360Service {
       vlan: servicio.vlan,
     }, c.nombre);
 
+    // --- Vecinos: otros clientes reales colgados de la misma NAP ---
+    let vecinos: { total: number; conFalla: number; conTicketAbierto: number } | null = null;
+    if (red.encontrado && red.nap) {
+      const refs = [red.nap.id, red.nap.nombre].filter(Boolean);
+      const vecinosServicios = await this.prisma.servicio.findMany({
+        where: { napId: { in: refs }, NOT: { id: servicio.id } },
+        include: { cliente: true },
+      });
+      const conFalla = vecinosServicios.filter((s) => s.estado === 'suspendido' || s.estado === 'cortado').length;
+      const vecinoClienteIds = vecinosServicios.map((s) => s.clienteId);
+      const ticketsVecinos = vecinoClienteIds.length
+        ? await this.prisma.ticket.count({
+            where: { clienteId: { in: vecinoClienteIds }, estado: { in: ['abierto', 'en_proceso'] } },
+          })
+        : 0;
+      vecinos = { total: vecinosServicios.length, conFalla, conTicketAbierto: ticketsVecinos };
+      (red as any).vecinos = vecinos;
+    }
+
     // --- Alertas operativas ---
     const alertas: Alerta[] = [];
     const saldo = num(servicio.saldo);
@@ -89,6 +108,9 @@ export class Customer360Service {
     }
     if (ticketsAbiertos > 0) {
       alertas.push({ tipo: 'soporte', nivel: 'info', mensaje: `${ticketsAbiertos} ticket(s) de soporte abierto(s).` });
+    }
+    if (vecinos && vecinos.conTicketAbierto >= 2) {
+      alertas.push({ tipo: 'red', nivel: 'alta', mensaje: `${vecinos.conTicketAbierto} clientes de la misma NAP tienen tickets abiertos — posible falla compartida.` });
     }
 
     return {

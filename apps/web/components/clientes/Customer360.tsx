@@ -254,6 +254,13 @@ export default function Customer360({
                     <div className="mt-3 rounded-lg border border-cica-border/60 bg-cica-navy/40 p-3 text-xs">
                       <div className="text-cica-muted">Capacidad de {red.nap.nombre}: <span className={`font-semibold ${SEMAFORO[red.nap.capacidad.semaforo]}`}>{red.nap.capacidad.usados}/{red.nap.capacidad.total} puertos ({red.nap.capacidad.libres} libres)</span></div>
                       {red.nap.impacto && <div className="mt-1 text-cica-muted">Clientes que dependen de esta NAP: <span className="text-cica-silver">{red.nap.impacto.clientesDependientes}</span></div>}
+                      {red.vecinos && red.vecinos.total > 0 && (
+                        <div className="mt-1 text-cica-muted">
+                          Vecinos en esta NAP: <span className="text-cica-silver">{red.vecinos.total}</span>
+                          {red.vecinos.conFalla > 0 && <span className="text-status-sin"> · {red.vecinos.conFalla} con falla</span>}
+                          {red.vecinos.conTicketAbierto > 0 && <span className="text-status-parcial"> · {red.vecinos.conTicketAbierto} con ticket abierto</span>}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

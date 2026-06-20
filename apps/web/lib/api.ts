@@ -545,6 +545,7 @@ export type Cliente360 = {
     onu: { onuSerial: string | null; puerto: number | null; ip: string | null; vlan: number | null };
     nap: { id: string; nombre: string; tipo: string; direccion: string | null; capacidad: { total: number; usados: number; libres: number; semaforo: string } | null; impacto: { clientesDependientes: number; napsDependientes: number; ingresosMensuales: number } } | null;
     cadena: { id: string; nombre: string; tipo: string }[];
+    vecinos?: { total: number; conFalla: number; conTicketAbierto: number };
   };
   alertas: { tipo: string; nivel: "alta" | "media" | "info"; mensaje: string }[];
 };
