@@ -61,6 +61,25 @@ import {
   tesoreriaEgreso,
   tesoreriaTraslado,
   tesoreriaComision,
+  listAcuerdos,
+  crearAcuerdo,
+  cambiarEstadoAcuerdo,
+  castigarCartera,
+  dianCentro,
+  dianGetConfig,
+  dianSetConfig,
+  dianValidacionExogena,
+  listAssetsRed,
+  assetsRedResumen,
+  crearAssetRed,
+  liberarAssetRed,
+  analyticsIngresoPorBarrio,
+  analyticsCarteraPorNap,
+  analyticsArpuPorZona,
+  analyticsRecaudoPorCanal,
+  analyticsChurnPorMora,
+  listCentrosCosto,
+  upsertCentroCosto,
   type WorkbenchCard,
   type AsientoContable,
   type CuentaContable,
@@ -81,9 +100,13 @@ import {
   type ReciboCaja,
   type FacturaPendiente,
   type MovTesoreria,
+  type AcuerdoPago,
+  type DianCentro,
+  type AssetRed,
+  type CentroCosto,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "recibos" | "facturacion" | "cobranza" | "compras" | "tesoreria" | "activos" | "nomina" | "exogena" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "acuerdos" | "recibos" | "facturacion" | "cobranza" | "compras" | "tesoreria" | "activos" | "inventario" | "nomina" | "exogena" | "dian" | "bancos" | "analitica" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -91,15 +114,19 @@ const money = (n: number) =>
 const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "dashboard", label: "Resumen" },
   { key: "cartera", label: "Cartera" },
+  { key: "acuerdos", label: "Acuerdos de pago" },
   { key: "recibos", label: "Recibos de caja" },
   { key: "cobranza", label: "Cobranza" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "compras", label: "Compras / CxP" },
   { key: "tesoreria", label: "Tesorería" },
   { key: "activos", label: "Activos" },
+  { key: "inventario", label: "Inventario red" },
   { key: "nomina", label: "Nómina" },
   { key: "exogena", label: "Exógena" },
+  { key: "dian", label: "Centro DIAN" },
   { key: "bancos", label: "Bancos" },
+  { key: "analitica", label: "Analítica" },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
   { key: "cuentas", label: "Plan de cuentas" },
@@ -131,15 +158,19 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
 
       {tab === "dashboard" && <DashboardTab onGo={setTab} />}
       {tab === "cartera" && <CarteraTab />}
+      {tab === "acuerdos" && <AcuerdosTab canEdit={canEdit} />}
       {tab === "recibos" && <RecibosTab canEdit={canEdit} />}
       {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
       {tab === "facturacion" && <FacturacionTab />}
       {tab === "compras" && <ComprasTab canEdit={canEdit} />}
       {tab === "tesoreria" && <TesoreriaTab canEdit={canEdit} />}
       {tab === "activos" && <ActivosTab isAdmin={isAdmin} />}
+      {tab === "inventario" && <InventarioRedTab canEdit={canEdit} />}
       {tab === "nomina" && <NominaTab isAdmin={isAdmin} />}
       {tab === "exogena" && <ExogenaTab />}
+      {tab === "dian" && <DianTab isAdmin={isAdmin} />}
       {tab === "bancos" && <BancosTab />}
+      {tab === "analitica" && <AnaliticaTab canEdit={canEdit} />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
       {tab === "cuentas" && <CuentasTab />}
@@ -315,6 +346,386 @@ function ExogenaTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ===================== Acuerdos de pago / Castigo (cartera avanzada) ===================== */
+function AcuerdosTab({ canEdit }: { canEdit: boolean }) {
+  const [acuerdos, setAcuerdos] = useState<AcuerdoPago[]>([]);
+  const [clientes, setClientes] = useState<{ id: string; codigo: string; nombre: string }[]>([]);
+  const [clienteId, setClienteId] = useState("");
+  const [montoTotal, setMontoTotal] = useState(0);
+  const [numeroCuotas, setNumeroCuotas] = useState(3);
+  const [periodicidad, setPeriodicidad] = useState<"mensual" | "quincenal">("mensual");
+  const [cMonto, setCMonto] = useState(0);
+  const [cConcepto, setCConcepto] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() { try { setAcuerdos(await listAcuerdos()); setErr(null); } catch (e: any) { setErr(e.message); } }
+  useEffect(() => { refresh(); listClientes({}).then((cs) => setClientes(cs.map((c: any) => ({ id: c.id, codigo: c.codigo, nombre: c.nombre })))).catch(() => {}); }, []);
+
+  async function crear() {
+    if (!clienteId || montoTotal <= 0) { setErr("Selecciona cliente y monto."); return; }
+    setBusy(true); setErr(null); setMsg(null);
+    try { const a = await crearAcuerdo({ clienteId, montoTotal, numeroCuotas, periodicidad }); setMsg(`Acuerdo ${a.numero} creado (${a.numeroCuotas} cuotas).`); setMontoTotal(0); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function castigar() {
+    if (!clienteId || cMonto <= 0) { setErr("Selecciona cliente y monto a castigar."); return; }
+    if (!confirm(`¿Castigar ${money(cMonto)} de cartera incobrable? Genera asiento Dr 531595 / Cr 130505.`)) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await castigarCartera({ clienteId, monto: cMonto, concepto: cConcepto || undefined }); setMsg(`Castigo contabilizado (asiento ${r.asiento}).`); setCMonto(0); setCConcepto(""); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {msg && <Aviso texto={msg} ok />}
+      {err && <Aviso texto={err} />}
+      {canEdit && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="glass p-4">
+            <div className="mb-3 text-sm font-bold text-white">Nuevo acuerdo de pago / refinanciación</div>
+            <div className="flex flex-col gap-3">
+              <Field label="Cliente">
+                <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={input}>
+                  <option value="">— Selecciona —</option>
+                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
+                </select>
+              </Field>
+              <div className="flex gap-3">
+                <Field label="Monto total"><input type="number" value={montoTotal || ""} onChange={(e) => setMontoTotal(Number(e.target.value))} className={`${input} w-40`} /></Field>
+                <Field label="Cuotas"><input type="number" value={numeroCuotas} onChange={(e) => setNumeroCuotas(Number(e.target.value))} className={`${input} w-24`} /></Field>
+                <Field label="Periodicidad">
+                  <select value={periodicidad} onChange={(e) => setPeriodicidad(e.target.value as any)} className={input}>
+                    <option value="mensual">Mensual</option><option value="quincenal">Quincenal</option>
+                  </select>
+                </Field>
+              </div>
+              <button onClick={crear} disabled={busy} className="rounded-lg bg-cica-gold/20 px-3 py-2 text-xs font-semibold text-cica-gold hover:bg-cica-gold/30 disabled:opacity-50">Crear acuerdo</button>
+            </div>
+          </div>
+          <div className="glass p-4">
+            <div className="mb-3 text-sm font-bold text-white">Castigo de cartera (write-off)</div>
+            <div className="flex flex-col gap-3">
+              <Field label="Cliente">
+                <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={input}>
+                  <option value="">— Selecciona —</option>
+                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
+                </select>
+              </Field>
+              <Field label="Monto a castigar"><input type="number" value={cMonto || ""} onChange={(e) => setCMonto(Number(e.target.value))} className={`${input} w-40`} /></Field>
+              <Field label="Concepto"><input value={cConcepto} onChange={(e) => setCConcepto(e.target.value)} className={input} placeholder="Cartera incobrable +180 días" /></Field>
+              <button onClick={castigar} disabled={busy} className="rounded-lg border border-status-sin/40 px-3 py-2 text-xs font-semibold text-status-sin hover:bg-status-sin/10 disabled:opacity-50">Castigar cartera</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="glass p-4">
+        <div className="mb-3 text-sm font-bold text-white">Acuerdos vigentes</div>
+        <div className="max-h-[50vh] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-cica-navy/90"><tr className="text-cica-muted"><th className="text-left">Número</th><th className="text-left">Cliente</th><th className="text-right px-2">Total</th><th className="text-center">Cuotas</th><th className="text-left">Estado</th><th /></tr></thead>
+            <tbody>
+              {acuerdos.map((a) => (
+                <tr key={a.id} className="border-t border-cica-border/30">
+                  <td className="py-1 text-cica-silver">{a.numero}</td>
+                  <td className="text-cica-silver">{a.clienteNombre}</td>
+                  <td className="text-right px-2 text-cica-silver">{money(Number(a.montoTotal))}</td>
+                  <td className="text-center text-cica-muted">{a.cuotas.filter((c) => c.estado === "pagada").length}/{a.numeroCuotas}</td>
+                  <td className="text-cica-muted">{a.estado}</td>
+                  <td className="text-right">
+                    {canEdit && a.estado === "vigente" && (
+                      <button onClick={() => cambiarEstadoAcuerdo(a.id, "cancelado").then(refresh).catch((e) => setErr(e.message))} className="text-[11px] text-cica-muted hover:text-status-sin">Cancelar</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {acuerdos.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-cica-muted">Sin acuerdos registrados.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Inventario operativo de red ===================== */
+function InventarioRedTab({ canEdit }: { canEdit: boolean }) {
+  const [items, setItems] = useState<AssetRed[]>([]);
+  const [resumen, setResumen] = useState<{ porEstado: Record<string, number>; sinCapitalizar: number; enComodato: number } | null>(null);
+  const [categoria, setCategoria] = useState("onu");
+  const [serial, setSerial] = useState("");
+  const [modelo, setModelo] = useState("");
+  const [costo, setCosto] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() { try { setItems(await listAssetsRed({})); setResumen(await assetsRedResumen() as any); setErr(null); } catch (e: any) { setErr(e.message); } }
+  useEffect(() => { refresh(); }, []);
+
+  async function crear() {
+    setBusy(true); setErr(null);
+    try { await crearAssetRed({ categoria, serial: serial || undefined, modelo: modelo || undefined, costo: costo || undefined }); setSerial(""); setModelo(""); setCosto(0); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {resumen && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Kpi label="En stock" value={String(resumen.porEstado["stock"] ?? 0)} accent="text-cica-silver" />
+          <Kpi label="En comodato" value={String(resumen.enComodato)} accent="text-cica-steelLight" />
+          <Kpi label="Asignados" value={String(resumen.porEstado["asignado"] ?? 0)} accent="text-cica-gold" />
+          <Kpi label="Sin capitalizar" value={String(resumen.sinCapitalizar)} accent="text-status-parcial" />
+        </div>
+      )}
+      {err && <Aviso texto={err} />}
+      {canEdit && (
+        <div className="glass p-4">
+          <div className="mb-3 text-sm font-bold text-white">Registrar equipo</div>
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Categoría">
+              <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className={input}>
+                {["onu", "router", "switch", "olt", "nap", "antena", "otro"].map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </Field>
+            <Field label="Serial"><input value={serial} onChange={(e) => setSerial(e.target.value)} className={`${input} w-40`} /></Field>
+            <Field label="Modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} className={`${input} w-40`} /></Field>
+            <Field label="Costo"><input type="number" value={costo || ""} onChange={(e) => setCosto(Number(e.target.value))} className={`${input} w-32`} /></Field>
+            <button onClick={crear} disabled={busy} className="rounded-lg bg-cica-gold/20 px-3 py-2 text-xs font-semibold text-cica-gold hover:bg-cica-gold/30 disabled:opacity-50">Agregar</button>
+          </div>
+        </div>
+      )}
+      <div className="glass p-4">
+        <div className="mb-3 text-sm font-bold text-white">Inventario ({items.length})</div>
+        <div className="max-h-[50vh] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-cica-navy/90"><tr className="text-cica-muted"><th className="text-left">Código</th><th className="text-left">Categoría</th><th className="text-left">Serial</th><th className="text-left">Estado</th><th className="text-left">Ubicación</th><th /></tr></thead>
+            <tbody>
+              {items.map((a) => (
+                <tr key={a.id} className="border-t border-cica-border/30">
+                  <td className="py-1 text-cica-silver">{a.codigo}</td>
+                  <td className="text-cica-muted">{a.categoria}</td>
+                  <td className="text-cica-silver">{a.serial ?? "—"}</td>
+                  <td className="text-cica-muted">{a.estado}{a.comodato ? " (comodato)" : ""}</td>
+                  <td className="text-cica-muted">{a.ubicacion ?? "—"}</td>
+                  <td className="text-right">
+                    {canEdit && (a.estado === "asignado" || a.estado === "comodato") && (
+                      <button onClick={() => liberarAssetRed(a.id).then(refresh).catch((e) => setErr(e.message))} className="text-[11px] text-cica-muted hover:text-cica-gold">Liberar</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-cica-muted">Sin equipos registrados.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Centro DIAN ===================== */
+function DianTab({ isAdmin }: { isAdmin: boolean }) {
+  const [centro, setCentro] = useState<DianCentro | null>(null);
+  const [config, setConfig] = useState<Record<string, any>>({});
+  const [validacion, setValidacion] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const anio = new Date().getFullYear();
+
+  async function refresh() {
+    try { setCentro(await dianCentro()); setConfig(await dianGetConfig()); setValidacion(await dianValidacionExogena(anio)); setErr(null); }
+    catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  async function guardar() {
+    setMsg(null); setErr(null);
+    try { await dianSetConfig(config); setMsg("Configuración DIAN guardada."); await refresh(); }
+    catch (e: any) { setErr(e.message); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {msg && <Aviso texto={msg} ok />}
+      {err && <Aviso texto={err} />}
+      {centro && (
+        <>
+          <div className="glass p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-bold text-white">Habilitación para emitir en vivo</div>
+              <span className={`text-xs font-bold ${centro.puedeEmitirEnVivo ? "text-cica-gold" : "text-status-parcial"}`}>{centro.puedeEmitirEnVivo ? "Listo" : "Pendiente"}</span>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-2">
+              {centro.habilitacion.map((h) => (
+                <div key={h.clave} className="flex items-center justify-between rounded-lg border border-cica-border/40 px-3 py-2">
+                  <div><div className="text-xs font-semibold text-cica-silver">{h.titulo}</div><div className="text-[10px] text-cica-muted">{h.detalle}</div></div>
+                  <span className={`text-sm ${h.ok ? "text-cica-gold" : "text-status-sin"}`}>{h.ok ? "✓" : "•"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="glass p-4">
+              <div className="mb-3 text-sm font-bold text-white">Documentos electrónicos</div>
+              {centro.documentos.porTipo.length === 0 && <p className="text-xs text-cica-muted">Aún no se han emitido documentos.</p>}
+              <table className="w-full text-xs">
+                <tbody>
+                  {centro.documentos.porTipo.map((t) => (
+                    <tr key={t.tipo} className="border-t border-cica-border/30"><td className="py-1 text-cica-silver">{t.tipo}</td><td className="text-center text-cica-muted">{t.cantidad}</td><td className="text-right text-cica-silver">{money(t.total)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mt-2 flex gap-3 text-[11px] text-cica-muted">
+                <span>Nómina electrónica pendiente: <b className="text-cica-silver">{centro.nominaElectronica.pendientes}</b></span>
+                <span>Rechazadas/error: <b className="text-status-sin">{centro.documentos.rechazadas}</b></span>
+              </div>
+            </div>
+
+            <div className="glass p-4">
+              <div className="mb-3 text-sm font-bold text-white">Validación exógena {anio}</div>
+              {validacion && (
+                <div className="flex flex-col gap-2">
+                  {validacion.items.map((it: any) => (
+                    <div key={it.clave} className="flex items-center justify-between text-xs">
+                      <span className="text-cica-silver">{it.titulo}</span>
+                      <span className={it.estado === "ok" ? "text-cica-gold" : it.estado === "error" ? "text-status-sin" : "text-status-parcial"}>{it.cantidad} {it.estado !== "ok" ? "⚠" : "✓"}</span>
+                    </div>
+                  ))}
+                  <div className={`mt-1 text-[11px] font-semibold ${validacion.listoParaExportar ? "text-cica-gold" : "text-status-parcial"}`}>{validacion.listoParaExportar ? "Listo para exportar" : `${validacion.bloqueantes} bloqueante(s)`}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {isAdmin && (
+            <div className="glass p-4">
+              <div className="mb-3 text-sm font-bold text-white">Configuración (certificado / resolución)</div>
+              <div className="flex flex-wrap gap-3">
+                <Field label="NIT"><input value={config.nit ?? ""} onChange={(e) => setConfig({ ...config, nit: e.target.value })} className={`${input} w-40`} /></Field>
+                <Field label="Resolución"><input value={config.resolucion ?? ""} onChange={(e) => setConfig({ ...config, resolucion: e.target.value })} className={`${input} w-48`} /></Field>
+                <Field label="Prefijo"><input value={config.prefijo ?? ""} onChange={(e) => setConfig({ ...config, prefijo: e.target.value })} className={`${input} w-24`} /></Field>
+                <Field label="Rango desde"><input type="number" value={config.rangoDesde ?? ""} onChange={(e) => setConfig({ ...config, rangoDesde: Number(e.target.value) })} className={`${input} w-28`} /></Field>
+                <Field label="Rango hasta"><input type="number" value={config.rangoHasta ?? ""} onChange={(e) => setConfig({ ...config, rangoHasta: Number(e.target.value) })} className={`${input} w-28`} /></Field>
+                <Field label="Cert. vence"><input type="date" value={config.certificadoVence ?? ""} onChange={(e) => setConfig({ ...config, certificadoVence: e.target.value })} className={input} /></Field>
+              </div>
+              <button onClick={guardar} className="mt-3 rounded-lg bg-cica-gold/20 px-3 py-2 text-xs font-semibold text-cica-gold hover:bg-cica-gold/30">Guardar configuración</button>
+              <p className="mt-2 text-[10px] text-cica-muted">El certificado y la resolución son trámites externos ante la DIAN; aquí se registran para el semáforo de habilitación.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ===================== Analítica vertical ISP ===================== */
+function AnaliticaTab({ canEdit }: { canEdit: boolean }) {
+  const ahora = new Date();
+  const [periodo, setPeriodo] = useState(`${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`);
+  const [barrio, setBarrio] = useState<{ total: number; filas: { dimension: string; valor: number }[] } | null>(null);
+  const [nap, setNap] = useState<{ total: number; filas: { dimension: string; valor: number; cantidad: number }[] } | null>(null);
+  const [arpu, setArpu] = useState<{ filas: { zona: string; ingreso: number; clientes: number; arpu: number }[] } | null>(null);
+  const [canal, setCanal] = useState<{ total: number; filas: { dimension: string; valor: number }[] } | null>(null);
+  const [churn, setChurn] = useState<{ conteo: Record<string, number>; tasaSuspension: number; tasaChurn: number } | null>(null);
+  const [centros, setCentros] = useState<CentroCosto[]>([]);
+  const [ccCodigo, setCcCodigo] = useState("");
+  const [ccNombre, setCcNombre] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    try {
+      setBarrio(await analyticsIngresoPorBarrio(periodo));
+      setNap(await analyticsCarteraPorNap());
+      setArpu(await analyticsArpuPorZona(periodo));
+      setCanal(await analyticsRecaudoPorCanal(periodo));
+      setChurn(await analyticsChurnPorMora());
+      setCentros(await listCentrosCosto());
+      setErr(null);
+    } catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [periodo]);
+
+  async function addCentro() {
+    if (!ccCodigo || !ccNombre) return;
+    try { await upsertCentroCosto({ codigo: ccCodigo, nombre: ccNombre }); setCcCodigo(""); setCcNombre(""); setCentros(await listCentrosCosto()); }
+    catch (e: any) { setErr(e.message); }
+  }
+
+  const Tabla = ({ titulo, filas, montoKey }: { titulo: string; filas: any[]; montoKey: string }) => (
+    <div className="glass p-4">
+      <div className="mb-2 text-sm font-bold text-white">{titulo}</div>
+      <div className="max-h-[32vh] overflow-y-auto">
+        <table className="w-full text-xs">
+          <tbody>
+            {filas.slice(0, 15).map((f, i) => (
+              <tr key={i} className="border-t border-cica-border/30"><td className="py-1 text-cica-silver">{f.dimension ?? f.zona}</td><td className="text-right text-cica-silver">{money(Number(f[montoKey]))}</td></tr>
+            ))}
+            {filas.length === 0 && <tr><td className="py-4 text-center text-cica-muted">Sin datos.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="glass flex flex-wrap items-end gap-3 p-4">
+        <Field label="Periodo"><input value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={`${input} w-32`} placeholder="2026-06" /></Field>
+        <button onClick={refresh} className="rounded-lg border border-cica-border px-3 py-2 text-xs text-cica-silver hover:border-cica-gold/40">Actualizar</button>
+      </div>
+      {err && <Aviso texto={err} />}
+      {churn && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Kpi label="Clientes activos" value={String(churn.conteo["activo"] ?? 0)} accent="text-cica-gold" />
+          <Kpi label="Suspendidos/morosos" value={String((churn.conteo["suspendido"] ?? 0) + (churn.conteo["moroso"] ?? 0))} accent="text-status-parcial" />
+          <Kpi label="Tasa suspensión" value={`${churn.tasaSuspension}%`} accent="text-cica-steelLight" />
+          <Kpi label="Churn (retiros)" value={`${churn.tasaChurn}%`} accent="text-status-sin" />
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {barrio && <Tabla titulo="Ingreso por barrio" filas={barrio.filas} montoKey="valor" />}
+        {nap && <Tabla titulo="Cartera vencida por NAP" filas={nap.filas} montoKey="valor" />}
+        {canal && <Tabla titulo="Recaudo por canal" filas={canal.filas} montoKey="valor" />}
+        {arpu && (
+          <div className="glass p-4">
+            <div className="mb-2 text-sm font-bold text-white">ARPU por zona</div>
+            <div className="max-h-[32vh] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-cica-muted"><th className="text-left">Zona</th><th className="text-center">Clientes</th><th className="text-right">ARPU</th></tr></thead>
+                <tbody>
+                  {arpu.filas.slice(0, 15).map((f, i) => (
+                    <tr key={i} className="border-t border-cica-border/30"><td className="py-1 text-cica-silver">{f.zona}</td><td className="text-center text-cica-muted">{f.clientes}</td><td className="text-right text-cica-silver">{money(f.arpu)}</td></tr>
+                  ))}
+                  {arpu.filas.length === 0 && <tr><td colSpan={3} className="py-4 text-center text-cica-muted">Sin datos.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="glass p-4">
+        <div className="mb-3 text-sm font-bold text-white">Centros de costo</div>
+        {canEdit && (
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <Field label="Código"><input value={ccCodigo} onChange={(e) => setCcCodigo(e.target.value)} className={`${input} w-40`} placeholder="CC-NODO-01" /></Field>
+            <Field label="Nombre"><input value={ccNombre} onChange={(e) => setCcNombre(e.target.value)} className={`${input} w-56`} /></Field>
+            <button onClick={addCentro} className="rounded-lg bg-cica-gold/20 px-3 py-2 text-xs font-semibold text-cica-gold hover:bg-cica-gold/30">Agregar</button>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {centros.map((c) => <span key={c.codigo} className="rounded-lg border border-cica-border/40 px-2 py-1 text-[11px] text-cica-silver">{c.codigo} · {c.nombre}</span>)}
+          {centros.length === 0 && <span className="text-xs text-cica-muted">Aún no hay centros de costo. Crea los principales (admin, red, nodo, comercial).</span>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1461,9 +1872,14 @@ function ReportesTab() {
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
+    let vigente = true;
     setData(null); setErr(null);
     const fn = rep === "balance" ? balanceComprobacion() : rep === "resultados" ? estadoResultados() : rep === "general" ? balanceGeneral() : situacionNiif();
-    fn.then(setData).catch((e) => setErr(e.message));
+    // Descartar la respuesta si el usuario ya cambió de reporte: cada reporte
+    // tiene una forma distinta y una respuesta tardía de otro reporte (p. ej.
+    // balance-general, que no trae `totales`) reventaría el render del actual.
+    fn.then((d) => { if (vigente) setData(d); }).catch((e) => { if (vigente) setErr(e.message); });
+    return () => { vigente = false; };
   }, [rep]);
 
   return (
@@ -1482,7 +1898,7 @@ function ReportesTab() {
       </div>
       {err && <Aviso texto={err} />}
       {!data && !err && <Cargando />}
-      {data && rep === "balance" && (
+      {Array.isArray(data?.filas) && rep === "balance" && (
         <div className="glass overflow-x-auto">
           <table className="w-full text-xs">
             <thead><tr className="text-cica-muted"><th className="px-3 py-2 text-left">Código</th><th className="text-left">Cuenta</th><th className="text-right">Débitos</th><th className="text-right">Créditos</th><th className="text-right">Saldo D</th><th className="text-right px-3">Saldo C</th></tr></thead>
@@ -1503,7 +1919,7 @@ function ReportesTab() {
           <div className={`px-3 py-2 text-xs font-semibold ${data.cuadra ? "text-status-ftth" : "text-status-sin"}`}>{data.cuadra ? "✓ El balance cuadra" : "⚠ El balance NO cuadra"}</div>
         </div>
       )}
-      {data && rep === "resultados" && (
+      {data?.utilidadNeta !== undefined && rep === "resultados" && (
         <div className="glass p-4 text-sm">
           <Row label="Ingresos operacionales" value={money(data.ingresos)} />
           <Row label="(−) Costos" value={money(data.costos)} />
@@ -1512,7 +1928,7 @@ function ReportesTab() {
           <Row label="= Utilidad neta" value={money(data.utilidadNeta)} bold accent={data.utilidadNeta >= 0 ? "text-status-ftth" : "text-status-sin"} />
         </div>
       )}
-      {data && rep === "general" && (
+      {data?.activo !== undefined && rep === "general" && (
         <div className="glass p-4 text-sm">
           <Row label="ACTIVO" value={money(data.activo)} bold />
           <Row label="PASIVO" value={money(data.pasivo)} />
@@ -1522,7 +1938,7 @@ function ReportesTab() {
           <div className={`mt-2 text-xs font-semibold ${data.cuadra ? "text-status-ftth" : "text-status-sin"}`}>{data.cuadra ? "✓ La ecuación contable cuadra" : "⚠ No cuadra"}</div>
         </div>
       )}
-      {data && rep === "niif" && (
+      {data?.totales?.activoCorriente !== undefined && rep === "niif" && (
         <div className="glass p-4 text-sm">
           <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Estado de Situación Financiera (NIIF) · {data.hasta}</div>
           <Row label="Activo corriente" value={money(data.totales.activoCorriente)} />
@@ -1614,7 +2030,7 @@ function Row({ label, value, bold, accent }: { label: string; value: string; bol
   return <div className={`flex justify-between border-b border-cica-border/30 py-1.5 ${bold ? "font-bold" : ""}`}><span className="text-cica-silver">{label}</span><span className={accent ?? "text-cica-silver"}>{value}</span></div>;
 }
 function Cargando() { return <div className="grid place-items-center py-16"><div className="h-9 w-9 animate-spin rounded-full border-2 border-cica-border border-t-cica-gold" /></div>; }
-function Aviso({ texto }: { texto: string }) { return <div className="glass p-6 text-center text-sm text-cica-muted">{texto}</div>; }
+function Aviso({ texto, ok }: { texto: string; ok?: boolean }) { return <div className={`glass p-6 text-center text-sm ${ok ? "text-cica-gold" : "text-cica-muted"}`}>{texto}</div>; }
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>

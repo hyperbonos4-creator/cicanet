@@ -462,6 +462,19 @@ model AsientoContable {
   /// Origen: qué evento del negocio lo generó (factura, pago, etc.).
   referenciaTipo String? @map("referencia_tipo")
   referenciaId   String? @map("referencia_id")
+  /// Trazabilidad ampliada (v2 — Fase B). Módulo que originó el asiento.
+  sourceModule  String?  @map("source_module")
+  /// Evento de negocio que lo disparó (invoice.issued, payment.received, ...).
+  evento        String?
+  /// true = generado automáticamente por el posting engine; false = manual.
+  autoGenerado  Boolean  @default(false) @map("auto_generado")
+  /// Dimensiones operativas para drill-down (cartera/rentabilidad georreferenciada).
+  napId         String?  @map("nap_id")
+  zonaId        String?  @map("zona_id")
+  servicioId    String?  @map("servicio_id") @db.Uuid
+  clienteId     String?  @map("cliente_id") @db.Uuid
+  /// Documento DIAN relacionado, si lo hay.
+  dianDocumentoId String? @map("dian_documento_id") @db.Uuid
   /// borrador|contabilizado|anulado
   estado        String   @default("borrador")
   debitoTotal   Decimal  @default(0) @db.Decimal(16, 2) @map("debito_total")
@@ -478,6 +491,9 @@ model AsientoContable {
   @@index([periodo])
   @@index([estado])
   @@index([referenciaTipo, referenciaId])
+  @@index([sourceModule])
+  @@index([clienteId])
+  @@index([napId])
   @@map("asiento_contable")
 }
 
@@ -815,4 +831,75 @@ model AcuerdoPago {
   @@index([clienteId])
   @@index([estado])
   @@map("acuerdo_pago")
+}
+
+// ============================================================
+//  v2 — Endurecimiento del core financiero-operativo
+//  Centros de costo, inventario de red operativo, mapeo exógena.
+// ============================================================
+
+/// Centro de costo (entidad de 1er nivel para analítica vertical de ISP).
+/// Permite imputar gastos/ingresos a admin/soporte/instalación/backbone/nodo y
+/// medir rentabilidad por área. Las líneas de asiento referencian `codigo`.
+model CentroCosto {
+  codigo    String   @id // CC-ADMIN, CC-RED, CC-NODO-01...
+  nombre    String
+  tipo      String   @default("operativo") // administrativo | operativo | comercial | red | nodo
+  /// Centro padre opcional (jerarquía: zona → nodo).
+  padreCodigo String? @map("padre_codigo")
+  activo    Boolean  @default(true)
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  @@index([tipo])
+  @@map("centro_costo")
+}
+
+/// Inventario operativo de activo de red (≠ activo fijo contable). Seriales,
+/// MAC, comodato, stock y ubicación. Se vincula opcionalmente al activo contable
+/// (`activoFijoId`) para depreciación y al servicio/cliente que lo usa.
+model AssetRegistry {
+  id            String   @id @default(uuid()) @db.Uuid
+  codigo        String   @unique // AR-000001
+  categoria     String   // onu | router | switch | olt | nap | antena | otro
+  marca         String?
+  modelo        String?
+  serial        String?  @unique
+  mac           String?
+  /// disponible | asignado | comodato | dañado | baja | stock
+  estado        String   @default("stock")
+  ubicacion     String?  // bodega | NAP-001 | dirección del cliente
+  /// Servicio/cliente al que está asignado (comodato), si aplica.
+  servicioId    String?  @map("servicio_id") @db.Uuid
+  clienteId     String?  @map("cliente_id") @db.Uuid
+  napId         String?  @map("nap_id")
+  /// Vínculo al activo fijo contable depreciable (si está capitalizado).
+  activoFijoId  String?  @map("activo_fijo_id") @db.Uuid
+  comodato      Boolean  @default(false) // entregado en comodato al cliente
+  costo         Decimal? @db.Decimal(16, 2)
+  notas         String?
+  creadoPor     String?  @map("creado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([estado])
+  @@index([categoria])
+  @@index([servicioId])
+  @@map("asset_registry")
+}
+
+/// Regla de mapeo para información exógena: relaciona un patrón de cuenta PUC con
+/// el concepto/formato DIAN. Parametrizable por la contadora (Fase E).
+model ReglaExogena {
+  id          String   @id @default(uuid()) @db.Uuid
+  formato     String   // 1001 | 1003 | 1005 | 1006 | 1007 | 1008 | 1009
+  /// Patrón de cuenta (prefijo PUC, ej. "5135" cubre 5135xx).
+  cuentaPatron String  @map("cuenta_patron")
+  concepto    String   // concepto DIAN (ej. 5016 honorarios)
+  descripcion String?
+  activa      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@unique([formato, cuentaPatron])
+  @@index([formato])
+  @@map("regla_exogena")
 }

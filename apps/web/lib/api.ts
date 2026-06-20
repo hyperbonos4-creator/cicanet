@@ -1151,3 +1151,115 @@ export function tesoreriaTraslado(input: { cuentaOrigen: string; cuentaDestino: 
 export function tesoreriaComision(input: { cuentaBanco: string; monto: number; concepto?: string }): Promise<MovTesoreria> {
   return authFetch("/tesoreria/comision", { method: "POST", body: JSON.stringify(input) });
 }
+
+// ---- Cartera avanzada (módulo cartera): acuerdos de pago + castigo ----
+export type AcuerdoPago = {
+  id: string; numero: string; clienteNombre: string; fechaAcuerdo: string;
+  montoTotal: string; numeroCuotas: number; periodicidad: string;
+  cuotas: { n: number; fecha: string; valor: number; estado: string }[]; estado: string; notas: string | null;
+};
+export function listAcuerdos(opts: { estado?: string; clienteId?: string } = {}): Promise<AcuerdoPago[]> {
+  const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v) as [string, string][]).toString();
+  return authFetch(`/cartera/acuerdos${qs ? `?${qs}` : ""}`);
+}
+export function crearAcuerdo(input: { clienteId: string; montoTotal: number; numeroCuotas: number; periodicidad?: "mensual" | "quincenal"; fechaInicio?: string; notas?: string }): Promise<AcuerdoPago> {
+  return authFetch("/cartera/acuerdos", { method: "POST", body: JSON.stringify(input) });
+}
+export function marcarCuotaAcuerdo(id: string, n: number, pagada = true): Promise<AcuerdoPago> {
+  return authFetch(`/cartera/acuerdos/${encodeURIComponent(id)}/cuota`, { method: "POST", body: JSON.stringify({ n, pagada }) });
+}
+export function cambiarEstadoAcuerdo(id: string, estado: string): Promise<AcuerdoPago> {
+  return authFetch(`/cartera/acuerdos/${encodeURIComponent(id)}/estado`, { method: "POST", body: JSON.stringify({ estado }) });
+}
+export function castigarCartera(input: { clienteId: string; monto: number; concepto?: string; facturaIds?: string[] }): Promise<{ ok: boolean; asiento: string; monto: number }> {
+  return authFetch("/cartera/castigar", { method: "POST", body: JSON.stringify(input) });
+}
+
+// ---- Centro DIAN unificado (módulo dian) ----
+export type DianHabilitacionItem = { clave: string; titulo: string; ok: boolean; detalle: string };
+export type DianCentro = {
+  documentos: { porTipo: { tipo: string; cantidad: number; total: number }[]; porEstado: Record<string, number>; rechazadas: number };
+  nominaElectronica: { pendientes: number };
+  exogena: { formatos: FormatoExogena[] };
+  habilitacion: DianHabilitacionItem[];
+  puedeEmitirEnVivo: boolean;
+};
+export type DianDocumento = { id: string; tipo: string; consecutivo: string; cufe: string | null; estado: string; total: string; creadoEn: string };
+export type ReglaExogena = { id: string; formato: string; cuentaPatron: string; concepto: string; descripcion: string | null; activa: boolean };
+
+export function dianCentro(): Promise<DianCentro> { return authFetch("/dian/centro"); }
+export function dianGetConfig(): Promise<Record<string, any>> { return authFetch("/dian/config"); }
+export function dianSetConfig(input: Record<string, any>): Promise<Record<string, any>> {
+  return authFetch("/dian/config", { method: "POST", body: JSON.stringify(input) });
+}
+export function dianDocumentos(opts: { tipo?: string; estado?: string } = {}): Promise<DianDocumento[]> {
+  const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v) as [string, string][]).toString();
+  return authFetch(`/dian/documentos${qs ? `?${qs}` : ""}`);
+}
+export function dianReprocesar(id: string): Promise<DianDocumento> {
+  return authFetch(`/dian/documentos/${encodeURIComponent(id)}/reprocesar`, { method: "POST" });
+}
+export function dianReglasExogena(formato?: string): Promise<ReglaExogena[]> {
+  return authFetch(`/dian/exogena/reglas${formato ? `?formato=${formato}` : ""}`);
+}
+export function dianUpsertReglaExogena(input: { formato: string; cuentaPatron: string; concepto: string; descripcion?: string; activa?: boolean }): Promise<ReglaExogena> {
+  return authFetch("/dian/exogena/reglas", { method: "POST", body: JSON.stringify(input) });
+}
+export function dianValidacionExogena(anio: number): Promise<{ anio: number; listoParaExportar: boolean; bloqueantes: number; items: { clave: string; titulo: string; estado: string; cantidad: number; muestra: string[] }[] }> {
+  return authFetch(`/dian/exogena/validacion?anio=${anio}`);
+}
+
+// ---- Inventario operativo de red (módulo asset-registry) ----
+export type AssetRed = {
+  id: string; codigo: string; categoria: string; marca: string | null; modelo: string | null;
+  serial: string | null; mac: string | null; estado: string; ubicacion: string | null;
+  comodato: boolean; activoFijoId: string | null; costo: string | null; servicioId: string | null;
+};
+export function listAssetsRed(opts: { estado?: string; categoria?: string; q?: string } = {}): Promise<AssetRed[]> {
+  const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v) as [string, string][]).toString();
+  return authFetch(`/asset-registry${qs ? `?${qs}` : ""}`);
+}
+export function assetsRedResumen(): Promise<{ porEstado: Record<string, number>; porCategoria: { categoria: string; cantidad: number; costo: number }[]; sinCapitalizar: number; enComodato: number }> {
+  return authFetch("/asset-registry/resumen");
+}
+export function crearAssetRed(input: { categoria: string; marca?: string; modelo?: string; serial?: string; mac?: string; ubicacion?: string; costo?: number; notas?: string }): Promise<AssetRed> {
+  return authFetch("/asset-registry", { method: "POST", body: JSON.stringify(input) });
+}
+export function asignarAssetRed(id: string, input: { servicioId?: string; clienteId?: string; comodato?: boolean; ubicacion?: string }): Promise<AssetRed> {
+  return authFetch(`/asset-registry/${encodeURIComponent(id)}/asignar`, { method: "POST", body: JSON.stringify(input) });
+}
+export function liberarAssetRed(id: string): Promise<AssetRed> {
+  return authFetch(`/asset-registry/${encodeURIComponent(id)}/liberar`, { method: "POST" });
+}
+export function cambiarEstadoAssetRed(id: string, estado: string): Promise<AssetRed> {
+  return authFetch(`/asset-registry/${encodeURIComponent(id)}/estado`, { method: "POST", body: JSON.stringify({ estado }) });
+}
+
+// ---- Analítica vertical + centros de costo (módulo analytics) ----
+export type CentroCosto = { codigo: string; nombre: string; tipo: string; padreCodigo: string | null; activo: boolean };
+export type DimFila = { dimension: string; valor: number; cantidad: number };
+export function listCentrosCosto(): Promise<CentroCosto[]> { return authFetch("/analytics/centros"); }
+export function upsertCentroCosto(input: { codigo: string; nombre: string; tipo?: string; padreCodigo?: string; activo?: boolean }): Promise<CentroCosto> {
+  return authFetch("/analytics/centros", { method: "POST", body: JSON.stringify(input) });
+}
+export function analyticsIngresoPorBarrio(periodo?: string): Promise<{ total: number; filas: DimFila[] }> {
+  return authFetch(`/analytics/ingreso-por-barrio${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function analyticsCarteraPorNap(): Promise<{ total: number; filas: { dimension: string; valor: number; cantidad: number }[] }> {
+  return authFetch("/analytics/cartera-por-nap");
+}
+export function analyticsMoraPorPlan(): Promise<{ total: number; filas: DimFila[] }> {
+  return authFetch("/analytics/mora-por-plan");
+}
+export function analyticsRecaudoPorCanal(periodo?: string): Promise<{ total: number; filas: { dimension: string; valor: number; cantidad: number }[] }> {
+  return authFetch(`/analytics/recaudo-por-canal${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function analyticsArpuPorZona(periodo?: string): Promise<{ periodo: string; filas: { zona: string; ingreso: number; clientes: number; arpu: number }[] }> {
+  return authFetch(`/analytics/arpu-por-zona${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function analyticsRentabilidadPorCentro(periodo?: string): Promise<{ periodo: string; filas: { centro: string; nombre: string; ingreso: number; costo: number; margen: number }[] }> {
+  return authFetch(`/analytics/rentabilidad-por-centro${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function analyticsChurnPorMora(): Promise<{ conteo: Record<string, number>; tasaSuspension: number; tasaChurn: number }> {
+  return authFetch("/analytics/churn-por-mora");
+}

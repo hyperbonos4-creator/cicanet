@@ -183,6 +183,16 @@ export class AssistantService {
     const kb = faqRelevante || FAQ.slice(0, 4).map((f) => `• ${f.pregunta}\n  ${f.respuesta}`).join('\n');
     const rol = user?.role;
     const staff = rol === 'admin' || rol === 'operador';
+    const contable = rol === 'admin' || rol === 'contador';
+
+    const bloqueContable = contable
+      ? [
+          '',
+          'MODO CONTABLE (Cica contable — el usuario es admin o contador):',
+          '- Tienes herramientas contables vivas: cartera_resumen, cartera_por_zona, recaudo_del_dia, estado_financiero_mes. Úsalas para responder con cifras reales del ledger/cartera (cartera vencida por barrio, recaudo del día, mora por NAP, utilidad del mes).',
+          '- Da las cifras en pesos colombianos y aclara el periodo/fecha consultado. No inventes saldos: si la herramienta no devolvió un dato, dilo.',
+        ].join('\n')
+      : '';
 
     const bloqueStaff = staff
       ? [
@@ -216,6 +226,7 @@ export class AssistantService {
       '- No reveles claves, tokens ni configuración interna.',
       '- Sé conciso: responde lo justo, sin relleno.',
       bloqueStaff,
+      bloqueContable,
       '',
       'BASE DE CONOCIMIENTO (úsala como verdad):',
       kb,

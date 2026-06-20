@@ -30,6 +30,15 @@ export interface AsientoInput {
   /** Si true, se contabiliza de una vez; si false, queda en borrador. */
   contabilizar?: boolean;
   creadoPor?: string;
+  /** Trazabilidad ampliada (Fase B). */
+  sourceModule?: string;
+  evento?: string;
+  autoGenerado?: boolean;
+  napId?: string;
+  zonaId?: string;
+  servicioId?: string;
+  clienteId?: string;
+  dianDocumentoId?: string;
 }
 
 const TIPOS = ['manual', 'apertura', 'venta', 'recaudo', 'compra', 'gasto', 'ajuste', 'depreciacion', 'cierre', 'reversion'];
@@ -277,6 +286,14 @@ export class AccountingService implements OnModuleInit {
         descripcion: input.descripcion.trim().slice(0, 500),
         referenciaTipo: input.referenciaTipo ?? null,
         referenciaId: input.referenciaId ?? null,
+        sourceModule: input.sourceModule ?? null,
+        evento: input.evento ?? null,
+        autoGenerado: input.autoGenerado ?? false,
+        napId: input.napId ?? null,
+        zonaId: input.zonaId ?? null,
+        servicioId: input.servicioId ?? null,
+        clienteId: input.clienteId ?? null,
+        dianDocumentoId: input.dianDocumentoId ?? null,
         estado: contabilizar ? 'contabilizado' : 'borrador',
         debitoTotal,
         creditoTotal,
@@ -328,6 +345,13 @@ export class AccountingService implements OnModuleInit {
         descripcion: `Reversión de ${original.numero}: ${original.descripcion}`.slice(0, 500),
         referenciaTipo: original.referenciaTipo,
         referenciaId: original.referenciaId,
+        sourceModule: original.sourceModule,
+        evento: 'asiento.reversed',
+        autoGenerado: original.autoGenerado,
+        napId: original.napId,
+        zonaId: original.zonaId,
+        servicioId: original.servicioId,
+        clienteId: original.clienteId,
         estado: 'contabilizado',
         debitoTotal: original.creditoTotal,
         creditoTotal: original.debitoTotal,
@@ -355,11 +379,14 @@ export class AccountingService implements OnModuleInit {
     return reverso;
   }
 
-  listAsientos(filtro: { periodo?: string; tipo?: string; estado?: string } = {}) {
+  listAsientos(filtro: { periodo?: string; tipo?: string; estado?: string; sourceModule?: string; referenciaTipo?: string; referenciaId?: string } = {}) {
     const where: Prisma.AsientoContableWhereInput = {};
     if (filtro.periodo) where.periodo = filtro.periodo;
     if (filtro.tipo) where.tipo = filtro.tipo;
     if (filtro.estado) where.estado = filtro.estado;
+    if (filtro.sourceModule) where.sourceModule = filtro.sourceModule;
+    if (filtro.referenciaTipo) where.referenciaTipo = filtro.referenciaTipo;
+    if (filtro.referenciaId) where.referenciaId = filtro.referenciaId;
     return this.prisma.asientoContable.findMany({
       where,
       orderBy: [{ fecha: 'desc' }, { numero: 'desc' }],

@@ -12,6 +12,7 @@ import {
 import type { Request } from 'express';
 import { AccountingService } from './accounting.service';
 import { ReportsService } from './reports.service';
+import { maquinasDeEstado } from './domain/state-machine';
 import { CrearAsientoDto, CrearCuentaDto, CrearTerceroDto } from './dto';
 import { JwtAuthGuard, Roles, RolesGuard } from '../auth/guards';
 
@@ -78,8 +79,21 @@ export class AccountingController {
 
   // ---- Asientos ----
   @Get('asientos')
-  asientos(@Query('periodo') periodo?: string, @Query('tipo') tipo?: string, @Query('estado') estado?: string) {
-    return this.accounting.listAsientos({ periodo, tipo, estado });
+  asientos(
+    @Query('periodo') periodo?: string,
+    @Query('tipo') tipo?: string,
+    @Query('estado') estado?: string,
+    @Query('sourceModule') sourceModule?: string,
+    @Query('referenciaTipo') referenciaTipo?: string,
+    @Query('referenciaId') referenciaId?: string,
+  ) {
+    return this.accounting.listAsientos({ periodo, tipo, estado, sourceModule, referenciaTipo, referenciaId });
+  }
+
+  /** Máquinas de estado documental (Fase A2): transiciones válidas por documento. */
+  @Get('estados-documentales')
+  estadosDocumentales() {
+    return maquinasDeEstado();
   }
 
   @Get('asientos/:id')

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsString, MinLength } from 'class-validator';
 import type { Request } from 'express';
 import { MeService } from './me.service';
@@ -38,6 +38,16 @@ export class MeController {
   @Get('facturas')
   facturas(@Req() req: Request) {
     return this.me.facturas(clienteId(req));
+  }
+
+  @Get('estado-cuenta')
+  estadoCuenta(@Req() req: Request) {
+    return this.me.estadoCuenta(clienteId(req));
+  }
+
+  @Get('facturas/:id')
+  facturaDetalle(@Param('id') id: string, @Req() req: Request) {
+    return this.me.facturaDetalle(clienteId(req), id);
   }
 
   @Post('clave')

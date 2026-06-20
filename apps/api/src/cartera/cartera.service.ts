@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -26,6 +27,7 @@ export class CarteraService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   private async siguienteNumero(): Promise<string> {
@@ -33,9 +35,20 @@ export class CarteraService {
     return `ACU-${String(n + 1).padStart(6, '0')}`;
   }
 
-  async crearAcuerdo(input: CrearAcuerdoInput) {
-    const cliente = await this.prisma.cliente.findUnique({ where: { id: input.clienteId } });
+  /** Resuelve un cliente por UUID, código público (CLI-xxxx) o documento. */
+  private async resolverCliente(ref: string) {
+    const v = (ref ?? '').trim();
+    if (!v) throw new BadRequestException('Falta el identificador del cliente.');
+    const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    const cliente = await this.prisma.cliente.findFirst({
+      where: esUuid ? { id: v } : { OR: [{ codigo: v }, { documento: v }] },
+    });
     if (!cliente) throw new BadRequestException('Cliente no encontrado.');
+    return cliente;
+  }
+
+  async crearAcuerdo(input: CrearAcuerdoInput) {
+    const cliente = await this.resolverCliente(input.clienteId);
     const total = round2(D(input.montoTotal));
     if (total <= 0) throw new BadRequestException('El monto total debe ser mayor a cero.');
     if (!Number.isInteger(input.numeroCuotas) || input.numeroCuotas < 1) throw new BadRequestException('Número de cuotas inválido.');
@@ -91,21 +104,23 @@ export class CarteraService {
 
   /** Castiga (write-off) cartera incobrable: Dr 531595 gasto, Cr 130505 CxC (tercero). */
   async castigar(input: { clienteId: string; monto: number; concepto?: string; facturaIds?: string[]; actor?: string }) {
-    const cliente = await this.prisma.cliente.findUnique({ where: { id: input.clienteId } });
-    if (!cliente) throw new BadRequestException('Cliente no encontrado.');
+    const cliente = await this.resolverCliente(input.clienteId);
     const monto = round2(D(input.monto));
     if (monto <= 0) throw new BadRequestException('El monto a castigar debe ser mayor a cero.');
 
     const tercero = await this.accounting.crearTercero({ documento: cliente.documento, nombre: cliente.nombre, tipo: 'cliente', clienteId: cliente.id });
-    const asiento = await this.accounting.crearAsiento({
-      tipo: 'ajuste',
+    const asiento = await this.posting.post({
+      evento: 'writeoff.created',
+      sourceModule: 'cartera',
       descripcion: `Castigo de cartera - ${cliente.nombre}${input.concepto ? ': ' + input.concepto : ''}`,
-      referenciaTipo: 'castigo_cartera', referenciaId: cliente.id,
+      tipo: 'ajuste',
+      referencia: { tipo: 'castigo_cartera', id: cliente.id },
+      trazas: { clienteId: cliente.id },
       lineas: [
         { cuenta: '531595', debito: monto, descripcion: 'Cartera incobrable' },
         { cuenta: '130505', credito: monto, terceroId: tercero.id, descripcion: `Castigo CxC ${cliente.nombre}` },
       ],
-      contabilizar: true, creadoPor: input.actor,
+      actor: input.actor,
     });
 
     // Marcar facturas como castigadas (si se indicaron).

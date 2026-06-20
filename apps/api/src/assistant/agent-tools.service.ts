@@ -14,8 +14,9 @@ import { config } from '../config';
 import type { ToolSchema } from './llm.provider';
 
 /** Rol efectivo del usuario que conversa (del JWT). */
-export type Rol = 'admin' | 'operador' | 'tecnico' | 'cliente' | undefined;
+export type Rol = 'admin' | 'operador' | 'tecnico' | 'contador' | 'cliente' | undefined;
 const esStaff = (r: Rol) => r === 'admin' || r === 'operador';
+const esContable = (r: Rol) => r === 'admin' || r === 'contador';
 
 /**
  * Herramientas reales que el agente puede invocar (function calling). Aquí está
@@ -47,8 +48,11 @@ export class AgentToolsService {
    */
   schemas(rol?: Rol): ToolSchema[] {
     const base = this.clientSchemas();
-    if (!esStaff(rol)) return base;
-    return [...base, ...this.staffSchemas(), ...(rol === 'admin' ? this.devSchemas() : [])];
+    const tools = [...base];
+    if (esStaff(rol)) tools.push(...this.staffSchemas());
+    if (esContable(rol)) tools.push(...this.contableSchemas());
+    if (rol === 'admin') tools.push(...this.devSchemas());
+    return tools;
   }
 
   /** Herramientas de autoservicio (cualquier usuario). */
@@ -242,6 +246,57 @@ export class AgentToolsService {
     ];
   }
 
+  /** Cica contable (solo admin/contador): consultas vivas de cartera/recaudo/estado. */
+  private contableSchemas(): ToolSchema[] {
+    return [
+      {
+        type: 'function',
+        function: {
+          name: 'cartera_resumen',
+          description:
+            'Resumen de cartera (cuentas por cobrar): total, vencido y por antigüedad (0-30/31-60/61-90/+90). Úsala cuando pregunten "cuánta cartera tenemos", "cuánto está vencido". Solo staff contable.',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'cartera_por_zona',
+          description:
+            'Cartera (vencida) agrupada por barrio o NAP. Úsala para "cartera vencida por barrio", "morosos en Popular 2", "qué NAP debe más". Solo staff contable.',
+          parameters: {
+            type: 'object',
+            properties: { dimension: { type: 'string', description: 'barrio | nap (por defecto barrio).' } },
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'recaudo_del_dia',
+          description:
+            'Total recaudado (recibos de caja) en una fecha (hoy por defecto). Úsala para "cuánto recaudamos hoy", "recaudo de ayer". Solo staff contable.',
+          parameters: {
+            type: 'object',
+            properties: { fecha: { type: 'string', description: 'Fecha YYYY-MM-DD (opcional, por defecto hoy).' } },
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'estado_financiero_mes',
+          description:
+            'Estado financiero resumido del mes: ingresos, gastos, utilidad y cartera al cierre. Úsala para "cómo vamos este mes", "utilidad de mayo". Solo staff contable.',
+          parameters: {
+            type: 'object',
+            properties: { periodo: { type: 'string', description: 'Periodo YYYY-MM (opcional, por defecto el mes actual).' } },
+          },
+        },
+      },
+    ];
+  }
+
   /** Copiloto de código en SOLO LECTURA (solo admin). */
   private devSchemas(): ToolSchema[] {
     return [
@@ -302,8 +357,10 @@ export class AgentToolsService {
     // Cortafuegos por rol: las herramientas de staff/dev solo para staff/admin.
     const STAFF_TOOLS = new Set(['buscar_cliente', 'resumen_cliente', 'estado_red', 'buscar_ordenes', 'listar_tickets']);
     const DEV_TOOLS = new Set(['explorar_proyecto', 'buscar_en_codigo', 'leer_archivo']);
+    const CONTABLE_TOOLS = new Set(['cartera_resumen', 'cartera_por_zona', 'recaudo_del_dia', 'estado_financiero_mes']);
     if (STAFF_TOOLS.has(name) && !esStaff(ctx?.rol)) return { error: 'no_autorizado' };
     if (DEV_TOOLS.has(name) && ctx?.rol !== 'admin') return { error: 'no_autorizado' };
+    if (CONTABLE_TOOLS.has(name) && !esContable(ctx?.rol)) return { error: 'no_autorizado' };
 
     try {
       switch (name) {
@@ -337,6 +394,14 @@ export class AgentToolsService {
           return await this.buscarOrdenes(args?.estado, args?.tecnico);
         case 'listar_tickets':
           return await this.listarTickets(args?.estado);
+        case 'cartera_resumen':
+          return await this.carteraResumen();
+        case 'cartera_por_zona':
+          return await this.carteraPorZona(args?.dimension);
+        case 'recaudo_del_dia':
+          return await this.recaudoDelDia(args?.fecha);
+        case 'estado_financiero_mes':
+          return await this.estadoFinancieroMes(args?.periodo);
         case 'explorar_proyecto':
           return this.explorer.available
             ? (args?.ruta ? this.explorer.listDir(String(args.ruta)) : { ok: true, arbol: this.explorer.tree(2) })
@@ -644,5 +709,101 @@ export class AgentToolsService {
       categoria,
       mensaje: `Ticket ${ticket.codigo} creado. Nuestro equipo le dará seguimiento.`,
     };
+  }
+
+  // --- Cica contable (admin/contador): consultas vivas sobre el ledger/cartera ---
+
+  private bucketDe(dias: number): string {
+    if (dias <= 0) return 'porVencer';
+    if (dias <= 30) return 'd1_30';
+    if (dias <= 60) return 'd31_60';
+    if (dias <= 90) return 'd61_90';
+    return 'd90mas';
+  }
+
+  /** Carga facturas pendientes/vencidas con su saldo (total − pagos aprobados). */
+  private async facturasConSaldo() {
+    const facturas = await this.prisma.factura.findMany({
+      where: { estado: { in: ['pendiente', 'vencida'] } },
+      include: {
+        pagos: { where: { estado: 'aprobado' }, select: { monto: true } },
+        servicio: { include: { punto: { select: { barrio: true } } } },
+      },
+      take: 50000,
+    });
+    const hoy = Date.now();
+    return facturas
+      .map((f) => {
+        const pagado = f.pagos.reduce((s, p) => s + Number(p.monto ?? 0), 0);
+        const saldo = Math.round((Number(f.total) - pagado) * 100) / 100;
+        const dias = Math.floor((hoy - f.fechaVencimiento.getTime()) / 86_400_000);
+        return { saldo, dias, barrio: f.servicio.punto?.barrio ?? 'Sin barrio', napId: f.servicio.activoNapId ?? f.servicio.napId ?? 'Sin NAP' };
+      })
+      .filter((f) => f.saldo > 0);
+  }
+
+  private async carteraResumen() {
+    const filas = await this.facturasConSaldo();
+    const buckets: Record<string, number> = { porVencer: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90mas: 0 };
+    let total = 0;
+    let vencido = 0;
+    for (const f of filas) {
+      const b = this.bucketDe(f.dias);
+      buckets[b] = Math.round((buckets[b] + f.saldo) * 100) / 100;
+      total = Math.round((total + f.saldo) * 100) / 100;
+      if (f.dias > 0) vencido = Math.round((vencido + f.saldo) * 100) / 100;
+    }
+    return { ok: true, total, vencido, buckets, facturasConSaldo: filas.length };
+  }
+
+  private async carteraPorZona(dimension?: string) {
+    const dim = dimension === 'nap' ? 'nap' : 'barrio';
+    const filas = await this.facturasConSaldo();
+    const map = new Map<string, { dimension: string; vencido: number; total: number }>();
+    for (const f of filas) {
+      const key = dim === 'nap' ? f.napId : f.barrio;
+      const acc = map.get(key) ?? { dimension: key, vencido: 0, total: 0 };
+      acc.total = Math.round((acc.total + f.saldo) * 100) / 100;
+      if (f.dias > 0) acc.vencido = Math.round((acc.vencido + f.saldo) * 100) / 100;
+      map.set(key, acc);
+    }
+    const out = [...map.values()].sort((a, b) => b.vencido - a.vencido).slice(0, 15);
+    return { ok: true, dimension: dim, zonas: out };
+  }
+
+  private async recaudoDelDia(fechaRaw?: string) {
+    const base = fechaRaw ? new Date(fechaRaw) : new Date();
+    if (Number.isNaN(base.getTime())) return { ok: false, mensaje: 'Fecha inválida (usa YYYY-MM-DD).' };
+    const desde = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+    const hasta = new Date(desde.getTime() + 86_400_000);
+    const recibos = await this.prisma.reciboCaja.findMany({
+      where: { fecha: { gte: desde, lt: hasta }, estado: { not: 'anulado' } },
+      select: { montoRecibido: true, medioPago: true },
+    });
+    const total = Math.round(recibos.reduce((s, r) => s + Number(r.montoRecibido ?? 0), 0) * 100) / 100;
+    const porMedio: Record<string, number> = {};
+    for (const r of recibos) porMedio[r.medioPago] = Math.round(((porMedio[r.medioPago] ?? 0) + Number(r.montoRecibido ?? 0)) * 100) / 100;
+    return { ok: true, fecha: desde.toISOString().slice(0, 10), total, recibos: recibos.length, porMedio };
+  }
+
+  private async estadoFinancieroMes(periodoRaw?: string) {
+    const d = new Date();
+    const periodo = /^\d{4}-\d{2}$/.test(String(periodoRaw)) ? String(periodoRaw) : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const movs = await this.prisma.movimientoContable.findMany({
+      where: { asiento: { periodo, estado: 'contabilizado' } },
+      include: { cuenta: { select: { clase: true } } },
+      take: 50000,
+    });
+    let ingresos = 0;
+    let gastos = 0;
+    for (const m of movs) {
+      const clase = m.cuenta?.clase ?? 0;
+      if (clase === 4) ingresos += Number(m.credito ?? 0) - Number(m.debito ?? 0);
+      if (clase === 5 || clase === 6) gastos += Number(m.debito ?? 0) - Number(m.credito ?? 0);
+    }
+    ingresos = Math.round(ingresos * 100) / 100;
+    gastos = Math.round(gastos * 100) / 100;
+    const cartera = (await this.carteraResumen()).total;
+    return { ok: true, periodo, ingresos, gastos, utilidad: Math.round((ingresos - gastos) * 100) / 100, carteraVigente: cartera };
   }
 }

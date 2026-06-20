@@ -10,5 +10,6 @@ import { RolesGuard } from '../auth/guards';
   imports: [AuthModule, PrismaModule],
   controllers: [ExogenaController],
   providers: [ExogenaService, RolesGuard],
+  exports: [ExogenaService],
 })
 export class ExogenaModule {}

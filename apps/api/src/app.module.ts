@@ -28,6 +28,10 @@ import { PayrollModule } from './payroll/payroll.module';
 import { CashModule } from './cash/cash.module';
 import { WorkbenchModule } from './workbench/workbench.module';
 import { TesoreriaModule } from './tesoreria/tesoreria.module';
+import { CarteraModule } from './cartera/cartera.module';
+import { DianModule } from './dian/dian.module';
+import { AssetRegistryModule } from './asset-registry/asset-registry.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -61,6 +65,10 @@ import { HealthController } from './health.controller';
     CashModule,
     WorkbenchModule,
     TesoreriaModule,
+    CarteraModule,
+    DianModule,
+    AssetRegistryModule,
+    AnalyticsModule,
   ],
   controllers: [HealthController],
 })

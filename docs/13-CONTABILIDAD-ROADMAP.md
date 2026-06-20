@@ -283,7 +283,7 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
 
 > Principio: **endurecer el core antes de abrir frentes nuevos.**
 
-### FASE A — Cash application + estados documentales + bandeja del contador 🔴 (siguiente)
+### FASE A — Cash application + estados documentales + bandeja del contador ✅ COMPLETA (2026-06-20)
 - **A1. Recibo de caja / aplicación de pagos** (parcial, múltiple, anticipos, huérfanos,
   reversión). Conecta recaudo Wompi/transferencia → factura(s) → asiento → cartera. ✅ (2026-06-20)
   - Backend `apps/api/src/cash/`: `ReciboCaja` + `AplicacionPago`; crear (con aplicaciones),
@@ -291,7 +291,11 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
     Dr banco/caja; Cr CxC aplicado + Cr anticipo(280505)/por-identificar(280515). Reusa `Pago` → el aging se actualiza solo.
   - Web: pestaña "Recibos de caja" (KPIs, lista, formulario con búsqueda de cliente, aplicación auto/manual, anular).
   - **Verificado:** recibo $100k → aplica $75k a junio (pagada) + $25k anticipo → aplica saldo a agosto (abono parcial); cartera del cliente queda en $50k; balance cuadra.
-- **A2. Máquinas de estado** en factura venta, factura compra, extracto, comprobante. 🟡 (parcial: estados operativos de recibo/factura/extracto/comprobante implementados; falta el motor formal de transiciones unificado)
+- **A2. Máquinas de estado** en factura venta, factura compra, extracto, comprobante. ✅ (2026-06-20)
+  - Registro declarativo de transiciones válidas por documento en `accounting/domain/state-machine.ts`
+    (`factura_venta`, `factura_compra`, `extracto`, `comprobante`, `recibo_caja`, `acuerdo_pago`) con
+    guardia `assertTransicion()` reutilizable. Expuesto en `GET /accounting/estados-documentales`.
+  - **Verificado:** el endpoint devuelve las 6 máquinas con sus transiciones.
 - **A3. Workbench del contador:** home con bandejas accionables (pagos sin aplicar,
   conciliaciones pendientes, facturas proveedor por pagar, morosos >30/60/90,
   documentos DIAN rechazados, comprobantes descuadrados/borrador, nómina/exógena pendientes). ✅ (2026-06-20)
@@ -299,10 +303,18 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
   - Web: "Pendientes del día" en el Resumen, tarjetas clicables que navegan a la pestaña que resuelve.
   - **Verificado:** tarjetas con conteos reales (facturas vencidas, recibos por aplicar, etc.).
 
-### FASE B — Motor de eventos contables + trazabilidad ampliada 🔴
-- **B1. Posting engine** desacoplado por eventos (emisor único de asientos por evento).
-- **B2. Trazabilidad ampliada** en asiento/línea (sourceModule, napId/zonaId/servicioId,
-  centroCosto, autoGenerado, relación DIAN/banco/cartera) + drill-down KPI→asiento→soporte.
+### FASE B — Motor de eventos contables + trazabilidad ampliada ✅ COMPLETA (2026-06-20)
+- **B1. Posting engine** desacoplado por eventos (emisor único de asientos por evento). ✅
+  - `accounting/posting-engine.service.ts` (`PostingEngineService.post()`): los módulos describen el
+    **evento de negocio** (`invoice.issued`, `payment.received`, `writeoff.created`,
+    `depreciation.posted`, …) y el motor emite el comprobante con trazabilidad, delegando el cuadre
+    en `AccountingService`. Exportado por `AccountingModule`; en uso por el castigo de cartera.
+- **B2. Trazabilidad ampliada** en asiento (sourceModule, evento, autoGenerado, napId/zonaId/servicioId,
+  clienteId, dianDocumentoId) + drill-down por origen. ✅
+  - Campos añadidos a `AsientoContable` (migrados con `db push`). Filtro
+    `GET /accounting/asientos?sourceModule=&referenciaTipo=&referenciaId=` para drill-down KPI→asiento.
+  - **Verificado en vivo:** castigo genera asiento `writeoff.created`, `sourceModule=cartera`,
+    `autoGenerado=true`, `clienteId` poblado; balance cuadra.
 
 ### FASE C — Tesorería ✅ (2026-06-20)
 - **Modelo:** `MovimientoTesoreria` (egreso | traslado | comision | ingreso_otro). ✅
@@ -320,32 +332,59 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
 - **Web:** checklist visual en la pestaña "Periodos" antes de cerrar. ✅
 - **Verificado:** 6 validaciones en verde, puedeCerrar=True, cuadre D=C.
 
-### FASE E — Centro DIAN unificado + estados 🟠
-- Vista única de FE/notas/documento soporte/nómina/exógena + certificados/resolución +
-  reprocesos/errores. Exógena con **motor de mapeo parametrizable** (cuenta→concepto DIAN)
-  y bandeja de validación (NIT inválidos, terceros sin municipio/DV, movimientos sin mapeo,
-  diferencias contra ledger) antes de exportar.
+### FASE E — Centro DIAN unificado + estados ✅ COMPLETA (2026-06-20)
+- **Backend** `apps/api/src/dian/`: vista única (`GET /dian/centro`) que agrupa documentos
+  electrónicos por tipo/estado, nómina electrónica pendiente, formatos de exógena y un
+  **semáforo de habilitación** (certificado/resolución/rango/ambiente) derivado de `Setting`. ✅
+- **Motor de mapeo parametrizable** (modelo `ReglaExogena`, cuenta→concepto DIAN):
+  `GET/POST /dian/exogena/reglas`. **Bandeja de validación** pre-exportación
+  (`GET /dian/exogena/validacion`): NIT sin DV, terceros sin tipo de documento, documento con
+  formato inválido, reglas de mapeo activas. ✅
+- Reproceso de documentos rechazados/error (`POST /dian/documentos/:id/reprocesar`). ✅
+- **Web:** pestaña "Centro DIAN" (habilitación, documentos, validación exógena, configuración admin). ✅
+- **Verificado en vivo:** `puedeEmitirEnVivo=false` (certs pendientes), `listoParaExportar=true`.
 
-### FASE F — Cartera avanzada (cobranza "de guerra") 🟡
-- Acuerdos/refinanciación/condonación/castigo, reconexión con abono mínimo, intereses de
-  mora, historial de gestión de cobro por cliente.
+### FASE F — Cartera avanzada (cobranza "de guerra") ✅ COMPLETA (2026-06-20)
+- **Backend** `apps/api/src/cartera/` (antes huérfano, ahora cableado con controller + módulo):
+  acuerdos de pago / refinanciación (plan de cuotas mensual/quincenal con ajuste de redondeo) y
+  **castigo de cartera** (write-off Dr 531595 / Cr 130505) vía posting engine. ✅
+- Resolución flexible del cliente (UUID, código CLI-xxxx o documento). Endpoints
+  `GET/POST /cartera/acuerdos`, `.../cuota`, `.../estado`, `POST /cartera/castigar`. ✅
+- **Web:** pestaña "Acuerdos de pago" (crear acuerdo, ver cuotas, cancelar, castigar). ✅
+- **Verificado en vivo:** acuerdo `ACU-000001` (cuotas correctas), castigo contabilizado, balance cuadra.
 
-### FASE G — Activos: separar red vs contable 🟡
-- `AssetRegistry` operativo (seriales/comodato/MAC/stock) ↔ `FixedAssetAccounting`
-  (depreciación, centro de costo, baja/venta/traslado/mejora), libro auxiliar de activos.
+### FASE G — Activos: separar red vs contable ✅ COMPLETA (2026-06-20)
+- **Modelo `AssetRegistry`** (inventario operativo: serial/MAC/comodato/stock/ubicación) con
+  ciclo físico propio (stock→asignado→comodato→baja, transiciones validadas) y vínculo opcional
+  al activo fijo contable (`activoFijoId`) para depreciación. ✅
+- **Backend** `apps/api/src/asset-registry/`: alta, asignar (comodato), liberar, cambiar estado,
+  vincular-contable, resumen (por estado/categoría, sin capitalizar, en comodato). ✅
+- **Web:** pestaña "Inventario red" (KPIs, registrar equipo, liberar). ✅
+- **Verificado en vivo:** alta de ONU en stock; resumen refleja el conteo.
 
-### FASE H — Analítica vertical ISP + centros de costo 🟢
-- Centros de costo como entidad de 1er nivel (admin/soporte/instalación/backbone/nodo).
-- Reportes: ingreso por barrio, cartera vencida por NAP, mora por plan, recaudo por
-  canal, ARPU por zona, costo de red vs ingreso por nodo, churn por mora.
-- Cica contable (consultas en lenguaje natural sobre cartera/recaudo/estado financiero).
-- Portal del cliente (autofactura / estado de cuenta).
+### FASE H — Analítica vertical ISP + centros de costo ✅ COMPLETA (2026-06-20)
+- **Centros de costo** como entidad de 1er nivel (modelo `CentroCosto`): `GET/POST /analytics/centros`. ✅
+- **Reportes verticales** `apps/api/src/analytics/`: ingreso por barrio, cartera vencida por NAP,
+  mora por plan, recaudo por canal, ARPU por zona, rentabilidad por centro/nodo (ingreso−costo del
+  ledger), churn por mora. ✅
+- **Cica contable** (asistente, rol-gated admin/contador): herramientas `cartera_resumen`,
+  `cartera_por_zona`, `recaudo_del_dia`, `estado_financiero_mes` en `AgentToolsService` +
+  bloque de prompt contable. ✅
+- **Portal del cliente** (`me`): `GET /me/estado-cuenta` (saldo/vencido/al día) y
+  `GET /me/facturas/:id` (detalle + documento DIAN/CUFE para autodescarga). ✅
+- **Web:** pestaña "Analítica" (KPIs de churn, ingreso por barrio, cartera por NAP, recaudo por
+  canal, ARPU por zona, centros de costo). ✅
+- **Verificado en vivo:** ingreso por barrio = $135.000 (data de prueba), churn/centros responden.
 
-## Sprint inmediato sugerido (lo más peligroso primero)
-1. **Cash application / recibo de caja** (A1) — sin esto, cartera y conciliación se enredan.
-2. **Máquinas de estado documental** (A2).
-3. **Workbench del contador** (A3).
-4. **Posting engine por eventos + trazabilidad** (B).
+## Sprint inmediato sugerido — COMPLETADO (2026-06-20)
+1. **Cash application / recibo de caja** (A1) ✅
+2. **Máquinas de estado documental** (A2) ✅
+3. **Workbench del contador** (A3) ✅
+4. **Posting engine por eventos + trazabilidad** (B) ✅
+
+> **Estado Parte II:** Fases A–H completas, compilando (api + web) y verificadas en vivo contra el
+> stack Docker (Postgres `db push` aplicado, API recargada). Pendiente externo invariante: certificado
+> de firma + habilitación DIAN + resolución de numeración (trámite, no código) para emitir en vivo.
 
 ## Evaluación honesta
 - Dirección arquitectónica: sólida. El orden (operación→cartera→conciliación→ledger→
