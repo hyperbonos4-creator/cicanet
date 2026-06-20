@@ -128,9 +128,15 @@ services:
       ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-ollama}
       ASSISTANT_BASE_URL: ${ASSISTANT_BASE_URL:-http://host.docker.internal:11434/v1}
       ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
-      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-qwen3-coder:30b}
-      ASSISTANT_MAX_TOKENS: ${ASSISTANT_MAX_TOKENS:-700}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-qwen3:8b}
+      # Respuestas breves = menos tokens = menos latencia (modelo local).
+      ASSISTANT_MAX_TOKENS: ${ASSISTANT_MAX_TOKENS:-400}
       ASSISTANT_TEMPERATURE: ${ASSISTANT_TEMPERATURE:-0.3}
+      # Agente local-rápido: pocas llamadas (plan→ejecutar→sintetizar), tools en
+      # paralelo y presupuesto de tiempo acotado para no colgar la petición.
+      ASSISTANT_CALL_TIMEOUT_MS: ${ASSISTANT_CALL_TIMEOUT_MS:-20000}
+      ASSISTANT_BUDGET_MS: ${ASSISTANT_BUDGET_MS:-35000}
+      ASSISTANT_MAX_TOOL_RESULT_CHARS: ${ASSISTANT_MAX_TOOL_RESULT_CHARS:-2500}
       # Raíz del código que el copiloto (rol admin) puede inspeccionar en SOLO
       # LECTURA. Se monta el monorepo completo en /workspace:ro (ver volumes).
       # El servicio bloquea por código .env, secretos y node_modules/.git.

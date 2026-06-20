@@ -25,11 +25,17 @@ export interface AssistantReply {
   pago?: { url: string; referencia: string; monto: number } | null;
 }
 
-const MAX_TOOL_ROUNDS = 6;
+/**
+ * Máximo de rondas de herramientas. El flujo objetivo es plan→ejecutar→
+ * sintetizar (≈2 llamadas): ronda 0 pide herramientas, se ejecutan EN PARALELO,
+ * y la ronda 1 ya redacta. Se permiten hasta 3 para flujos iterativos reales
+ * (p. ej. el copiloto: buscar en código → leer los archivos hallados → explicar).
+ */
+const MAX_TOOL_ROUNDS = 3;
 /** Margen reservado del presupuesto para redactar la respuesta final. */
-const FINAL_RESERVE_MS = 15000;
+const FINAL_RESERVE_MS = 12000;
 /** Tiempo mínimo que debe quedar para iniciar una ronda de herramientas. */
-const MIN_ROUND_MS = 9000;
+const MIN_ROUND_MS = 6000;
 
 /**
  * Agente operativo de soporte de CICANET. No es un FAQ-bot: razona, consulta
@@ -69,7 +75,9 @@ export class AssistantService {
     const ctx = { creadoPor: user?.username, nombre: user?.nombre, clienteId: user?.clienteId, rol };
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt(ultimo, user) },
-      ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+      // Historial corto: menos contexto = menos latencia. Las últimas 6 vueltas
+      // bastan para mantener el hilo de una conversación de soporte.
+      ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
     ];
 
     let pago: AssistantReply['pago'] = null;
@@ -108,16 +116,23 @@ export class AssistantService {
         };
       }
 
-      // Registrar la intención de herramientas y ejecutarlas.
+      // Registrar la intención de herramientas y ejecutarlas EN PARALELO: las
+      // tools de CICANET son lookups independientes (cobertura, factura, etc.),
+      // así que no hay razón para encadenarlas en serie y sumar latencia.
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: msg.tool_calls });
-      for (const tc of msg.tool_calls) {
-        let args: Record<string, any> = {};
-        try {
-          args = JSON.parse(tc.function.arguments || '{}');
-        } catch {
-          args = {};
-        }
-        const result = await this.tools.execute(tc.function.name, args, ctx);
+      const ejecuciones = await Promise.all(
+        msg.tool_calls.map(async (tc) => {
+          let args: Record<string, any> = {};
+          try {
+            args = JSON.parse(tc.function.arguments || '{}');
+          } catch {
+            args = {};
+          }
+          const result = await this.tools.execute(tc.function.name, args, ctx);
+          return { tc, result };
+        }),
+      );
+      for (const { tc, result } of ejecuciones) {
         if (tc.function.name === 'crear_link_pago' && (result as any)?.ok) {
           const r = result as any;
           pago = { url: r.url, referencia: r.referencia, monto: r.monto };
@@ -191,6 +206,8 @@ export class AssistantService {
       'TU MISIÓN: resolver dudas de soporte y del servicio con precisión, en español de Colombia, tono cálido, claro y breve (frases cortas).',
       '',
       'REGLAS:',
+      '- EFICIENCIA: si necesitas varias herramientas, invócalas TODAS en el mismo turno (se ejecutan en paralelo). No las pidas de una en una. En cuanto tengas los datos, responde; no hagas llamadas de más.',
+      '- BREVEDAD: responde en pocas frases, lo justo. Nada de relleno ni repetir la pregunta.',
       '- Usa las herramientas para responder con datos reales (cobertura, pagos, contacto, planes). NO inventes datos técnicos, precios exactos, ni estados de cuenta: si una herramienta no te dio el dato, dilo.',
       '- NO inventes rutas, menús ni pasos de la app. Si el usuario pregunta CÓMO hacer algo en la app, PRIMERO usa la herramienta consultar_funciones_app y guíate SOLO por lo que devuelve. Nunca supongas que existe una pantalla, un botón o una función.',
       '- Distingue siempre la contraseña de la CUENTA (app) de la contraseña del WIFI (router). Si no está claro, pregunta cuál.',

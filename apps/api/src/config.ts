@@ -122,20 +122,21 @@ export const config = {
       'https://generativelanguage.googleapis.com/v1beta/openai'
     ).replace(/\/$/, ''),
     model: process.env.ASSISTANT_MODEL || 'gemini-2.0-flash',
-    // Límites de seguridad/coste.
-    maxTokens: parseInt(process.env.ASSISTANT_MAX_TOKENS || '700', 10),
+    // Tope de tokens de salida. En modelos locales el TIEMPO ≈ tokens_generados /
+    // velocidad: con ~33 tok/s, 700 tokens son ~21s POR llamada. Respuestas de
+    // soporte deben ser breves, así que limitamos fuerte (gran palanca de latencia).
+    maxTokens: parseInt(process.env.ASSISTANT_MAX_TOKENS || '400', 10),
     temperature: parseFloat(process.env.ASSISTANT_TEMPERATURE || '0.3'),
-    // Tiempo máximo por llamada al modelo (ms). Los modelos locales (Ollama)
-    // son lentos: si una llamada se cuelga, se aborta para no bloquear la petición.
-    callTimeoutMs: parseInt(process.env.ASSISTANT_CALL_TIMEOUT_MS || '45000', 10),
-    // Presupuesto total del agente (ms). Pasado este punto deja de iterar con
-    // herramientas y da una respuesta acotada: la petición SIEMPRE termina a
-    // tiempo y el frontend nunca cae en "Tuve un problema para responder".
-    budgetMs: parseInt(process.env.ASSISTANT_BUDGET_MS || '55000', 10),
+    // Tiempo máximo por llamada al modelo (ms). Aborta si el modelo local se
+    // cuelga, para no bloquear la petición HTTP.
+    callTimeoutMs: parseInt(process.env.ASSISTANT_CALL_TIMEOUT_MS || '20000', 10),
+    // Presupuesto total del agente (ms). Con el flujo plan→ejecutar→sintetizar
+    // (2–3 llamadas) basta con ~35s; la petición SIEMPRE termina a tiempo y el
+    // frontend nunca cae en "Tuve un problema para responder".
+    budgetMs: parseInt(process.env.ASSISTANT_BUDGET_MS || '35000', 10),
     // Tope de caracteres del resultado de cada herramienta que se reinyecta al
-    // modelo. Evita que leer archivos grandes infle el contexto y dispare la
-    // latencia de cada ronda sucesiva (causa raíz de respuestas de >90s).
-    maxToolResultChars: parseInt(process.env.ASSISTANT_MAX_TOOL_RESULT_CHARS || '4000', 10),
+    // modelo. Evita que leer archivos grandes infle el contexto (latencia).
+    maxToolResultChars: parseInt(process.env.ASSISTANT_MAX_TOOL_RESULT_CHARS || '2500', 10),
   },
 
   // Raíz del código que el copiloto (rol admin) puede inspeccionar en solo

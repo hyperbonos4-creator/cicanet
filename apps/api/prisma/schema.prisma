@@ -792,3 +792,27 @@ model MovimientoTesoreria {
   @@index([tipo])
   @@map("movimiento_tesoreria")
 }
+
+/// Acuerdo de pago / refinanciación de cartera de un cliente moroso. Plan de
+/// cuotas que se cruza con los recaudos (cash application). No genera asiento por
+/// sí mismo; los pagos siguen su flujo normal de recibo de caja.
+model AcuerdoPago {
+  id            String   @id @default(uuid()) @db.Uuid
+  numero        String   @unique // ACU-000001
+  clienteId     String   @map("cliente_id") @db.Uuid
+  clienteNombre String   @map("cliente_nombre")
+  fechaAcuerdo  DateTime @db.Date @map("fecha_acuerdo")
+  montoTotal    Decimal  @db.Decimal(16, 2) @map("monto_total")
+  numeroCuotas  Int      @map("numero_cuotas")
+  periodicidad  String   @default("mensual") // mensual | quincenal
+  /// Cuotas [{ n, fecha, valor, estado }].
+  cuotas        Json     @db.JsonB
+  estado        String   @default("vigente") // vigente | cumplido | incumplido | cancelado
+  notas         String?
+  creadoPor     String?  @map("creado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  @@index([clienteId])
+  @@index([estado])
+  @@map("acuerdo_pago")
+}
