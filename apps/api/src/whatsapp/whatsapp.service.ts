@@ -120,6 +120,28 @@ export class WhatsappService {
    * Datos de contacto que usa la app del cliente al tocar "Soporte": el número
    * vinculado por QR. Si no hay vínculo, el controller cae al número manual.
    */
+  /**
+   * Vinculación por CÓDIGO (alternativa al QR). Pide a Evolution un "pairing code"
+   * para un número; el usuario lo escribe en WhatsApp → Dispositivos vinculados →
+   * Vincular con número de teléfono. Útil por túnel/móvil donde escanear el QR no
+   * es práctico (o el QR expira por latencia).
+   */
+  async pairWithNumber(numero: string): Promise<{ pairingCode: string | null; numero: string }> {
+    const limpio = digits(numero);
+    if (limpio.length < 10) return { pairingCode: null, numero: limpio };
+    const e164 = limpio.length === 10 ? `57${limpio}` : limpio;
+    if (!this.cfg.apiKey) return { pairingCode: null, numero: e164 };
+    await this.ensureInstance();
+    try {
+      const res = await this.call(`/instance/connect/${this.inst()}?number=${e164}`, 'GET');
+      const body: any = res.body;
+      const code = body?.pairingCode ?? body?.code ?? body?.qrcode?.pairingCode ?? null;
+      return { pairingCode: typeof code === 'string' && code ? code : null, numero: e164 };
+    } catch {
+      return { pairingCode: null, numero: e164 };
+    }
+  }
+
   contact(mensaje: string): { habilitado: boolean; numero: string; url: string | null } {
     const numero = this.cachedStatus.state === 'open' ? this.cachedStatus.numero : null;
     if (!numero) return { habilitado: false, numero: '', url: null };

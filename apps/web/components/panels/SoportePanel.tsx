@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getSupportWhatsapp,
   setSupportWhatsapp,
   whatsappStatus,
   whatsappConnect,
+  whatsappPair,
   whatsappLogout,
   whatsappChats,
   whatsappHandoffs,
@@ -28,7 +29,6 @@ export default function SoportePanel({ canEdit }: { canEdit: boolean }) {
   const [handoffs, setHandoffs] = useState<SolicitudAsesor[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -78,11 +78,21 @@ export default function SoportePanel({ canEdit }: { canEdit: boolean }) {
   }
 
   useEffect(() => {
-    refreshStatus();
-    // Sondeo: mientras se muestra el QR / conectando, refrescar seguido.
-    pollRef.current = setInterval(refreshStatus, 4000);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    async function loop() {
+      const s = await refreshStatus();
+      if (cancelled) return;
+      // Mientras se muestra el QR conviene refrescar rápido (expira en segundos);
+      // ya conectado, lento. Esto evita escanear un QR vencido por la latencia del túnel.
+      const delay =
+        s?.state === "qr" ? 1800 : s?.state === "connecting" ? 2500 : s?.state === "open" ? 8000 : 4000;
+      timer = setTimeout(loop, delay);
+    }
+    loop();
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [refreshStatus]);
 
@@ -192,6 +202,7 @@ export default function SoportePanel({ canEdit }: { canEdit: boolean }) {
                 {connecting ? "Generando…" : status?.qrDataUrl ? "Regenerar QR" : "Vincular WhatsApp"}
               </button>
             )}
+            {canEdit && <PairByCode />}
             {!canEdit && (
               <p className="text-[11px] text-cica-muted">Solo un administrador puede vincular el WhatsApp.</p>
             )}
@@ -309,6 +320,62 @@ function ChatRow({ c }: { c: WaChat }) {
         </span>
       )}
     </a>
+  );
+}
+
+function PairByCode() {
+  const [open, setOpen] = useState(false);
+  const [numero, setNumero] = useState("");
+  const [code, setCode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function obtener() {
+    setBusy(true);
+    setMsg(null);
+    setCode(null);
+    try {
+      const r = await whatsappPair(numero);
+      if (r.pairingCode) setCode(r.pairingCode);
+      else setMsg("No se pudo generar el código. Verifica el número (con indicativo) e intenta de nuevo.");
+    } catch (e: any) {
+      setMsg(e.message || "No se pudo generar el código.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="w-full max-w-sm">
+      <button onClick={() => setOpen((o) => !o)} className="mx-auto block text-[11px] text-cica-steelLight hover:underline">
+        ¿No puedes escanear el QR? Vincular por código
+      </button>
+      {open && (
+        <div className="mt-3 flex flex-col gap-2 rounded-lg border border-cica-border/40 p-4">
+          <p className="text-[11px] text-cica-muted">
+            Escribe el número del teléfono de CICANET (con indicativo, ej. +57 300 123 4567) y pulsa
+            "Obtener código". Luego en ese teléfono: <b className="text-cica-silver">WhatsApp → Dispositivos
+            vinculados → Vincular un dispositivo → Vincular con número de teléfono</b> e ingresa el código.
+          </p>
+          <input
+            value={numero}
+            onChange={(e) => setNumero(e.target.value)}
+            placeholder="+57 300 123 4567"
+            className="rounded-xl border border-cica-border bg-cica-navy/80 px-4 py-2.5 text-sm text-cica-silver outline-none focus:border-cica-gold"
+          />
+          <button onClick={obtener} disabled={busy || numero.replace(/\D/g, "").length < 10} className="btn-cica disabled:opacity-50">
+            {busy ? "Generando…" : "Obtener código"}
+          </button>
+          {code && (
+            <div className="rounded-lg border border-status-ftth/40 bg-status-ftth/10 px-3 py-2 text-center">
+              <div className="text-[10px] uppercase tracking-wide text-cica-muted">Código de vinculación</div>
+              <div className="text-2xl font-extrabold tracking-[0.3em] text-status-ftth">{code}</div>
+            </div>
+          )}
+          {msg && <span className="text-[11px] text-cica-muted">{msg}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 

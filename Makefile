@@ -3,7 +3,7 @@
 #  Uso: make up | make logs | make down ...
 #  (En Windows sin `make`, usa los equivalentes npm: npm run up, etc.)
 # ============================================================
-.PHONY: up dev down stop logs ps rebuild reset api-logs web-logs sh-api sh-web help
+.PHONY: up dev down stop logs ps rebuild reset api-logs web-logs sh-api sh-web tunnel help
 
 ## Levanta todo el stack en segundo plano (construye si hace falta)
 up:
@@ -51,5 +51,9 @@ sh-api:
 sh-web:
 	docker compose exec web sh
 
+## Abre un túnel público con ngrok (expone web + API por mismo origen)
+tunnel:
+	powershell -ExecutionPolicy Bypass -File scripts/tunnel.ps1 -Up
+
 help:
-	@echo "Targets: up dev down stop logs ps rebuild reset api-logs web-logs sh-api sh-web"
+	@echo "Targets: up dev down stop logs ps rebuild reset api-logs web-logs sh-api sh-web tunnel"

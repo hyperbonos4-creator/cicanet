@@ -59,7 +59,7 @@ export function getUser(): SessionUser | null {
 export async function login(username: string, password: string) {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
     body: JSON.stringify({ username, password }),
   });
   if (!res.ok) {
@@ -77,6 +77,8 @@ async function authFetch(path: string, init: RequestInit = {}) {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      // Evita la página de advertencia de ngrok en respuestas XHR/JSON.
+      "ngrok-skip-browser-warning": "true",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers || {}),
     },
@@ -650,6 +652,9 @@ export function whatsappStatus(): Promise<WaStatus> {
 }
 export function whatsappConnect(): Promise<WaStatus> {
   return authFetch("/whatsapp/connect", { method: "POST" });
+}
+export function whatsappPair(numero: string): Promise<{ pairingCode: string | null; numero: string }> {
+  return authFetch("/whatsapp/pair", { method: "POST", body: JSON.stringify({ numero }) });
 }
 export function whatsappLogout(): Promise<{ ok: boolean }> {
   return authFetch("/whatsapp/session", { method: "DELETE" });

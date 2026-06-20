@@ -42,3 +42,7 @@ Thumbs.db
 
 # Turborepo
 .turbo/
+
+# Túnel ngrok — token local (NUNCA versionar el authtoken)
+scripts/.ngrok-authtoken
+*.ngrok-authtoken

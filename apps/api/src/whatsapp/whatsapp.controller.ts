@@ -41,6 +41,14 @@ export class WhatsappController {
     return this.wa.connect();
   }
 
+  /** Vinculación por código (alternativa al QR). Solo admin. */
+  @Post('pair')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  pair(@Body() body: { numero: string }) {
+    return this.wa.pairWithNumber(body?.numero ?? '');
+  }
+
   /** Desvincula el teléfono. Solo admin. */
   @Delete('session')
   @UseGuards(JwtAuthGuard, RolesGuard)
