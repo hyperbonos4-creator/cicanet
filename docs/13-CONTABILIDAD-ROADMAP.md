@@ -285,7 +285,12 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
 
 ### FASE A — Cash application + estados documentales + bandeja del contador 🔴 (siguiente)
 - **A1. Recibo de caja / aplicación de pagos** (parcial, múltiple, anticipos, huérfanos,
-  reversión). Conecta recaudo Wompi/transferencia → factura(s) → asiento → cartera.
+  reversión). Conecta recaudo Wompi/transferencia → factura(s) → asiento → cartera. ✅ (2026-06-20)
+  - Backend `apps/api/src/cash/`: `ReciboCaja` + `AplicacionPago`; crear (con aplicaciones),
+    aplicar saldo, identificar huérfano, anular (reversa asientos + reabre facturas). Contabiliza
+    Dr banco/caja; Cr CxC aplicado + Cr anticipo(280505)/por-identificar(280515). Reusa `Pago` → el aging se actualiza solo.
+  - Web: pestaña "Recibos de caja" (KPIs, lista, formulario con búsqueda de cliente, aplicación auto/manual, anular).
+  - **Verificado:** recibo $100k → aplica $75k a junio (pagada) + $25k anticipo → aplica saldo a agosto (abono parcial); cartera del cliente queda en $50k; balance cuadra.
 - **A2. Máquinas de estado** en factura venta, factura compra, extracto, comprobante.
 - **A3. Workbench del contador:** home con bandejas accionables (pagos sin aplicar,
   conciliaciones pendientes, facturas proveedor por pagar, morosos >30/60/90,

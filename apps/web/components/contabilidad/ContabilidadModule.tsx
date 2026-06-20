@@ -46,6 +46,13 @@ import {
   crearEmpleado,
   nominaPreview,
   nominaRun,
+  listRecibos,
+  cashResumen,
+  facturasPendientesCliente,
+  crearRecibo,
+  aplicarSaldoRecibo,
+  anularRecibo,
+  listClientes,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -62,9 +69,11 @@ import {
   type ActivoFijo,
   type FormatoExogena,
   type Empleado,
+  type ReciboCaja,
+  type FacturaPendiente,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "compras" | "activos" | "nomina" | "exogena" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "recibos" | "facturacion" | "cobranza" | "compras" | "activos" | "nomina" | "exogena" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -72,6 +81,7 @@ const money = (n: number) =>
 const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "dashboard", label: "Resumen" },
   { key: "cartera", label: "Cartera" },
+  { key: "recibos", label: "Recibos de caja" },
   { key: "cobranza", label: "Cobranza" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "compras", label: "Compras / CxP" },
@@ -110,6 +120,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
 
       {tab === "dashboard" && <DashboardTab />}
       {tab === "cartera" && <CarteraTab />}
+      {tab === "recibos" && <RecibosTab canEdit={canEdit} />}
       {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
       {tab === "facturacion" && <FacturacionTab />}
       {tab === "compras" && <ComprasTab canEdit={canEdit} />}
@@ -522,6 +533,168 @@ function CompraForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-cica-muted">Cancelar</button>
           <button onClick={guardar} disabled={!valido || saving} className="rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">{saving ? "Guardando…" : "Causar compra"}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ===================== Recibos de caja (cash application) ===================== */
+function RecibosTab({ canEdit }: { canEdit: boolean }) {
+  const [recibos, setRecibos] = useState<ReciboCaja[]>([]);
+  const [resumen, setResumen] = useState<{ recibosPendientes: number; totalPorAplicar: number; huerfanos: number } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try { setRecibos(await listRecibos()); setResumen(await cashResumen()); setErr(null); } catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function anular(r: ReciboCaja) {
+    if (!confirm(`¿Anular el recibo ${r.numero}? Se reversan los asientos y se reabren las facturas.`)) return;
+    setBusy(true);
+    try { await anularRecibo(r.id); await refresh(); } catch (e: any) { alert(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Kpi label="Recibos por aplicar" value={String(resumen?.recibosPendientes ?? 0)} accent="text-cica-gold" />
+        <Kpi label="Saldo por aplicar" value={money(resumen?.totalPorAplicar ?? 0)} accent="text-status-parcial" />
+        <Kpi label="Sin identificar" value={String(resumen?.huerfanos ?? 0)} accent={(resumen?.huerfanos ?? 0) > 0 ? "text-status-sin" : "text-cica-muted"} />
+      </div>
+
+      {canEdit && <div><button onClick={() => setShowForm(true)} className="rounded-xl bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black">+ Registrar recibo de caja</button></div>}
+      {err && <Aviso texto={err} />}
+
+      <div className="glass p-4">
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">N°</th><th className="text-left">Cliente</th><th className="text-left">Medio</th><th className="text-right">Recibido</th><th className="text-right">Sin aplicar</th><th className="text-right">Estado</th></tr></thead>
+          <tbody>
+            {recibos.map((r) => (
+              <tr key={r.id} className="border-t border-cica-border/30">
+                <td className="py-1 font-mono text-cica-gold">{r.numero}</td>
+                <td className="text-cica-silver">{r.clienteNombre ?? <span className="text-status-sin">Sin identificar</span>}</td>
+                <td className="text-cica-muted">{r.medioPago}</td>
+                <td className="text-right text-cica-silver">{money(Number(r.montoRecibido))}</td>
+                <td className="text-right text-cica-muted">{Number(r.saldoPorAplicar) > 0 ? money(Number(r.saldoPorAplicar)) : ""}</td>
+                <td className="text-right">
+                  <span className={`text-[11px] ${r.estado === "aplicado" ? "text-status-ftth" : r.estado === "anulado" ? "text-cica-muted" : "text-status-parcial"}`}>{r.estado}</span>
+                  {canEdit && r.estado !== "anulado" && <button onClick={() => anular(r)} disabled={busy} className="ml-2 text-[10px] text-cica-muted hover:text-status-sin">anular</button>}
+                </td>
+              </tr>
+            ))}
+            {recibos.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-cica-muted">Sin recibos registrados.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {showForm && <ReciboForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); refresh(); }} />}
+    </div>
+  );
+}
+
+function ReciboForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [q, setQ] = useState("");
+  const [clientes, setClientes] = useState<{ id: string; codigo: string; nombre: string }[]>([]);
+  const [cliente, setCliente] = useState<{ id: string; nombre: string } | null>(null);
+  const [medio, setMedio] = useState("transferencia");
+  const [monto, setMonto] = useState(0);
+  const [referencia, setReferencia] = useState("");
+  const [facturas, setFacturas] = useState<FacturaPendiente[]>([]);
+  const [aplic, setAplic] = useState<Record<string, number>>({});
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function buscar() {
+    try { const r: any = await listClientes({ q }); setClientes(Array.isArray(r) ? r : r.items ?? []); } catch { /* noop */ }
+  }
+  async function elegir(c: { id: string; nombre: string }) {
+    setCliente(c); setClientes([]);
+    try { setFacturas(await facturasPendientesCliente(c.id)); } catch { setFacturas([]); }
+  }
+  function aplicarAuto() {
+    let resto = monto; const next: Record<string, number> = {};
+    for (const f of facturas) { if (resto <= 0) break; const m = Math.min(resto, f.saldo); next[f.id] = m; resto = Math.round((resto - m) * 100) / 100; }
+    setAplic(next);
+  }
+  const totalAplicado = Object.values(aplic).reduce((s, v) => s + (Number(v) || 0), 0);
+
+  async function guardar() {
+    setErr(null); setSaving(true);
+    try {
+      const aplicaciones = Object.entries(aplic).filter(([, m]) => Number(m) > 0).map(([facturaId, m]) => ({ facturaId, monto: Number(m) }));
+      await crearRecibo({ clienteId: cliente?.id, medioPago: medio, montoRecibido: monto, referencia: referencia || undefined, aplicaciones });
+      onSaved();
+    } catch (e: any) { setErr(e.message); } finally { setSaving(false); }
+  }
+
+  const valido = monto > 0 && totalAplicado <= monto + 0.5;
+
+  return (
+    <Modal title="Registrar recibo de caja" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        {err && <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{err}</div>}
+
+        {!cliente ? (
+          <div>
+            <Field label="Cliente (buscar por nombre/documento)">
+              <div className="flex gap-2">
+                <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} className={input} />
+                <button onClick={buscar} className="rounded-lg border border-cica-border px-3 text-xs text-cica-silver">Buscar</button>
+              </div>
+            </Field>
+            {clientes.length > 0 && (
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-cica-border/40">
+                {clientes.map((c) => <button key={c.id} onClick={() => elegir(c)} className="block w-full px-3 py-1.5 text-left text-xs text-cica-silver hover:bg-cica-border/30">{c.codigo} · {c.nombre}</button>)}
+              </div>
+            )}
+            <button onClick={() => setCliente({ id: "", nombre: "" })} className="mt-2 text-[11px] text-cica-muted hover:text-cica-silver">Continuar sin identificar →</button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between rounded-lg bg-cica-border/20 px-3 py-2">
+            <span className="text-sm text-cica-silver">{cliente.id ? cliente.nombre : "Sin identificar"}</span>
+            <button onClick={() => { setCliente(null); setFacturas([]); setAplic({}); }} className="text-[11px] text-cica-muted hover:text-status-sin">cambiar</button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Medio"><select value={medio} onChange={(e) => setMedio(e.target.value)} className={input}>{["transferencia", "efectivo", "wompi", "nequi", "consignacion", "tarjeta"].map((m) => <option key={m} value={m}>{m}</option>)}</select></Field>
+          <Field label="Monto recibido"><input type="number" value={monto || ""} onChange={(e) => setMonto(Number(e.target.value))} className={input} /></Field>
+          <Field label="Referencia"><input value={referencia} onChange={(e) => setReferencia(e.target.value)} className={input} /></Field>
+        </div>
+
+        {cliente?.id && facturas.length > 0 && (
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Aplicar a facturas</span>
+              <button onClick={aplicarAuto} className="text-[11px] text-cica-gold hover:underline">aplicar automático (más antigua primero)</button>
+            </div>
+            <table className="w-full text-xs">
+              <thead><tr className="text-cica-muted"><th className="text-left">Periodo</th><th className="text-right">Saldo</th><th className="text-right w-32">Aplicar</th></tr></thead>
+              <tbody>
+                {facturas.map((f) => (
+                  <tr key={f.id} className="border-t border-cica-border/30">
+                    <td className="py-1 text-cica-silver">{f.periodo}</td>
+                    <td className="text-right text-cica-muted">{money(f.saldo)}</td>
+                    <td className="text-right"><input type="number" value={aplic[f.id] ?? ""} onChange={(e) => setAplic({ ...aplic, [f.id]: Number(e.target.value) })} className={`${input} text-right`} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between rounded-lg bg-cica-border/20 p-2 text-xs">
+          <span className="text-cica-muted">Aplicado: <b className="text-cica-silver">{money(totalAplicado)}</b> · Saldo (anticipo): <b className="text-cica-silver">{money(Math.max(0, monto - totalAplicado))}</b></span>
+          {totalAplicado > monto + 0.5 && <span className="text-status-sin">Excede el monto recibido</span>}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-cica-muted">Cancelar</button>
+          <button onClick={guardar} disabled={!valido || saving} className="rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">{saving ? "Guardando…" : "Registrar recibo"}</button>
         </div>
       </div>
     </Modal>

@@ -1108,3 +1108,24 @@ export function nominaPreview(periodo: string): Promise<{ periodo: string; emple
 export function nominaRun(periodo: string, dryRun = false): Promise<{ periodo: string; liquidados: number; totalNeto: number }> {
   return authFetch("/payroll/run", { method: "POST", body: JSON.stringify({ periodo, dryRun }) });
 }
+
+// ---- Cash application / Recibos de caja (módulo cash) ----
+export type ReciboCaja = {
+  id: string; numero: string; fecha: string; clienteId: string | null; clienteNombre: string | null;
+  medioPago: string; referencia: string | null; montoRecibido: string; montoAplicado: string;
+  saldoPorAplicar: string; estado: string; origen: string;
+};
+export type FacturaPendiente = { id: string; periodo: string; total: number; saldo: number; fechaVencimiento: string };
+
+export function listRecibos(estado?: string): Promise<ReciboCaja[]> { return authFetch(`/cash/recibos${estado ? `?estado=${estado}` : ""}`); }
+export function cashResumen(): Promise<{ recibosPendientes: number; totalPorAplicar: number; huerfanos: number }> { return authFetch("/cash/resumen"); }
+export function facturasPendientesCliente(clienteId: string): Promise<FacturaPendiente[]> { return authFetch(`/cash/cliente/${clienteId}/facturas`); }
+export function crearRecibo(input: { clienteId?: string; medioPago: string; montoRecibido: number; referencia?: string; aplicaciones?: { facturaId: string; monto: number }[] }): Promise<ReciboCaja> {
+  return authFetch("/cash/recibos", { method: "POST", body: JSON.stringify(input) });
+}
+export function aplicarSaldoRecibo(id: string, aplicaciones: { facturaId: string; monto: number }[]): Promise<ReciboCaja> {
+  return authFetch(`/cash/recibos/${id}/aplicar`, { method: "POST", body: JSON.stringify({ aplicaciones }) });
+}
+export function anularRecibo(id: string): Promise<{ ok: boolean }> {
+  return authFetch(`/cash/recibos/${id}/anular`, { method: "POST" });
+}

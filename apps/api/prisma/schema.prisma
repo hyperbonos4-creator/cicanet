@@ -724,3 +724,50 @@ model LiquidacionNomina {
   @@unique([empleadoId, periodo])
   @@map("liquidacion_nomina")
 }
+
+/// Recibo de caja (cash receipt): dinero recibido de un cliente (o sin identificar),
+/// que se aplica a una o varias facturas. Maneja abonos parciales, pagos múltiples,
+/// anticipos (saldo a favor) y recaudos por identificar. Genera el asiento de recaudo.
+model ReciboCaja {
+  id              String   @id @default(uuid()) @db.Uuid
+  numero          String   @unique // REC-000001
+  fecha           DateTime @db.Date
+  clienteId       String?  @map("cliente_id") @db.Uuid
+  clienteNombre   String?  @map("cliente_nombre")
+  medioPago       String   @map("medio_pago") // efectivo|transferencia|wompi|nequi|consignacion|tarjeta
+  cuentaDestino   String   @map("cuenta_destino") // PUC 11xx (banco/caja)
+  referencia      String?
+  montoRecibido   Decimal  @db.Decimal(16, 2) @map("monto_recibido")
+  montoAplicado   Decimal  @default(0) @db.Decimal(16, 2) @map("monto_aplicado")
+  saldoPorAplicar Decimal  @default(0) @db.Decimal(16, 2) @map("saldo_por_aplicar")
+  /// Cuenta donde queda el saldo sin aplicar: 280505 (anticipo) o 280515 (por identificar).
+  cuentaSaldo     String?  @map("cuenta_saldo")
+  /// sin_aplicar | parcial | aplicado | anulado
+  estado          String   @default("sin_aplicar")
+  origen          String   @default("manual") // manual|wompi|conciliacion
+  asientoId       String?  @map("asiento_id") @db.Uuid
+  creadoPor       String?  @map("creado_por")
+  creadoEn        DateTime @default(now()) @map("creado_en")
+
+  aplicaciones    AplicacionPago[]
+
+  @@index([estado])
+  @@index([clienteId])
+  @@map("recibo_caja")
+}
+
+/// Aplicación de un recibo de caja a una factura concreta (detalle de cartera).
+model AplicacionPago {
+  id          String   @id @default(uuid()) @db.Uuid
+  reciboId    String   @map("recibo_id") @db.Uuid
+  recibo      ReciboCaja @relation(fields: [reciboId], references: [id], onDelete: Cascade)
+  facturaId   String   @map("factura_id") @db.Uuid
+  monto       Decimal  @db.Decimal(16, 2)
+  /// Asiento de reclasificación (cuando se aplica un saldo ya recibido). null si fue en la creación.
+  asientoId   String?  @map("asiento_id") @db.Uuid
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@index([reciboId])
+  @@index([facturaId])
+  @@map("aplicacion_pago")
+}
