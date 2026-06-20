@@ -123,6 +123,16 @@ services:
       # (red interna de Docker). El secreto se añade en el PATH.
       EVOLUTION_WEBHOOK_URL: http://api:4000/api/whatsapp/webhook/evolution
       NOTIFICATION_WEBHOOK_SECRET: ${NOTIFICATION_WEBHOOK_SECRET:-cicanet-webhook-secret-dev}
+      # Asistente virtual (LLM agnóstico compatible-OpenAI). Por defecto apunta a
+      # Ollama del host (Qwen3 local). Cambiar a OpenRouter/Gemini = cambiar estas vars.
+      ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-ollama}
+      ASSISTANT_BASE_URL: ${ASSISTANT_BASE_URL:-http://host.docker.internal:11434/v1}
+      ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-qwen3-coder:30b}
+      ASSISTANT_MAX_TOKENS: ${ASSISTANT_MAX_TOKENS:-700}
+      ASSISTANT_TEMPERATURE: ${ASSISTANT_TEMPERATURE:-0.3}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./apps/api:/app
       - /app/node_modules

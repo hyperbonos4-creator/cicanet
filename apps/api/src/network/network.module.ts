@@ -10,5 +10,6 @@ import { RolesGuard } from '../auth/guards';
   imports: [AuthModule, GeoModule],
   controllers: [NetworkController],
   providers: [NetworkService, NetworkGateway, RolesGuard],
+  exports: [NetworkService],
 })
 export class NetworkModule {}

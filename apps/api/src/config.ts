@@ -90,6 +90,25 @@ export const config = {
     webhookBase: process.env.EVOLUTION_WEBHOOK_URL || '',
     webhookSecret: process.env.NOTIFICATION_WEBHOOK_SECRET || '',
   },
+
+  // Asistente virtual (chatbot de soporte con IA). Cliente LLM agnóstico
+  // compatible con la API de OpenAI: sirve para Gemini, OpenAI, Groq, OpenRouter
+  // u Ollama local cambiando solo estas variables. Si no hay apiKey, el asistente
+  // responde con la base de conocimiento (FAQ determinista) sin alucinar.
+  assistant: {
+    // 'gemini' | 'openai' | 'groq' | 'openrouter' | 'ollama' | 'custom'
+    provider: (process.env.ASSISTANT_PROVIDER || 'gemini').toLowerCase(),
+    apiKey: process.env.ASSISTANT_API_KEY || '',
+    // Endpoint compatible-OpenAI. Default: Gemini (clave gratis en AI Studio).
+    baseUrl: (
+      process.env.ASSISTANT_BASE_URL ||
+      'https://generativelanguage.googleapis.com/v1beta/openai'
+    ).replace(/\/$/, ''),
+    model: process.env.ASSISTANT_MODEL || 'gemini-2.0-flash',
+    // Límites de seguridad/coste.
+    maxTokens: parseInt(process.env.ASSISTANT_MAX_TOKENS || '700', 10),
+    temperature: parseFloat(process.env.ASSISTANT_TEMPERATURE || '0.3'),
+  },
 };
 
 /** URLs base de la API de Wompi según el entorno. */

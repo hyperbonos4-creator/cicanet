@@ -482,3 +482,33 @@ export function whatsappLogout(): Promise<{ ok: boolean }> {
 export function whatsappChats(): Promise<WaChat[]> {
   return authFetch("/whatsapp/chats");
 }
+
+// ---- Asistente virtual "Cica" (agente de soporte con IA + herramientas) ----
+export type CicaAccion = { id: string; label: string; tipo: string };
+export type CicaPago = { url: string; referencia: string; monto: number } | null;
+export type CicaReply = {
+  reply: string;
+  ai: boolean;
+  acciones: CicaAccion[];
+  pago: CicaPago;
+};
+export type CicaInfo = {
+  nombre: string;
+  ia: boolean;
+  modelo: string | null;
+  saludo: string;
+  acciones: CicaAccion[];
+};
+
+export function assistantInfo(): Promise<CicaInfo> {
+  return authFetch("/assistant/info");
+}
+
+export function assistantChat(
+  messages: { role: "user" | "assistant"; content: string }[],
+): Promise<CicaReply> {
+  return authFetch("/assistant/chat", {
+    method: "POST",
+    body: JSON.stringify({ messages }),
+  });
+}

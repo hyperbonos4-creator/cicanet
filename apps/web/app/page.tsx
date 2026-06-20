@@ -10,6 +10,7 @@ import OperacionPanel from "../components/panels/OperacionPanel";
 import ClientesPanel from "../components/panels/ClientesPanel";
 import InfraPanel from "../components/panels/InfraPanel";
 import SoportePanel from "../components/panels/SoportePanel";
+import CicaAssistant from "../components/CicaAssistant";
 import ClientesModule from "../components/clientes/ClientesModule";
 import {
   SOCKET_URL,
@@ -303,6 +304,8 @@ export default function Page() {
           </div>
         </div>
       )}
+      {/* Asistente virtual flotante (disponible en todo el panel) */}
+      <CicaAssistant />
     </AppShell>
   );
 }
