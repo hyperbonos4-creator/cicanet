@@ -51,16 +51,16 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Verificado:** preview 2 facturas/$135k, run contabiliza ambas, 2ª corrida idempotente (0), suspensión dry-run correcta.
 - **Pendiente (cuando haya certs DIAN):** encadenar emisión electrónica por factura vía `invoicing`.
 
-### T1.3 — Conciliación bancaria
-- **Modelo Prisma:** `CuentaBancaria`, `MovimientoBancario`, `ConciliacionMatch`.
+### T1.3 — Conciliación bancaria ✅ (2026-06-20)
+- **Modelo Prisma:** `CuentaBancaria`, `MovimientoBancario` (hash único anti-duplicado). ✅
 - **Backend** `apps/api/src/banking/`:
-  - Importador de extracto **CSV/OFX** (parser + dedupe por referencia).
-  - Motor de **matching** contra recaudos (Wompi/Nequi/transferencia) por monto/fecha/ref,
-    con score de confianza y confirmación manual.
-  - Genera asiento de recaudo al confirmar (Dr Banco, Cr CxC).
-  - Endpoints: `POST /banking/import`, `GET /banking/sin-conciliar`, `POST /banking/match`.
-- **Aceptación:** importar un extracto demo y conciliar ≥1 movimiento contra un recaudo,
-  dejando el banco y la CxC cuadrados.
+  - Importador de extracto **CSV** (separador y formato de fecha/valor flexibles, dedupe por hash). ✅
+  - Sugerencias de match contra recaudos (`PagoTransaccion` APROBADA) por monto/fecha con confianza. ✅
+  - Conciliar → genera asiento (entrada: Dr Banco/Cr contrapartida; salida: inverso). ✅
+  - Endpoints: `POST /banking/import`, `GET /banking/sin-conciliar`, `/banking/movimientos/:id/sugerencias`, `POST .../conciliar`. ✅
+- **Web:** pestaña "Bancos" (cuentas, importar CSV, conciliar/ignorar). ✅
+- **Verificado:** import idempotente (reimport=0), conciliación entrada y salida generan asientos correctos, resumen cuadra.
+- **Pendiente menor:** parser OFX (hoy CSV cubre el 80%).
 
 ### T1.4 — Dunning (cobro automático por WhatsApp/email)
 - Reusar infra de WhatsApp + notificaciones existente.

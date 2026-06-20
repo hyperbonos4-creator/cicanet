@@ -533,3 +533,45 @@ model DianDocumento {
   @@index([estado])
   @@map("dian_documento")
 }
+
+/// Cuenta bancaria de CICANET, mapeada a una cuenta PUC del disponible (11xx).
+model CuentaBancaria {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String   // "Bancolombia corriente"
+  banco       String?
+  numero      String?
+  cuentaPuc   String   @map("cuenta_puc") // 111005, 111010...
+  activa      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  movimientos MovimientoBancario[]
+
+  @@map("cuenta_bancaria")
+}
+
+/// Movimiento de extracto bancario importado (entrada + / salida −).
+model MovimientoBancario {
+  id               String   @id @default(uuid()) @db.Uuid
+  cuentaBancariaId String   @map("cuenta_bancaria_id") @db.Uuid
+  cuentaBancaria   CuentaBancaria @relation(fields: [cuentaBancariaId], references: [id], onDelete: Cascade)
+  fecha            DateTime @db.Date
+  descripcion      String
+  referencia       String?
+  /// Valor con signo: positivo = entrada (crédito banco), negativo = salida.
+  valor            Decimal  @db.Decimal(16, 2)
+  /// sin_conciliar | conciliado | ignorado
+  estado           String   @default("sin_conciliar")
+  /// Hash para deduplicar en reimportaciones (cuenta+fecha+valor+ref+desc).
+  hash             String   @unique
+  /// Asiento contable generado al conciliar.
+  asientoId        String?  @map("asiento_id") @db.Uuid
+  /// Recaudo (PagoTransaccion) con el que se concilió, si aplica.
+  matchPagoTxId    String?  @map("match_pago_tx_id")
+  conciliadoPor    String?  @map("conciliado_por")
+  conciliadoEn     DateTime? @map("conciliado_en")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  @@index([estado])
+  @@index([cuentaBancariaId])
+  @@map("movimiento_bancario")
+}

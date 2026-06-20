@@ -19,6 +19,13 @@ import {
   billingPreview,
   billingRun,
   suspenderMorosos,
+  listCuentasBancarias,
+  crearCuentaBancaria,
+  importarExtracto,
+  movimientosSinConciliar,
+  bankingResumen,
+  conciliarMovimiento,
+  ignorarMovimiento,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -27,9 +34,11 @@ import {
   type Aging,
   type AgingZona,
   type BillingPreview as BillingPreviewT,
+  type CuentaBancaria,
+  type MovimientoBancario,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "facturacion" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "facturacion" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -38,6 +47,7 @@ const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "dashboard", label: "Resumen" },
   { key: "cartera", label: "Cartera" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
+  { key: "bancos", label: "Bancos" },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
   { key: "cuentas", label: "Plan de cuentas" },
@@ -70,6 +80,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "dashboard" && <DashboardTab />}
       {tab === "cartera" && <CarteraTab />}
       {tab === "facturacion" && <FacturacionTab />}
+      {tab === "bancos" && <BancosTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
       {tab === "cuentas" && <CuentasTab />}
@@ -98,6 +109,117 @@ function DashboardTab() {
         <Kpi label="Cartera (CxC clientes)" value={money(d.cartera)} accent="text-cica-steelLight" />
         <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Bancos / Conciliación ===================== */
+function BancosTab() {
+  const [cuentas, setCuentas] = useState<CuentaBancaria[]>([]);
+  const [cuenta, setCuenta] = useState<string>("");
+  const [movs, setMovs] = useState<MovimientoBancario[]>([]);
+  const [resumen, setResumen] = useState<{ total: number; sinConciliar: number; conciliados: number; montoSinConciliar: number } | null>(null);
+  const [csv, setCsv] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [nueva, setNueva] = useState({ nombre: "", banco: "", cuentaPuc: "111005" });
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    const cs = await listCuentasBancarias();
+    setCuentas(cs);
+    if (!cuenta && cs[0]) setCuenta(cs[0].id);
+    const cid = cuenta || cs[0]?.id;
+    if (cid) {
+      setMovs(await movimientosSinConciliar(cid));
+      setResumen(await bankingResumen(cid));
+    }
+  }
+  useEffect(() => { refresh().catch((e) => setErr(e.message)); /* eslint-disable-next-line */ }, [cuenta]);
+
+  async function crearCuenta() {
+    if (!nueva.nombre || !nueva.cuentaPuc) return;
+    setBusy(true); setErr(null);
+    try { await crearCuentaBancaria(nueva); setNueva({ nombre: "", banco: "", cuentaPuc: "111005" }); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function importar() {
+    if (!cuenta || !csv.trim()) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await importarExtracto(cuenta, csv); setMsg(`Importados ${r.importados}, duplicados ${r.duplicados}, errores ${r.errores.length}.`); setCsv(""); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function conciliar(m: MovimientoBancario) {
+    const entrada = Number(m.valor) > 0;
+    const def = entrada ? "111505" : "530515";
+    const contrapartida = prompt(`Cuenta contrapartida (PUC) para "${m.descripcion}":`, def);
+    if (!contrapartida) return;
+    setBusy(true); setErr(null);
+    try { const r = await conciliarMovimiento(m.id, { contrapartida }); setMsg(`Conciliado → comprobante ${r.asiento}.`); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function ignorar(m: MovimientoBancario) {
+    setBusy(true);
+    try { await ignorarMovimiento(m.id); await refresh(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Cuentas + alta */}
+      <div className="glass p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Cuenta bancaria">
+            <select value={cuenta} onChange={(e) => setCuenta(e.target.value)} className={input}>
+              {cuentas.length === 0 && <option value="">— crea una cuenta —</option>}
+              {cuentas.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({c.cuentaPuc})</option>)}
+            </select>
+          </Field>
+          {resumen && (
+            <div className="flex gap-4 text-xs">
+              <span className="text-cica-muted">Sin conciliar: <b className="text-status-parcial">{resumen.sinConciliar}</b></span>
+              <span className="text-cica-muted">Conciliados: <b className="text-status-ftth">{resumen.conciliados}</b></span>
+            </div>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-cica-border/40 pt-3">
+          <Field label="Nueva cuenta"><input value={nueva.nombre} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })} placeholder="Bancolombia corriente" className={input} /></Field>
+          <Field label="PUC"><input value={nueva.cuentaPuc} onChange={(e) => setNueva({ ...nueva, cuentaPuc: e.target.value })} className={`${input} w-24`} /></Field>
+          <button onClick={crearCuenta} disabled={busy} className="rounded-lg border border-cica-border px-3 py-2 text-xs text-cica-silver hover:border-cica-gold/40">+ Cuenta</button>
+        </div>
+      </div>
+
+      {/* Importar extracto */}
+      <div className="glass p-4">
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Importar extracto (CSV: fecha; descripción; valor; referencia)</div>
+        <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={4} placeholder="2026-06-18;Recaudo Wompi;135000;WP-001" className={`${input} w-full font-mono`} />
+        <div className="mt-2 flex items-center justify-between">
+          {msg && <span className="text-xs text-status-ftth">{msg}</span>}
+          {err && <span className="text-xs text-status-sin">{err}</span>}
+          <button onClick={importar} disabled={busy || !cuenta || !csv.trim()} className="ml-auto rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">Importar</button>
+        </div>
+      </div>
+
+      {/* Movimientos sin conciliar */}
+      <div className="glass p-4">
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Sin conciliar ({movs.length})</div>
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">Fecha</th><th className="text-left">Descripción</th><th className="text-right">Valor</th><th></th></tr></thead>
+          <tbody>
+            {movs.map((m) => (
+              <tr key={m.id} className="border-t border-cica-border/30">
+                <td className="py-1 text-cica-muted">{m.fecha?.slice(0, 10)}</td>
+                <td className="text-cica-silver">{m.descripcion}{m.referencia ? ` · ${m.referencia}` : ""}</td>
+                <td className="text-right font-semibold" style={{ color: Number(m.valor) >= 0 ? "#22E0A1" : "#FF4D6D" }}>{money(Number(m.valor))}</td>
+                <td className="text-right">
+                  <button onClick={() => conciliar(m)} disabled={busy} className="rounded border border-cica-border px-2 py-0.5 text-[11px] text-cica-gold hover:bg-cica-gold/10">Conciliar</button>
+                  <button onClick={() => ignorar(m)} disabled={busy} className="ml-1 text-[10px] text-cica-muted hover:text-status-sin">ignorar</button>
+                </td>
+              </tr>
+            ))}
+            {movs.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-cica-muted">No hay movimientos sin conciliar. ✓</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );

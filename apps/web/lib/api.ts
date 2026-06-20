@@ -985,3 +985,30 @@ export function billingRun(periodo: string, dryRun = false): Promise<BillingRun>
 export function suspenderMorosos(aplicar: boolean, diasGracia?: number): Promise<SuspensionResult> {
   return authFetch("/billing/suspender-morosos", { method: "POST", body: JSON.stringify({ aplicar, diasGracia }) });
 }
+
+// ---- Conciliación bancaria (módulo banking) ----
+export type CuentaBancaria = { id: string; nombre: string; banco: string | null; numero: string | null; cuentaPuc: string };
+export type MovimientoBancario = { id: string; fecha: string; descripcion: string; referencia: string | null; valor: string; estado: string };
+
+export function listCuentasBancarias(): Promise<CuentaBancaria[]> { return authFetch("/banking/cuentas"); }
+export function crearCuentaBancaria(input: { nombre: string; banco?: string; numero?: string; cuentaPuc: string }): Promise<CuentaBancaria> {
+  return authFetch("/banking/cuentas", { method: "POST", body: JSON.stringify(input) });
+}
+export function importarExtracto(cuentaBancariaId: string, contenido: string): Promise<{ importados: number; duplicados: number; errores: string[]; total: number }> {
+  return authFetch("/banking/import", { method: "POST", body: JSON.stringify({ cuentaBancariaId, contenido }) });
+}
+export function movimientosSinConciliar(cuenta?: string): Promise<MovimientoBancario[]> {
+  return authFetch(`/banking/sin-conciliar${cuenta ? `?cuenta=${cuenta}` : ""}`);
+}
+export function bankingResumen(cuenta?: string): Promise<{ total: number; sinConciliar: number; conciliados: number; montoSinConciliar: number }> {
+  return authFetch(`/banking/resumen${cuenta ? `?cuenta=${cuenta}` : ""}`);
+}
+export function sugerenciasConciliacion(movId: string): Promise<{ movimiento: MovimientoBancario; sugerencias: { pagoTxId: string; referencia: string; metodo: string | null; monto: number; fecha: string; confianza: string }[] }> {
+  return authFetch(`/banking/movimientos/${movId}/sugerencias`);
+}
+export function conciliarMovimiento(movId: string, input: { contrapartida?: string; matchPagoTxId?: string; descripcion?: string }): Promise<{ ok: boolean; asiento: string }> {
+  return authFetch(`/banking/movimientos/${movId}/conciliar`, { method: "POST", body: JSON.stringify(input) });
+}
+export function ignorarMovimiento(movId: string): Promise<{ ok: boolean }> {
+  return authFetch(`/banking/movimientos/${movId}/ignorar`, { method: "POST" });
+}
