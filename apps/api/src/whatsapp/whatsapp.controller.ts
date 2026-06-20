@@ -7,11 +7,14 @@ import {
   HttpCode,
   Param,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
+import { HandoffService } from './handoff.service';
 import { SupportService } from '../support/support.service';
 import { config } from '../config';
+import type { Request } from 'express';
 import { JwtAuthGuard, Roles, RolesGuard } from '../auth/guards';
 
 @Controller('whatsapp')
@@ -19,6 +22,7 @@ export class WhatsappController {
   constructor(
     private readonly wa: WhatsappService,
     private readonly support: SupportService,
+    private readonly handoff: HandoffService,
   ) {}
 
   /** Estado de la sesión + QR de vinculación. Solo admin. */
@@ -51,6 +55,40 @@ export class WhatsappController {
   @Roles('admin', 'operador')
   chats() {
     return this.wa.listChats();
+  }
+
+  // ---- Handoff bot → asesor (solicitudes de "hablar con un asesor") ----
+
+  /** Solicitudes de asesor (pendientes primero). Admin/operador. */
+  @Get('handoffs')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operador')
+  handoffs() {
+    return this.handoff.list();
+  }
+
+  /** Conteo de solicitudes pendientes (para el badge del panel). Admin/operador. */
+  @Get('handoffs/resumen')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operador')
+  handoffsResumen() {
+    return this.handoff.resumen();
+  }
+
+  /** Atiende una solicitud: la marca atendida y devuelve el wa.me al cliente. */
+  @Post('handoffs/:id/atender')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operador')
+  atenderHandoff(@Param('id') id: string, @Req() req: Request) {
+    return this.handoff.atender(id, (req as any).user?.username);
+  }
+
+  /** Cierra/descarta una solicitud. */
+  @Post('handoffs/:id/cerrar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'operador')
+  cerrarHandoff(@Param('id') id: string) {
+    return this.handoff.cerrar(id);
   }
 
   /**

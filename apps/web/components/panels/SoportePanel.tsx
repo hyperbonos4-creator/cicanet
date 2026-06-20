@@ -8,9 +8,13 @@ import {
   whatsappConnect,
   whatsappLogout,
   whatsappChats,
+  whatsappHandoffs,
+  atenderHandoff,
+  cerrarHandoff,
   type SupportWhatsapp,
   type WaStatus,
   type WaChat,
+  type SolicitudAsesor,
 } from "../../lib/api";
 
 /**
@@ -21,6 +25,7 @@ import {
 export default function SoportePanel({ canEdit }: { canEdit: boolean }) {
   const [status, setStatus] = useState<WaStatus | null>(null);
   const [chats, setChats] = useState<WaChat[]>([]);
+  const [handoffs, setHandoffs] = useState<SolicitudAsesor[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -36,12 +41,41 @@ export default function SoportePanel({ canEdit }: { canEdit: boolean }) {
           /* noop */
         }
       }
+      // Las solicitudes de asesor llegan aunque WhatsApp no esté vinculado.
+      try {
+        setHandoffs(await whatsappHandoffs());
+      } catch {
+        /* noop */
+      }
       return s;
     } catch (e: any) {
       setErr(e.message);
       return null;
     }
   }, []);
+
+  async function onAtender(s: SolicitudAsesor) {
+    try {
+      const r = await atenderHandoff(s.id);
+      if (r.url) {
+        // Abre WhatsApp (app) o WhatsApp Web con un saludo NUEVO al cliente.
+        window.open(r.url, "_blank", "noopener,noreferrer");
+      } else {
+        alert("La solicitud no tiene un número de teléfono del cliente. Contáctalo por otro medio.");
+      }
+      await refreshStatus();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+  async function onCerrar(s: SolicitudAsesor) {
+    try {
+      await cerrarHandoff(s.id);
+      await refreshStatus();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
 
   useEffect(() => {
     refreshStatus();
@@ -169,6 +203,45 @@ export default function SoportePanel({ canEdit }: { canEdit: boolean }) {
           </div>
         )}
       </div>
+
+      {/* ===== Solicitudes de asesor (handoff del bot) ===== */}
+      {(() => {
+        const pendientes = handoffs.filter((h) => h.estado === "pendiente");
+        if (pendientes.length === 0) return null;
+        return (
+          <div className="mt-5">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Solicitudes de asesor</h3>
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-status-sin px-1.5 text-[10px] font-bold text-white">{pendientes.length}</span>
+            </div>
+            <div className="glass divide-y divide-cica-border/50 overflow-hidden p-0">
+              {pendientes.map((h) => (
+                <div key={h.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-status-sin/20 text-sm font-bold text-status-sin">!</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold text-cica-silver">{h.nombre || (h.telefono ? formatNum(h.telefono) : "Cliente")}</span>
+                      <span className="shrink-0 text-[10px] text-cica-muted">{new Date(h.creadoEn).toLocaleString("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <div className="truncate text-xs text-cica-muted">{h.motivo || "Pidió hablar con un asesor"}{h.telefono ? "" : " · sin teléfono"}</div>
+                  </div>
+                  <button
+                    onClick={() => onAtender(h)}
+                    disabled={!h.telefono}
+                    className="shrink-0 rounded-lg bg-status-ftth/20 px-3 py-1.5 text-xs font-bold text-status-ftth transition-colors hover:bg-status-ftth/30 disabled:opacity-40"
+                  >
+                    Atender por WhatsApp
+                  </button>
+                  <button onClick={() => onCerrar(h)} className="shrink-0 text-[11px] text-cica-muted hover:text-status-sin">Descartar</button>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-cica-muted">
+              "Atender" abre WhatsApp (o WhatsApp Web) con un saludo nuevo al cliente. No se traslada lo que habló con el bot.
+            </p>
+          </div>
+        );
+      })()}
 
       {/* ===== Bandeja de chats ===== */}
       {connected && (

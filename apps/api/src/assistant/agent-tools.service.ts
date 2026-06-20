@@ -4,6 +4,7 @@ import { GeoService } from '../geo/geo.service';
 import { NetworkService } from '../network/network.service';
 import { PaymentsService } from '../payments/payments.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { HandoffService } from '../whatsapp/handoff.service';
 import { SupportService } from '../support/support.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MeService } from '../me/me.service';
@@ -32,6 +33,7 @@ export class AgentToolsService {
     private readonly network: NetworkService,
     private readonly payments: PaymentsService,
     private readonly whatsapp: WhatsappService,
+    private readonly handoff: HandoffService,
     private readonly support: SupportService,
     private readonly prisma: PrismaService,
     private readonly me: MeService,
@@ -106,7 +108,7 @@ export class AgentToolsService {
         function: {
           name: 'contacto_asesor',
           description:
-            'Devuelve el contacto de WhatsApp para hablar con un asesor humano. Úsala cuando el cliente pida hablar con una persona o el caso requiera atención humana.',
+            'Escala a un asesor humano: registra una solicitud que llega al panel de la empresa (un agente contactará al cliente por WhatsApp) y devuelve el enlace de WhatsApp por si el cliente prefiere escribir. Úsala cuando el cliente pida hablar con una persona o el caso requiera atención humana.',
           parameters: { type: 'object', properties: {} },
         },
       },
@@ -371,7 +373,7 @@ export class AgentToolsService {
         case 'crear_link_pago':
           return await this.crearLinkPago(Number(args?.monto_cop), args?.descripcion);
         case 'contacto_asesor':
-          return await this.contactoAsesor();
+          return await this.contactoAsesor(ctx);
         case 'info_planes':
           return await this.infoPlanes();
         case 'consultar_funciones_app':
@@ -477,16 +479,32 @@ export class AgentToolsService {
     };
   }
 
-  private async contactoAsesor() {
+  private async contactoAsesor(ctx?: { clienteId?: string; nombre?: string }) {
+    // Registrar la solicitud de asesor (handoff) para el panel de WhatsApp.
+    // Best-effort: si falla, igual devolvemos el contacto al cliente.
+    try {
+      let telefono: string | undefined;
+      let nombre = ctx?.nombre;
+      if (ctx?.clienteId) {
+        const cli = await this.prisma.cliente.findUnique({ where: { id: ctx.clienteId }, select: { telefonoMovil: true, nombre: true } });
+        telefono = cli?.telefonoMovil ?? undefined;
+        nombre = nombre || cli?.nombre || undefined;
+      }
+      await this.handoff.crear({ clienteId: ctx?.clienteId, nombre, telefono, motivo: 'El cliente pidió hablar con un asesor', origen: 'bot' });
+    } catch (e: any) {
+      this.logger.warn(`No se registró el handoff de asesor: ${e.message}`);
+    }
+
     const manual = await this.support.getWhatsapp();
     const escaneado = this.whatsapp.contact(manual.mensaje);
     const url = escaneado.habilitado ? escaneado.url : manual.url;
     return {
       disponible: !!url,
       url,
+      registrado: true,
       mensaje: url
-        ? 'Puedes hablar con un asesor por WhatsApp con este enlace.'
-        : 'Por ahora la atención por WhatsApp no está disponible; intenta en horario de oficina.',
+        ? 'Listo, avisé a un asesor para que te contacte. También puedes escribirnos por WhatsApp con este enlace.'
+        : 'Listo, avisé a un asesor para que te contacte por WhatsApp lo antes posible.',
     };
   }
 

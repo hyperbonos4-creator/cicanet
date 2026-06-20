@@ -1304,3 +1304,17 @@ export function tesoreriaAnticipo(input: { cuentaBanco: string; monto: number; b
 export function tesoreriaLegalizar(input: { cuentaGasto: string; monto: number; concepto?: string; beneficiario?: string }): Promise<MovTesoreria> {
   return authFetch("/tesoreria/legalizar", { method: "POST", body: JSON.stringify(input) });
 }
+
+// ---- Handoff bot → asesor (solicitudes de "hablar con un asesor") ----
+export type SolicitudAsesor = {
+  id: string; clienteId: string | null; nombre: string | null; telefono: string | null;
+  motivo: string | null; estado: string; origen: string; atendidoPor: string | null; creadoEn: string;
+};
+export function whatsappHandoffs(): Promise<SolicitudAsesor[]> { return authFetch("/whatsapp/handoffs"); }
+export function whatsappHandoffsResumen(): Promise<{ pendientes: number }> { return authFetch("/whatsapp/handoffs/resumen"); }
+export function atenderHandoff(id: string): Promise<{ ok: boolean; numero: string | null; url: string | null }> {
+  return authFetch(`/whatsapp/handoffs/${encodeURIComponent(id)}/atender`, { method: "POST" });
+}
+export function cerrarHandoff(id: string): Promise<SolicitudAsesor> {
+  return authFetch(`/whatsapp/handoffs/${encodeURIComponent(id)}/cerrar`, { method: "POST" });
+}

@@ -924,3 +924,25 @@ model CargoRecurrente {
   @@index([servicioId])
   @@map("cargo_recurrente")
 }
+
+/// Solicitud de "hablar con un asesor" (handoff bot → humano). La crea el asistente
+/// cuando el cliente pide atención humana; aparece en el panel de WhatsApp para que
+/// un agente la atienda (abriendo wa.me hacia el número del cliente, sin el historial
+/// del bot). El historial con el bot NO se traslada (privacidad + conversación limpia).
+model SolicitudAsesor {
+  id          String   @id @default(uuid()) @db.Uuid
+  clienteId   String?  @map("cliente_id") @db.Uuid
+  nombre      String?
+  telefono    String?  // dígitos E.164 (ej. 573001234567)
+  motivo      String?
+  /// pendiente | atendida | cerrada
+  estado      String   @default("pendiente")
+  origen      String   @default("bot") // bot | panel | app
+  canal       String   @default("whatsapp")
+  atendidoPor String?  @map("atendido_por")
+  creadoEn    DateTime @default(now()) @map("creado_en")
+  atendidoEn  DateTime? @map("atendido_en")
+
+  @@index([estado])
+  @@map("solicitud_asesor")
+}
