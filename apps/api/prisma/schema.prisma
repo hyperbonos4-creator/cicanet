@@ -771,3 +771,24 @@ model AplicacionPago {
   @@index([facturaId])
   @@map("aplicacion_pago")
 }
+
+/// Movimiento de tesorería: egreso directo, traslado entre cuentas, comisión
+/// bancaria/GMF. Cada uno genera su asiento. Caja menor = egreso desde 110510.
+model MovimientoTesoreria {
+  id            String   @id @default(uuid()) @db.Uuid
+  numero        String   @unique // TES-000001
+  tipo          String   // egreso | traslado | comision | ingreso_otro
+  fecha         DateTime @db.Date
+  cuentaOrigen  String?  @map("cuenta_origen")   // banco/caja de salida (egreso/traslado/comision)
+  cuentaDestino String?  @map("cuenta_destino")  // banco/caja de entrada (traslado/ingreso)
+  contraCuenta  String?  @map("contra_cuenta")   // gasto/ingreso (egreso/comision/ingreso_otro)
+  monto         Decimal  @db.Decimal(16, 2)
+  concepto      String
+  beneficiario  String?
+  asientoId     String?  @map("asiento_id") @db.Uuid
+  creadoPor     String?  @map("creado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  @@index([tipo])
+  @@map("movimiento_tesoreria")
+}

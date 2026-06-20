@@ -27,6 +27,7 @@ import { ExogenaModule } from './exogena/exogena.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { CashModule } from './cash/cash.module';
 import { WorkbenchModule } from './workbench/workbench.module';
+import { TesoreriaModule } from './tesoreria/tesoreria.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -59,6 +60,7 @@ import { HealthController } from './health.controller';
     PayrollModule,
     CashModule,
     WorkbenchModule,
+    TesoreriaModule,
   ],
   controllers: [HealthController],
 })

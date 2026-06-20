@@ -1133,3 +1133,18 @@ export function anularRecibo(id: string): Promise<{ ok: boolean }> {
 // ---- Workbench del contador (módulo workbench) ----
 export type WorkbenchCard = { clave: string; titulo: string; valor: number; detalle: string; alerta: string | null; tab: string };
 export function workbench(): Promise<{ periodo: string; tarjetas: WorkbenchCard[] }> { return authFetch("/workbench"); }
+
+// ---- Tesorería (módulo tesoreria) ----
+export type MovTesoreria = { id: string; numero: string; tipo: string; fecha: string; monto: string; concepto: string; beneficiario: string | null; cuentaOrigen: string | null; cuentaDestino: string | null };
+export function listTesoreria(tipo?: string): Promise<MovTesoreria[]> { return authFetch(`/tesoreria/movimientos${tipo ? `?tipo=${tipo}` : ""}`); }
+export function tesoreriaSaldos(): Promise<{ total: number; cuentas: { codigo: string; nombre: string; saldo: number }[] }> { return authFetch("/tesoreria/saldos"); }
+export function tesoreriaFlujo(): Promise<{ disponible: number; proyeccion: { dias: number; cobrar: number; pagar: number; proyectado: number }[] }> { return authFetch("/tesoreria/flujo-caja"); }
+export function tesoreriaEgreso(input: { cuentaBanco: string; cuentaGasto: string; monto: number; concepto: string; beneficiario?: string }): Promise<MovTesoreria> {
+  return authFetch("/tesoreria/egreso", { method: "POST", body: JSON.stringify(input) });
+}
+export function tesoreriaTraslado(input: { cuentaOrigen: string; cuentaDestino: string; monto: number; concepto?: string }): Promise<MovTesoreria> {
+  return authFetch("/tesoreria/traslado", { method: "POST", body: JSON.stringify(input) });
+}
+export function tesoreriaComision(input: { cuentaBanco: string; monto: number; concepto?: string }): Promise<MovTesoreria> {
+  return authFetch("/tesoreria/comision", { method: "POST", body: JSON.stringify(input) });
+}

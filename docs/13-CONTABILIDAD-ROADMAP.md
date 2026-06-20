@@ -304,9 +304,13 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
 - **B2. Trazabilidad ampliada** en asiento/línea (sourceModule, napId/zonaId/servicioId,
   centroCosto, autoGenerado, relación DIAN/banco/cartera) + drill-down KPI→asiento→soporte.
 
-### FASE C — Tesorería 🟠
-- Cuentas/cajas de 1er nivel, traslados, egresos, caja menor, anticipos y legalización,
-  comisiones/GMF, recaudos no identificados, arqueo, flujo de caja proyectado.
+### FASE C — Tesorería ✅ (2026-06-20)
+- **Modelo:** `MovimientoTesoreria` (egreso | traslado | comision | ingreso_otro). ✅
+- **Backend** `apps/api/src/tesoreria/`: egreso (Dr gasto/Cr banco), traslado entre
+  cuentas (Dr destino/Cr origen), comisión bancaria/GMF (Dr 530505/Cr banco),
+  **saldos del disponible** derivados del ledger, **flujo de caja proyectado** 30/60/90. ✅
+- **Web:** pestaña "Tesorería" (egreso/traslado/comisión, saldos, flujo de caja, movimientos). ✅
+- **Verificado:** egreso $200k, traslado $500k, comisión $15k; saldos por cuenta y flujo proyectado; balance cuadra.
 
 ### FASE D — Cierre mensual robusto 🟠
 - Checklist + validaciones pre-cierre + secuencia de cierre con lock e informe de cuadre.

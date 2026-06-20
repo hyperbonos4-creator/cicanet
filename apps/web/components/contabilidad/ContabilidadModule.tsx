@@ -54,6 +54,12 @@ import {
   anularRecibo,
   listClientes,
   workbench,
+  listTesoreria,
+  tesoreriaSaldos,
+  tesoreriaFlujo,
+  tesoreriaEgreso,
+  tesoreriaTraslado,
+  tesoreriaComision,
   type WorkbenchCard,
   type AsientoContable,
   type CuentaContable,
@@ -73,9 +79,10 @@ import {
   type Empleado,
   type ReciboCaja,
   type FacturaPendiente,
+  type MovTesoreria,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "recibos" | "facturacion" | "cobranza" | "compras" | "activos" | "nomina" | "exogena" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "recibos" | "facturacion" | "cobranza" | "compras" | "tesoreria" | "activos" | "nomina" | "exogena" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -87,6 +94,7 @@ const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "cobranza", label: "Cobranza" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "compras", label: "Compras / CxP" },
+  { key: "tesoreria", label: "Tesorería" },
   { key: "activos", label: "Activos" },
   { key: "nomina", label: "Nómina" },
   { key: "exogena", label: "Exógena" },
@@ -126,6 +134,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
       {tab === "facturacion" && <FacturacionTab />}
       {tab === "compras" && <ComprasTab canEdit={canEdit} />}
+      {tab === "tesoreria" && <TesoreriaTab canEdit={canEdit} />}
       {tab === "activos" && <ActivosTab isAdmin={isAdmin} />}
       {tab === "nomina" && <NominaTab isAdmin={isAdmin} />}
       {tab === "exogena" && <ExogenaTab />}
@@ -306,6 +315,147 @@ function ExogenaTab() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ===================== Tesorería ===================== */
+function TesoreriaTab({ canEdit }: { canEdit: boolean }) {
+  const [movs, setMovs] = useState<MovTesoreria[]>([]);
+  const [saldos, setSaldos] = useState<{ total: number; cuentas: { codigo: string; nombre: string; saldo: number }[] } | null>(null);
+  const [flujo, setFlujo] = useState<{ disponible: number; proyeccion: { dias: number; cobrar: number; pagar: number; proyectado: number }[] } | null>(null);
+  const [modal, setModal] = useState<"egreso" | "traslado" | "comision" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    try { setMovs(await listTesoreria()); setSaldos(await tesoreriaSaldos()); setFlujo(await tesoreriaFlujo()); setErr(null); } catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {canEdit && (
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setModal("egreso")} className="rounded-xl bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black">+ Egreso</button>
+          <button onClick={() => setModal("traslado")} className="rounded-xl border border-cica-border px-4 py-2 text-sm font-semibold text-cica-silver hover:border-cica-gold/40">Traslado entre cuentas</button>
+          <button onClick={() => setModal("comision")} className="rounded-xl border border-cica-border px-4 py-2 text-sm font-semibold text-cica-silver hover:border-cica-gold/40">Comisión / GMF</button>
+        </div>
+      )}
+      {err && <Aviso texto={err} />}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="glass p-4">
+          <div className="mb-2 flex items-center justify-between"><span className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Disponible (bancos y caja)</span><span className="text-sm font-bold text-cica-gold">{money(saldos?.total ?? 0)}</span></div>
+          <table className="w-full text-xs">
+            <tbody>
+              {saldos?.cuentas.map((c) => (
+                <tr key={c.codigo} className="border-t border-cica-border/30"><td className="py-1 font-mono text-cica-muted">{c.codigo}</td><td className="text-cica-silver">{c.nombre}</td><td className="text-right text-cica-silver">{money(c.saldo)}</td></tr>
+              ))}
+              {(!saldos || saldos.cuentas.length === 0) && <tr><td className="py-3 text-center text-cica-muted">Sin movimientos.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="glass p-4">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Flujo de caja proyectado</div>
+          <table className="w-full text-xs">
+            <thead><tr className="text-cica-muted"><th className="text-left">Horizonte</th><th className="text-right">Por cobrar</th><th className="text-right">Por pagar</th><th className="text-right">Proyectado</th></tr></thead>
+            <tbody>
+              {flujo?.proyeccion.map((p) => (
+                <tr key={p.dias} className="border-t border-cica-border/30">
+                  <td className="py-1 text-cica-silver">{p.dias} días</td>
+                  <td className="text-right text-status-ftth">{money(p.cobrar)}</td>
+                  <td className="text-right text-status-sin">{money(p.pagar)}</td>
+                  <td className="text-right font-semibold" style={{ color: p.proyectado >= 0 ? "#22E0A1" : "#FF4D6D" }}>{money(p.proyectado)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="glass p-4">
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Movimientos de tesorería</div>
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">N°</th><th className="text-left">Tipo</th><th className="text-left">Concepto</th><th className="text-right">Monto</th></tr></thead>
+          <tbody>
+            {movs.map((m) => (
+              <tr key={m.id} className="border-t border-cica-border/30">
+                <td className="py-1 font-mono text-cica-gold">{m.numero}</td>
+                <td className="text-cica-muted">{m.tipo}</td>
+                <td className="text-cica-silver">{m.concepto}{m.beneficiario ? ` · ${m.beneficiario}` : ""}</td>
+                <td className="text-right text-cica-silver">{money(Number(m.monto))}</td>
+              </tr>
+            ))}
+            {movs.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-cica-muted">Sin movimientos de tesorería.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && <TesoreriaModal tipo={modal} onClose={() => setModal(null)} onSaved={() => { setModal(null); refresh(); }} />}
+    </div>
+  );
+}
+
+function TesoreriaModal({ tipo, onClose, onSaved }: { tipo: "egreso" | "traslado" | "comision"; onClose: () => void; onSaved: () => void }) {
+  const [monto, setMonto] = useState(0);
+  const [concepto, setConcepto] = useState("");
+  const [beneficiario, setBeneficiario] = useState("");
+  const [cuentaBanco, setCuentaBanco] = useState("111005");
+  const [cuentaGasto, setCuentaGasto] = useState("513530");
+  const [cuentaOrigen, setCuentaOrigen] = useState("111005");
+  const [cuentaDestino, setCuentaDestino] = useState("110505");
+  const [cuentas, setCuentas] = useState<CuentaContable[]>([]);
+  const [gastos, setGastos] = useState<CuentaContable[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    listCuentas({ imputables: true }).then((cs) => {
+      setCuentas(cs.filter((c) => c.codigo.startsWith("11")));
+      setGastos(cs.filter((c) => c.clase === 5 || c.clase === 6));
+    }).catch(() => {});
+  }, []);
+
+  async function guardar() {
+    setSaving(true); setErr(null);
+    try {
+      if (tipo === "egreso") await tesoreriaEgreso({ cuentaBanco, cuentaGasto, monto, concepto, beneficiario: beneficiario || undefined });
+      else if (tipo === "traslado") await tesoreriaTraslado({ cuentaOrigen, cuentaDestino, monto, concepto: concepto || undefined });
+      else await tesoreriaComision({ cuentaBanco, monto, concepto: concepto || undefined });
+      onSaved();
+    } catch (e: any) { setErr(e.message); } finally { setSaving(false); }
+  }
+  const titulo = tipo === "egreso" ? "Registrar egreso" : tipo === "traslado" ? "Traslado entre cuentas" : "Comisión bancaria / GMF";
+  const valido = monto > 0 && (tipo !== "egreso" || concepto.length >= 3);
+
+  return (
+    <Modal title={titulo} onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        {err && <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{err}</div>}
+        {tipo === "traslado" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Cuenta origen"><select value={cuentaOrigen} onChange={(e) => setCuentaOrigen(e.target.value)} className={input}>{cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>
+            <Field label="Cuenta destino"><select value={cuentaDestino} onChange={(e) => setCuentaDestino(e.target.value)} className={input}>{cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>
+          </div>
+        ) : (
+          <Field label="Cuenta banco/caja"><select value={cuentaBanco} onChange={(e) => setCuentaBanco(e.target.value)} className={input}>{cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>
+        )}
+        {tipo === "egreso" && (
+          <>
+            <Field label="Cuenta de gasto"><select value={cuentaGasto} onChange={(e) => setCuentaGasto(e.target.value)} className={input}>{gastos.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>
+            <Field label="Beneficiario"><input value={beneficiario} onChange={(e) => setBeneficiario(e.target.value)} className={input} /></Field>
+          </>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Monto"><input type="number" value={monto || ""} onChange={(e) => setMonto(Number(e.target.value))} className={input} /></Field>
+          <Field label="Concepto"><input value={concepto} onChange={(e) => setConcepto(e.target.value)} className={input} /></Field>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-cica-muted">Cancelar</button>
+          <button onClick={guardar} disabled={!valido || saving} className="rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">{saving ? "Guardando…" : "Registrar"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
