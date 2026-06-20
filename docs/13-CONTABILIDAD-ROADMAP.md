@@ -291,10 +291,13 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
     Dr banco/caja; Cr CxC aplicado + Cr anticipo(280505)/por-identificar(280515). Reusa `Pago` → el aging se actualiza solo.
   - Web: pestaña "Recibos de caja" (KPIs, lista, formulario con búsqueda de cliente, aplicación auto/manual, anular).
   - **Verificado:** recibo $100k → aplica $75k a junio (pagada) + $25k anticipo → aplica saldo a agosto (abono parcial); cartera del cliente queda en $50k; balance cuadra.
-- **A2. Máquinas de estado** en factura venta, factura compra, extracto, comprobante.
+- **A2. Máquinas de estado** en factura venta, factura compra, extracto, comprobante. 🟡 (parcial: estados operativos de recibo/factura/extracto/comprobante implementados; falta el motor formal de transiciones unificado)
 - **A3. Workbench del contador:** home con bandejas accionables (pagos sin aplicar,
   conciliaciones pendientes, facturas proveedor por pagar, morosos >30/60/90,
-  documentos DIAN rechazados, comprobantes descuadrados/borrador, nómina/exógena pendientes).
+  documentos DIAN rechazados, comprobantes descuadrados/borrador, nómina/exógena pendientes). ✅ (2026-06-20)
+  - Backend `apps/api/src/workbench/` (`GET /workbench`, 7 tarjetas accionables).
+  - Web: "Pendientes del día" en el Resumen, tarjetas clicables que navegan a la pestaña que resuelve.
+  - **Verificado:** tarjetas con conteos reales (facturas vencidas, recibos por aplicar, etc.).
 
 ### FASE B — Motor de eventos contables + trazabilidad ampliada 🔴
 - **B1. Posting engine** desacoplado por eventos (emisor único de asientos por evento).

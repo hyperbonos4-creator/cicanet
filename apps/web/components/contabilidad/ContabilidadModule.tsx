@@ -53,6 +53,8 @@ import {
   aplicarSaldoRecibo,
   anularRecibo,
   listClientes,
+  workbench,
+  type WorkbenchCard,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -118,7 +120,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
         ))}
       </div>
 
-      {tab === "dashboard" && <DashboardTab />}
+      {tab === "dashboard" && <DashboardTab onGo={setTab} />}
       {tab === "cartera" && <CarteraTab />}
       {tab === "recibos" && <RecibosTab canEdit={canEdit} />}
       {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
@@ -138,24 +140,45 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
 }
 
 /* ===================== Dashboard ===================== */
-function DashboardTab() {
+function DashboardTab({ onGo }: { onGo: (t: Tab) => void }) {
   const [d, setD] = useState<any>(null);
+  const [wb, setWb] = useState<WorkbenchCard[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     accountingDashboard().then(setD).catch((e) => setErr(e.message));
+    workbench().then((w) => setWb(w.tarjetas)).catch(() => {});
   }, []);
   if (err) return <Aviso texto={err} />;
   if (!d) return <Cargando />;
   return (
-    <div>
-      <div className="mb-2 text-[11px] text-cica-muted">Periodo {d.periodo}</div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <Kpi label="Ingresos del periodo" value={money(d.ingresos)} accent="text-status-ftth" />
-        <Kpi label="Gastos + costos" value={money(d.gastos)} accent="text-status-parcial" />
-        <Kpi label="Utilidad neta" value={money(d.utilidadNeta)} accent={d.utilidadNeta >= 0 ? "text-cica-gold" : "text-status-sin"} />
-        <Kpi label="Cartera (CxC clientes)" value={money(d.cartera)} accent="text-cica-steelLight" />
-        <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
-        <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
+    <div className="flex flex-col gap-5">
+      {/* Bandeja de pendientes (workbench) */}
+      {wb && (
+        <div>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Pendientes del día</div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {wb.map((c) => (
+              <button key={c.clave} onClick={() => onGo(c.tab as Tab)} className="glass p-3 text-left transition-colors hover:border-cica-gold/40">
+                <div className={`text-2xl font-extrabold ${c.valor > 0 ? "text-cica-gold" : "text-cica-muted"}`}>{c.valor}</div>
+                <div className="mt-0.5 text-[11px] font-semibold text-cica-silver">{c.titulo}</div>
+                <div className="text-[10px] text-cica-muted">{c.detalle}</div>
+                {c.alerta && <div className="mt-1 text-[10px] font-semibold text-status-sin">⚠ {c.alerta}</div>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* KPIs financieros */}
+      <div>
+        <div className="mb-2 text-[11px] text-cica-muted">Periodo {d.periodo}</div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <Kpi label="Ingresos del periodo" value={money(d.ingresos)} accent="text-status-ftth" />
+          <Kpi label="Gastos + costos" value={money(d.gastos)} accent="text-status-parcial" />
+          <Kpi label="Utilidad neta" value={money(d.utilidadNeta)} accent={d.utilidadNeta >= 0 ? "text-cica-gold" : "text-status-sin"} />
+          <Kpi label="Cartera (CxC clientes)" value={money(d.cartera)} accent="text-cica-steelLight" />
+          <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
+          <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
+        </div>
       </div>
     </div>
   );

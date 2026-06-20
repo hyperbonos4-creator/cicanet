@@ -1129,3 +1129,7 @@ export function aplicarSaldoRecibo(id: string, aplicaciones: { facturaId: string
 export function anularRecibo(id: string): Promise<{ ok: boolean }> {
   return authFetch(`/cash/recibos/${id}/anular`, { method: "POST" });
 }
+
+// ---- Workbench del contador (módulo workbench) ----
+export type WorkbenchCard = { clave: string; titulo: string; valor: number; detalle: string; alerta: string | null; tab: string };
+export function workbench(): Promise<{ periodo: string; tarjetas: WorkbenchCard[] }> { return authFetch("/workbench"); }
