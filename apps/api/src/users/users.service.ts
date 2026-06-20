@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { config } from '../config';
 
-export type Role = 'admin' | 'operador' | 'tecnico';
+export type Role = 'admin' | 'operador' | 'tecnico' | 'contador';
 
 export interface User {
   id: string;
@@ -49,6 +49,14 @@ export class UsersService implements OnModuleInit {
         email: 'campo@cicanet.co',
         role: 'tecnico',
         password: 'tecnico2026',
+      },
+      {
+        id: 'usr-cont',
+        username: 'contadora',
+        nombre: 'Contadora CICANET',
+        email: 'contabilidad@cicanet.co',
+        role: 'contador',
+        password: process.env.SEED_CONTADOR_PASS || 'contadora2026',
       },
     ];
 

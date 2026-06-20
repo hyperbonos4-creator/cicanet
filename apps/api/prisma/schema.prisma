@@ -112,6 +112,10 @@ model Servicio {
   velocidadSubida Int?    @map("velocidad_subida")
   tecnologia      String
   napId           String? @map("nap_id")
+  /// FK real a la NAP del inventario (Activo). `napId` (string) se conserva por
+  /// compatibilidad; `activoNap` es el vínculo íntegro usado por Customer360.
+  activoNapId     String? @map("activo_nap_id")
+  activoNap       Activo? @relation("ServicioNap", fields: [activoNapId], references: [id])
   puerto          Int?
   onuSerial       String? @map("onu_serial")
   ip              String?
@@ -328,6 +332,9 @@ model Activo {
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime? @updatedAt @map("actualizado_en")
 
+  /// Servicios (clientes) conectados a este activo cuando es una NAP/CTO.
+  serviciosNap  Servicio[] @relation("ServicioNap")
+
   @@index([tipo])
   @@index([padreId])
   @@map("activo")
@@ -366,4 +373,128 @@ model Sitio {
   creadoEn   DateTime @default(now()) @map("creado_en")
 
   @@map("sitio")
+}
+
+// ============================================================
+//  CONTABILIDAD (módulo accounting) — ledger de doble partida para CICANET.
+//
+//  Principios (no negociables, validados por el servicio):
+//  - Toda transacción es un AsientoContable con N MovimientoContable cuya suma
+//    de débitos == suma de créditos (cuadre exacto), escrito atómicamente.
+//  - Un asiento "contabilizado" es INMUTABLE: no se edita, se REVERSA.
+//  - El periodo se puede CERRAR (bloquea asientos con fecha dentro del periodo).
+//  - Los saldos se DERIVAN de los movimientos (la verdad son las líneas).
+//  - Plan de cuentas = PUC Colombia (Decreto 2650): clases 1..9.
+// ============================================================
+
+/// Cuenta del Plan Único de Cuentas (PUC Colombia). Estructura jerárquica por
+/// longitud de código: 1=clase, 2=grupo, 4=cuenta, 6=subcuenta, 8+=auxiliar.
+/// Solo las cuentas `imputable=true` reciben movimientos (las de título no).
+model CuentaContable {
+  codigo        String   @id // 110505, 413505, ... (PUC)
+  nombre        String
+  /// Clase PUC (1=Activo,2=Pasivo,3=Patrimonio,4=Ingreso,5=Gasto,6=Costo venta,7=Costo prod,8=Orden deudoras,9=Orden acreedoras)
+  clase         Int
+  /// Naturaleza del saldo normal: 'debito' | 'credito'.
+  naturaleza    String
+  /// Nivel jerárquico: clase|grupo|cuenta|subcuenta|auxiliar.
+  nivel         String
+  /// Código de la cuenta padre (para armar el árbol).
+  padreCodigo   String?  @map("padre_codigo")
+  /// Solo las imputables reciben movimientos; las de título agregan saldos.
+  imputable     Boolean  @default(false)
+  /// Exige tercero (NIT/cédula) al mover esta cuenta (clientes, proveedores).
+  exigeTercero  Boolean  @default(false) @map("exige_tercero")
+  /// Exige centro de costo al mover esta cuenta.
+  exigeCentro   Boolean  @default(false) @map("exige_centro")
+  activa        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  movimientos   MovimientoContable[]
+
+  @@index([clase])
+  @@index([padreCodigo])
+  @@map("cuenta_contable")
+}
+
+/// Tercero contable (cliente, proveedor, empleado, otro). Para auxiliares por NIT.
+model Tercero {
+  id            String   @id @default(uuid()) @db.Uuid
+  tipoDocumento String   @default("CC") @map("tipo_documento")
+  documento     String   @unique
+  dv            String?  // dígito de verificación (NIT)
+  nombre        String
+  tipo          String   @default("cliente") // cliente|proveedor|empleado|otro
+  email         String?
+  telefono      String?
+  /// Vínculo opcional al cliente del CRM (si el tercero es un suscriptor).
+  clienteId     String?  @map("cliente_id") @db.Uuid
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  movimientos   MovimientoContable[]
+
+  @@map("tercero")
+}
+
+/// Periodo contable mensual (YYYY-MM). Al cerrarse bloquea asientos del periodo.
+model PeriodoContable {
+  periodo     String   @id // "2026-06"
+  estado      String   @default("abierto") // abierto|cerrado
+  cerradoPor  String?  @map("cerrado_por")
+  cerradoEn   DateTime? @map("cerrado_en")
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@map("periodo_contable")
+}
+
+/// Asiento contable (comprobante). Cabecera del registro de doble partida.
+model AsientoContable {
+  id            String   @id @default(uuid()) @db.Uuid
+  numero        String   @unique // CMP-000001 (consecutivo)
+  fecha         DateTime @db.Date
+  periodo       String // "2026-06" (derivado de fecha)
+  /// Tipo de comprobante: manual|apertura|venta|recaudo|compra|gasto|ajuste|depreciacion|cierre|reversion
+  tipo          String   @default("manual")
+  descripcion   String
+  /// Origen: qué evento del negocio lo generó (factura, pago, etc.).
+  referenciaTipo String? @map("referencia_tipo")
+  referenciaId   String? @map("referencia_id")
+  /// borrador|contabilizado|anulado
+  estado        String   @default("borrador")
+  debitoTotal   Decimal  @default(0) @db.Decimal(16, 2) @map("debito_total")
+  creditoTotal  Decimal  @default(0) @db.Decimal(16, 2) @map("credito_total")
+  /// Si este asiento reversa a otro (inmutabilidad: no se edita, se reversa).
+  reversaDeId   String?  @map("reversa_de_id") @db.Uuid
+  creadoPor     String?  @map("creado_por")
+  contabilizadoPor String? @map("contabilizado_por")
+  contabilizadoEn  DateTime? @map("contabilizado_en")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  movimientos   MovimientoContable[]
+
+  @@index([periodo])
+  @@index([estado])
+  @@index([referenciaTipo, referenciaId])
+  @@map("asiento_contable")
+}
+
+/// Movimiento (línea) del asiento: un débito o un crédito sobre una cuenta.
+model MovimientoContable {
+  id          String   @id @default(uuid()) @db.Uuid
+  asientoId   String   @map("asiento_id") @db.Uuid
+  asiento     AsientoContable @relation(fields: [asientoId], references: [id], onDelete: Cascade)
+  cuentaCodigo String  @map("cuenta_codigo")
+  cuenta      CuentaContable @relation(fields: [cuentaCodigo], references: [codigo])
+  descripcion String?
+  debito      Decimal  @default(0) @db.Decimal(16, 2)
+  credito     Decimal  @default(0) @db.Decimal(16, 2)
+  terceroId   String?  @map("tercero_id") @db.Uuid
+  tercero     Tercero? @relation(fields: [terceroId], references: [id])
+  centroCosto String?  @map("centro_costo")
+  orden       Int      @default(0)
+
+  @@index([asientoId])
+  @@index([cuentaCodigo])
+  @@index([terceroId])
+  @@map("movimiento_contable")
 }
