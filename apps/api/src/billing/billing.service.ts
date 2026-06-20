@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -29,6 +30,7 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   // ---- configuración ----
@@ -57,14 +59,53 @@ export class BillingService {
   }
   private diasDelMes(anio: number, mes: number) { return new Date(anio, mes, 0).getDate(); }
 
-  /** Calcula el cobro de un servicio para el periodo (con prorrateo si aplica). */
-  private calcularCobro(servicio: any, anio: number, mes: number, cfg: BillingConfig) {
+  // ---- cargos recurrentes (III.3.C) ----
+  listCargos(servicioId: string) {
+    return this.prisma.cargoRecurrente.findMany({ where: { servicioId }, orderBy: { creadoEn: 'desc' } });
+  }
+  async crearCargo(input: { servicioId: string; concepto: string; monto: number; cuentaIngreso?: string; ivaPct?: number }) {
+    if (!input.servicioId) throw new BadRequestException('servicioId es obligatorio.');
+    if (!input.concepto?.trim()) throw new BadRequestException('El concepto es obligatorio.');
+    if (D(input.monto) === 0) throw new BadRequestException('El monto no puede ser cero.');
+    const servicio = await this.prisma.servicio.findUnique({ where: { id: input.servicioId } });
+    if (!servicio) throw new BadRequestException('Servicio no encontrado.');
+    return this.prisma.cargoRecurrente.create({
+      data: {
+        servicioId: input.servicioId,
+        concepto: input.concepto.trim(),
+        monto: round2(D(input.monto)),
+        cuentaIngreso: input.cuentaIngreso || '414505',
+        ivaPct: D(input.ivaPct),
+      },
+    });
+  }
+  async toggleCargo(id: string, activo: boolean) {
+    return this.prisma.cargoRecurrente.update({ where: { id }, data: { activo } });
+  }
+  async eliminarCargo(id: string) {
+    await this.prisma.cargoRecurrente.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** Cargos recurrentes activos por servicio (IP fija, TV, arriendo, descuentos…). */
+  private async cargosPorServicio(servicioIds: string[]): Promise<Map<string, { concepto: string; cuentaIngreso: string; monto: number; ivaPct: number }[]>> {
+    const map = new Map<string, { concepto: string; cuentaIngreso: string; monto: number; ivaPct: number }[]>();
+    if (!servicioIds.length) return map;
+    const cargos = await this.prisma.cargoRecurrente.findMany({ where: { servicioId: { in: servicioIds }, activo: true } });
+    for (const c of cargos) {
+      const arr = map.get(c.servicioId) ?? [];
+      arr.push({ concepto: c.concepto, cuentaIngreso: c.cuentaIngreso, monto: round2(D(c.monto)), ivaPct: D(c.ivaPct) });
+      map.set(c.servicioId, arr);
+    }
+    return map;
+  }
+
+  /** Calcula el cobro de un servicio para el periodo (plan prorrateable + cargos recurrentes). */
+  private calcularCobro(servicio: any, anio: number, mes: number, cfg: BillingConfig, cargos: { concepto: string; cuentaIngreso: string; monto: number; ivaPct: number }[] = []) {
     const tarifa = round2(D(servicio.tarifa));
-    if (tarifa <= 0) return null; // sin tarifa => no se factura
     const diasMes = this.diasDelMes(anio, mes);
     let dias = diasMes;
     let prorrateo = false;
-    // Prorrateo si la instalación cae dentro del periodo facturado.
     if (servicio.fechaInstalacion) {
       const fi = new Date(servicio.fechaInstalacion);
       if (fi.getUTCFullYear() === anio && fi.getUTCMonth() + 1 === mes) {
@@ -72,9 +113,23 @@ export class BillingService {
         prorrateo = true;
       }
     }
-    const subtotal = prorrateo ? round2((tarifa * dias) / diasMes) : tarifa;
-    const iva = round2(subtotal * (cfg.ivaPorcentaje / 100));
-    return { subtotal, iva, total: round2(subtotal + iva), dias, prorrateo };
+    const planSubtotal = tarifa > 0 ? (prorrateo ? round2((tarifa * dias) / diasMes) : tarifa) : 0;
+    // Acumular ingresos por cuenta PUC (plan + cargos) e IVA total.
+    const ingresoPorCuenta = new Map<string, number>();
+    let iva = 0;
+    if (planSubtotal > 0) {
+      ingresoPorCuenta.set(cfg.cuentaIngreso, planSubtotal);
+      iva = round2(planSubtotal * (cfg.ivaPorcentaje / 100));
+    }
+    const conceptos: { concepto: string; valor: number }[] = [];
+    for (const c of cargos) {
+      ingresoPorCuenta.set(c.cuentaIngreso, round2((ingresoPorCuenta.get(c.cuentaIngreso) ?? 0) + c.monto));
+      iva = round2(iva + c.monto * (c.ivaPct / 100));
+      conceptos.push({ concepto: c.concepto, valor: c.monto });
+    }
+    const subtotal = round2([...ingresoPorCuenta.values()].reduce((s, v) => s + v, 0));
+    if (subtotal === 0) return null; // nada que facturar
+    return { subtotal, iva, total: round2(subtotal + iva), dias, prorrateo, ingresoPorCuenta, conceptos };
   }
 
   /** Servicios facturables del periodo (activos, con tarifa, sin factura previa). */
@@ -97,13 +152,14 @@ export class BillingService {
     const cfg = await this.getConfig();
     const { anio, mes } = this.validarPeriodo(periodo);
     const servicios = await this.serviciosFacturables(periodo);
+    const cargos = await this.cargosPorServicio(servicios.map((s) => s.id));
     let totalAFacturar = 0;
     const items = servicios
       .map((s) => {
-        const cobro = this.calcularCobro(s, anio, mes, cfg);
+        const cobro = this.calcularCobro(s, anio, mes, cfg, cargos.get(s.id));
         if (!cobro) return null;
         totalAFacturar = round2(totalAFacturar + cobro.total);
-        return { cliente: s.cliente.codigo + ' · ' + s.cliente.nombre, plan: s.planNombre, ...cobro };
+        return { cliente: s.cliente.codigo + ' · ' + s.cliente.nombre, plan: s.planNombre, subtotal: cobro.subtotal, iva: cobro.iva, total: cobro.total, dias: cobro.dias, prorrateo: cobro.prorrateo, cargos: cobro.conceptos };
       })
       .filter(Boolean);
     return { periodo, facturasAGenerar: items.length, totalAFacturar, items };
@@ -116,6 +172,7 @@ export class BillingService {
 
     const cfg = await this.getConfig();
     const servicios = await this.serviciosFacturables(periodo);
+    const cargosMap = await this.cargosPorServicio(servicios.map((s) => s.id));
     const fechaEmision = new Date(Date.UTC(anio, mes - 1, 1));
     const diaVenc = Math.min(cfg.diaCorte, this.diasDelMes(anio, mes));
     const fechaVencimiento = new Date(Date.UTC(anio, mes - 1, diaVenc));
@@ -126,7 +183,7 @@ export class BillingService {
     const errores: { cliente: string; error: string }[] = [];
 
     for (const s of servicios) {
-      const cobro = this.calcularCobro(s, anio, mes, cfg);
+      const cobro = this.calcularCobro(s, anio, mes, cfg, cargosMap.get(s.id));
       if (!cobro) continue;
       try {
         // 1) Crear factura (idempotente por índice único servicio+periodo).
@@ -155,18 +212,23 @@ export class BillingService {
           });
           const lineas: any[] = [
             { cuenta: '130505', debito: cobro.total, terceroId: tercero.id, descripcion: `CxC ${s.cliente.codigo} ${periodo}` },
-            { cuenta: cfg.cuentaIngreso, credito: cobro.subtotal, descripcion: `Servicio internet ${periodo}` },
           ];
+          // Una línea de ingreso por cada cuenta PUC (plan + cargos recurrentes).
+          for (const [cuenta, valor] of cobro.ingresoPorCuenta.entries()) {
+            if (valor > 0) lineas.push({ cuenta, credito: valor, descripcion: `Ingreso ${periodo}` });
+            else if (valor < 0) lineas.push({ cuenta, debito: -valor, descripcion: `Descuento ${periodo}` });
+          }
           if (cobro.iva > 0) lineas.push({ cuenta: '240805', credito: cobro.iva, descripcion: `IVA ${periodo}` });
-          await this.accounting.crearAsiento({
+          await this.posting.post({
+            evento: 'invoice.issued',
+            sourceModule: 'billing',
             fecha: fechaEmision,
             tipo: 'venta',
             descripcion: `Facturación ${periodo} - ${s.cliente.nombre}`,
-            referenciaTipo: 'factura',
-            referenciaId: factura.id,
+            referencia: { tipo: 'factura', id: factura.id },
+            trazas: { clienteId: s.cliente.id, servicioId: s.id, napId: s.activoNapId ?? s.napId ?? undefined },
             lineas,
-            contabilizar: true,
-            creadoPor: opts.emitidoPor,
+            actor: opts.emitidoPor,
           });
           contabilizadas++;
         } catch (e: any) {

@@ -1263,3 +1263,44 @@ export function analyticsRentabilidadPorCentro(periodo?: string): Promise<{ peri
 export function analyticsChurnPorMora(): Promise<{ conteo: Record<string, number>; tasaSuspension: number; tasaChurn: number }> {
   return authFetch("/analytics/churn-por-mora");
 }
+
+// ---- III.3.C — Cargos recurrentes (billing) ----
+export type CargoRecurrente = { id: string; servicioId: string; concepto: string; cuentaIngreso: string; monto: string; ivaPct: string; activo: boolean };
+export function listCargosRecurrentes(servicioId: string): Promise<CargoRecurrente[]> {
+  return authFetch(`/billing/cargos?servicioId=${encodeURIComponent(servicioId)}`);
+}
+export function crearCargoRecurrente(input: { servicioId: string; concepto: string; monto: number; cuentaIngreso?: string; ivaPct?: number }): Promise<CargoRecurrente> {
+  return authFetch("/billing/cargos", { method: "POST", body: JSON.stringify(input) });
+}
+export function toggleCargoRecurrente(id: string, activo: boolean): Promise<CargoRecurrente> {
+  return authFetch(`/billing/cargos/${encodeURIComponent(id)}/toggle`, { method: "POST", body: JSON.stringify({ activo }) });
+}
+export function eliminarCargoRecurrente(id: string): Promise<{ ok: boolean }> {
+  return authFetch(`/billing/cargos/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- III.3.B — Conciliación: bandeja de huérfanos ----
+export function bankingHuerfanos(cuenta?: string): Promise<{ total: number; movimientos: { id: string; fecha: string; descripcion: string; referencia: string | null; valor: number }[] }> {
+  return authFetch(`/banking/huerfanos${cuenta ? `?cuenta=${cuenta}` : ""}`);
+}
+
+// ---- III.3.D — CxP: programar pago / anular ----
+export function programarPagoCompra(id: string, fecha: string): Promise<FacturaCompra> {
+  return authFetch(`/payables/${encodeURIComponent(id)}/programar-pago`, { method: "POST", body: JSON.stringify({ fecha }) });
+}
+export function anularCompra(id: string): Promise<FacturaCompra> {
+  return authFetch(`/payables/${encodeURIComponent(id)}/anular`, { method: "POST" });
+}
+
+// ---- III.3.F — Activos: baja/venta ----
+export function darDeBajaActivo(id: string, input: { motivo?: string; valorVenta?: number; cuentaBanco?: string }): Promise<{ ok: boolean; asiento: string; valorLibros: number; valorVenta: number; resultado: string }> {
+  return authFetch(`/assets/${encodeURIComponent(id)}/baja`, { method: "POST", body: JSON.stringify(input) });
+}
+
+// ---- III.3.E — Tesorería: anticipos + legalización ----
+export function tesoreriaAnticipo(input: { cuentaBanco: string; monto: number; beneficiario: string; concepto?: string }): Promise<MovTesoreria> {
+  return authFetch("/tesoreria/anticipo", { method: "POST", body: JSON.stringify(input) });
+}
+export function tesoreriaLegalizar(input: { cuentaGasto: string; monto: number; concepto?: string; beneficiario?: string }): Promise<MovTesoreria> {
+  return authFetch("/tesoreria/legalizar", { method: "POST", body: JSON.stringify(input) });
+}

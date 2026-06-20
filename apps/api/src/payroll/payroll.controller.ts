@@ -43,7 +43,7 @@ export class PayrollController {
 
   @Post('run')
   @Roles('admin')
-  run(@Body() body: { periodo: string; dryRun?: boolean }, @Req() req: Request) {
-    return this.payroll.run(body.periodo, { dryRun: body.dryRun, actor: (req as any).user?.username });
+  run(@Body() body: { periodo: string; dryRun?: boolean; novedades?: any[] }, @Req() req: Request) {
+    return this.payroll.run(body.periodo, { dryRun: body.dryRun, actor: (req as any).user?.username, novedades: body.novedades });
   }
 }

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 import { EInvoiceClient, type EInvoiceItem } from './einvoice.client';
 import { config } from '../config';
 
@@ -42,6 +43,7 @@ export class InvoicingService {
     private readonly prisma: PrismaService,
     private readonly einvoice: EInvoiceClient,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   async health() {
@@ -161,14 +163,15 @@ export class InvoicingService {
     ];
     if (iva > 0) lineas.push({ cuenta: '240805', credito: iva, descripcion: `IVA generado factura ${consecutivo}` });
 
-    const asiento = await this.accounting.crearAsiento({
+    const asiento = await this.posting.post({
+      evento: 'invoice.issued',
+      sourceModule: 'invoicing',
       tipo: 'venta',
       descripcion: `Factura electrónica ${consecutivo} - ${input.cliente.nombre_completo}`,
-      referenciaTipo: 'dian_factura',
-      referenciaId: consecutivo,
+      referencia: { tipo: 'dian_factura', id: consecutivo },
+      trazas: { clienteId: input.clienteId },
       lineas,
-      contabilizar: true,
-      creadoPor: input.emitidoPor,
+      actor: input.emitidoPor,
     });
     return asiento.id;
   }

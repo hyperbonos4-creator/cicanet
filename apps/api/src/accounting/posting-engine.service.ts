@@ -15,6 +15,7 @@ export type EventoContable =
   | 'credit.note.issued'
   | 'payroll.closed'
   | 'depreciation.posted'
+  | 'asset.disposed'
   | 'treasury.movement'
   | 'manual.entry';
 
@@ -32,6 +33,7 @@ const TIPO_POR_EVENTO: Record<EventoContable, string> = {
   'credit.note.issued': 'ajuste',
   'payroll.closed': 'ajuste',
   'depreciation.posted': 'depreciacion',
+  'asset.disposed': 'ajuste',
   'treasury.movement': 'gasto',
   'manual.entry': 'manual',
 };

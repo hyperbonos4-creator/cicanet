@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -49,6 +50,7 @@ export class PayablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   private async siguienteNumero(): Promise<string> {
@@ -126,15 +128,15 @@ export class PayablesService {
     if (reteIva > 0) lineasAsiento.push({ cuenta: CUENTAS.reteIva, credito: reteIva, descripcion: 'ReteIVA' });
     if (reteIca > 0) lineasAsiento.push({ cuenta: CUENTAS.reteIca, credito: reteIca, descripcion: 'ReteICA' });
 
-    const asiento = await this.accounting.crearAsiento({
+    const asiento = await this.posting.post({
+      evento: 'purchase.invoice.recorded',
+      sourceModule: 'payables',
       fecha,
       tipo: 'compra',
       descripcion: `Compra ${numero} - ${input.proveedor.nombre}: ${input.concepto}`,
-      referenciaTipo: 'compra',
-      referenciaId: numero,
+      referencia: { tipo: 'compra', id: numero },
       lineas: lineasAsiento,
-      contabilizar: true,
-      creadoPor: input.creadoPor,
+      actor: input.creadoPor,
     });
 
     return this.prisma.facturaCompra.create({
@@ -169,23 +171,44 @@ export class PayablesService {
     const fecha = input.fecha ? new Date(input.fecha) : new Date();
     const total = D(f.totalAPagar);
 
-    const asiento = await this.accounting.crearAsiento({
+    const asiento = await this.posting.post({
+      evento: 'purchase.invoice.paid',
+      sourceModule: 'payables',
       fecha,
       tipo: 'gasto',
       descripcion: `Pago compra ${f.numero} - ${f.proveedorNombre}`,
-      referenciaTipo: 'pago_compra',
-      referenciaId: f.numero,
+      referencia: { tipo: 'pago_compra', id: f.numero },
       lineas: [
         { cuenta: CUENTAS.cxp, debito: total, terceroId: f.proveedorId, descripcion: `Pago CxP ${f.numero}` },
         { cuenta: cuentaBanco, credito: total, descripcion: `Pago ${f.numero}` },
       ],
-      contabilizar: true,
-      creadoPor: actor,
+      actor,
     });
 
     return this.prisma.facturaCompra.update({
       where: { id },
       data: { estado: 'pagada', asientoPagoId: asiento.id, pagadaEn: new Date() },
     });
+  }
+
+  /** Programa la fecha de pago de una factura de compra (agenda de tesorería). */
+  async programarPago(id: string, fecha: string) {
+    const f = await this.getOne(id);
+    if (f.estado !== 'pendiente') throw new BadRequestException('Solo se programan facturas pendientes.');
+    const d = new Date(fecha);
+    if (Number.isNaN(d.getTime())) throw new BadRequestException('Fecha inválida.');
+    return this.prisma.facturaCompra.update({ where: { id }, data: { fechaPagoProgramada: d } });
+  }
+
+  /** Anula una factura de compra pendiente: reversa la causación y la marca anulada. */
+  async anular(id: string, actor?: string) {
+    const f = await this.getOne(id);
+    if (f.estado === 'pagada') throw new BadRequestException('No se puede anular una factura ya pagada; primero reversa el pago.');
+    if (f.estado === 'anulada') throw new BadRequestException('La factura ya está anulada.');
+    if (f.asientoId) {
+      try { await this.accounting.reversar(f.asientoId, actor); }
+      catch (e: any) { this.logger.warn(`No se reversó la causación ${f.asientoId}: ${e.message}`); }
+    }
+    return this.prisma.facturaCompra.update({ where: { id }, data: { estado: 'anulada' } });
   }
 }

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -20,6 +21,7 @@ export class BankingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   // ---- cuentas bancarias ----
@@ -142,12 +144,13 @@ export class BankingService {
     const valor = D(mov.valor);
     if (valor <= 0) return { movimiento: mov, sugerencias: [] }; // solo entradas se concilian con recaudos
     const cents = Math.round(valor * 100);
+    const tol = 100; // tolerancia ±$1 (100 centavos) para diferencias de redondeo
     const ventana = 5 * DAY;
     const desde = new Date(mov.fecha.getTime() - ventana);
     const hasta = new Date(mov.fecha.getTime() + ventana);
 
     const candidatos = await this.prisma.pagoTransaccion.findMany({
-      where: { estado: 'APROBADA', montoCents: cents, creadoEn: { gte: desde, lte: hasta } },
+      where: { estado: 'APROBADA', montoCents: { gte: cents - tol, lte: cents + tol }, creadoEn: { gte: desde, lte: hasta } },
       take: 10,
       orderBy: { creadoEn: 'desc' },
     });
@@ -155,9 +158,31 @@ export class BankingService {
       movimiento: mov,
       sugerencias: candidatos.map((c) => {
         const dias = Math.abs(Math.round((c.creadoEn.getTime() - mov.fecha.getTime()) / DAY));
-        return { pagoTxId: c.id, referencia: c.referencia, metodo: c.metodo, monto: c.montoCents / 100, fecha: c.creadoEn.toISOString().slice(0, 10), confianza: dias === 0 ? 'alta' : dias <= 2 ? 'media' : 'baja' };
+        const exacto = c.montoCents === cents;
+        return { pagoTxId: c.id, referencia: c.referencia, metodo: c.metodo, monto: c.montoCents / 100, fecha: c.creadoEn.toISOString().slice(0, 10), confianza: exacto && dias === 0 ? 'alta' : dias <= 2 ? 'media' : 'baja' };
       }),
     };
+  }
+
+  /**
+   * Bandeja de recaudos huérfanos (III.3.B): entradas bancarias sin conciliar que
+   * NO tienen un recaudo (PagoTransaccion APROBADA) que las explique. Son las que
+   * la contadora debe identificar/aplicar a mano.
+   */
+  async huerfanos(cuentaBancariaId?: string) {
+    const movs = await this.prisma.movimientoBancario.findMany({
+      where: { estado: 'sin_conciliar', valor: { gt: 0 }, cuentaBancariaId },
+      orderBy: { fecha: 'desc' },
+      take: 500,
+    });
+    const tol = 100;
+    const out: any[] = [];
+    for (const m of movs) {
+      const cents = Math.round(D(m.valor) * 100);
+      const match = await this.prisma.pagoTransaccion.count({ where: { estado: 'APROBADA', montoCents: { gte: cents - tol, lte: cents + tol } } });
+      if (match === 0) out.push({ id: m.id, fecha: m.fecha.toISOString().slice(0, 10), descripcion: m.descripcion, referencia: m.referencia, valor: D(m.valor) });
+    }
+    return { total: out.length, movimientos: out };
   }
 
   /**
@@ -183,15 +208,15 @@ export class BankingService {
       ? { cuenta: contrapartida, credito: monto, descripcion: desc, terceroId: input.terceroId }
       : { cuenta: contrapartida, debito: monto, descripcion: desc, terceroId: input.terceroId };
 
-    const asiento = await this.accounting.crearAsiento({
+    const asiento = await this.posting.post({
+      evento: 'bank.movement.conciliated',
+      sourceModule: 'banking',
       fecha: mov.fecha,
       tipo: 'recaudo',
       descripcion: desc,
-      referenciaTipo: 'banco',
-      referenciaId: mov.id,
+      referencia: { tipo: 'banco', id: mov.id },
       lineas: [lineaBanco, lineaContra],
-      contabilizar: true,
-      creadoPor: actor,
+      actor,
     });
 
     await this.prisma.movimientoBancario.update({

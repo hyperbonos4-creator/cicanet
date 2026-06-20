@@ -636,6 +636,8 @@ model FacturaCompra {
   totalAPagar     Decimal  @default(0) @db.Decimal(16, 2) @map("total_a_pagar")
   /// pendiente | pagada | anulada
   estado          String   @default("pendiente")
+  /// Fecha programada de pago (tesorería / agenda de la contadora).
+  fechaPagoProgramada DateTime? @db.Date @map("fecha_pago_programada")
   asientoId       String?  @map("asiento_id") @db.Uuid
   asientoPagoId   String?  @map("asiento_pago_id") @db.Uuid
   /// Si se emitió documento soporte electrónico (no obligado a facturar).
@@ -902,4 +904,23 @@ model ReglaExogena {
   @@unique([formato, cuentaPatron])
   @@index([formato])
   @@map("regla_exogena")
+}
+
+/// Cargo recurrente adicional de un servicio (Fase III.3.C): IP fija, TV/OTT,
+/// arriendo de router/ONU, reconexión, instalación financiada, descuentos (monto
+/// negativo). La facturación recurrente los suma a la tarifa del plan cada ciclo.
+model CargoRecurrente {
+  id            String   @id @default(uuid()) @db.Uuid
+  servicioId    String   @map("servicio_id") @db.Uuid
+  concepto      String
+  /// Cuenta PUC de ingreso (o de menor ingreso si es descuento).
+  cuentaIngreso String   @default("414505") @map("cuenta_ingreso")
+  /// Monto mensual (puede ser negativo para descuentos recurrentes).
+  monto         Decimal  @db.Decimal(12, 2)
+  ivaPct        Decimal  @default(0) @db.Decimal(5, 2) @map("iva_pct")
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  @@index([servicioId])
+  @@map("cargo_recurrente")
 }

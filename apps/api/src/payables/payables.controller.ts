@@ -34,4 +34,15 @@ export class PayablesController {
   pagar(@Param('id') id: string, @Body() body: { cuentaBanco?: string; fecha?: string }, @Req() req: Request) {
     return this.payables.pagar(id, body, (req as any).user?.username);
   }
+
+  @Post(':id/programar-pago')
+  programarPago(@Param('id') id: string, @Body() body: { fecha: string }) {
+    return this.payables.programarPago(id, body.fecha);
+  }
+
+  @Post(':id/anular')
+  @Roles('admin', 'contador')
+  anular(@Param('id') id: string, @Req() req: Request) {
+    return this.payables.anular(id, (req as any).user?.username);
+  }
 }

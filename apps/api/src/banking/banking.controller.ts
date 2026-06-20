@@ -31,6 +31,11 @@ export class BankingController {
     return this.banking.sinConciliar(cuenta);
   }
 
+  @Get('huerfanos')
+  huerfanos(@Query('cuenta') cuenta?: string) {
+    return this.banking.huerfanos(cuenta);
+  }
+
   @Get('resumen')
   resumen(@Query('cuenta') cuenta?: string) {
     return this.banking.resumen(cuenta);

@@ -8,6 +8,11 @@
 **Estado:** vigente desde 2026-06-20. Stack: NestJS + Prisma (api), Next.js (web),
 microservicio `einvoice` (Python/facho), PostgreSQL, Docker.
 
+> **Mapa del documento:** Parte I (Fases 1–3) y Parte II (v2, Fases A–H) están
+> **completas** en backend y verificadas en vivo. La **Parte III** (al final) define el
+> siguiente foco real: **reestructuración del front a "cabina del contador"** + reconciliación
+> con la 2.ª revisión + backlog de endurecimiento por subledger.
+
 ---
 
 ## 0. Lo que YA está hecho (línea base) ✅
@@ -178,10 +183,14 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 1. **F1: Cartera/Aging → Facturación recurrente → Conciliación → Dunning** ✅ COMPLETA
 2. **F2: CxP/gastos → Impuestos por reglas → Tipos de comprobante → Exportables → Depreciación** ✅ COMPLETA
 3. **F3: Exógena → Nómina electrónica → NIIF** ✅ COMPLETA
-4. **PARTE II (v2) — siguiente foco:** endurecer el core → A: cash application + estados +
+4. **PARTE II (v2) — COMPLETA:** endurecer el core → A: cash application + estados +
    workbench · B: motor de eventos + trazabilidad · C: tesorería · D: cierre robusto ·
    E: centro DIAN · F: cartera avanzada · G: activos red/contable · H: analítica + Cica + portal.
    **La Fase 4 original (Cica/analítica/portal) queda absorbida en la Fase H.**
+5. **PARTE III (v3) — siguiente foco:** reestructurar el front a "cabina del contador"
+   (3 capas + workbench home + drill-down) · migrar todos los módulos al posting engine ·
+   endurecer cada subledger (conciliación avanzada, facturación recurrente madura, CxP/tesorería/
+   activos/nómina/exógena a fondo). Ver Parte III.
 
 ## Principios transversales (se respetan en cada tarea)
 - Doble partida siempre cuadrada y atómica; asientos inmutables (reversión).
@@ -395,3 +404,194 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
 - Posicionamiento de producto: no es "tenemos contabilidad" sino **"backoffice
   financiero-operativo nativo para ISP"** (cartera, recaudo, facturación recurrente,
   suspensión por mora, conciliación, DIAN y rentabilidad por nodo/zona).
+
+---
+---
+
+# PARTE III — Reestructuración del front + reconciliación y backlog de endurecimiento
+
+**Estado:** añadido 2026-06-20 tras 2.ª revisión de arquitectura (producto + contable),
+que evalúa el módulo ya en estado "ERP contable vertical" y señala dos vacíos del plan:
+(1) **no estaba documentada la reestructuración del front** (la UI todavía se siente
+"panel ejecutivo", no "cabina de trabajo de la contadora"); (2) faltaba **reconciliar**
+lo que la revisión cree pendiente contra lo ya implementado en la Parte II.
+
+> Principio que rige esta parte: **el backend de la Parte II (A–H) ya está; el siguiente
+> salto es la EXPERIENCIA de trabajo (front) y el ENDURECIMIENTO de cada subledger**, no
+> abrir frentes nuevos.
+
+## III.0 — Reconciliación: review 2.ª ronda ↔ estado real del código
+
+La 2.ª revisión (hecha sobre una captura) lista como "pendiente/cojo" varias cosas que
+**ya están implementadas y verificadas** en la Parte II. Tabla de la verdad:
+
+| Recomendación del review | Estado real | Dónde |
+|--------------------------|-------------|-------|
+| Cash application / recibo de caja (parcial, múltiple, anticipos, huérfanos, reversión) | ✅ hecho | `cash/` (Fase A1) |
+| Máquinas de estado documental | ✅ hecho (registro + guardia) | `accounting/domain/state-machine.ts` (A2) |
+| Workbench / bandeja del contador | ✅ hecho (7 tarjetas) | `workbench/` (A3) |
+| Motor de eventos contables (posting engine) | ✅ hecho (emisor único) | `accounting/posting-engine.service.ts` (B1) |
+| Trazabilidad ampliada (sourceModule, nap/zona/servicio/cliente, dianDoc) | ✅ hecho + drill-down por origen | `AsientoContable` (B2) |
+| Tesorería (egresos, traslados, comisiones, flujo de caja) | ✅ hecho | `tesoreria/` (Fase C) |
+| Cierre robusto (checklist + lock) | ✅ hecho | `accounting` (Fase D) |
+| Centro DIAN unificado + mapeo exógena + validación | ✅ hecho | `dian/` (Fase E) |
+| Cartera "de guerra" (acuerdos, refinanciación, castigo) | ✅ hecho | `cartera/` (Fase F) |
+| AssetRegistry operativo ↔ activo fijo contable | ✅ hecho (vínculo) | `asset-registry/` (Fase G) |
+| Analítica vertical (barrio/NAP/ARPU/canal/churn) + centros de costo | ✅ hecho | `analytics/` (Fase H) |
+| Cica contable (consultas vivas) + portal cliente (estado de cuenta) | ✅ hecho | `assistant/`, `me/` (Fase H) |
+| 5 subledgers + GL formalizados | 🟡 conceptual (módulos existen; falta paquete/namespace explícito) | III.2 |
+| **Reestructuración del front a "cabina"** | 🔴 **pendiente** | **III.1** |
+
+**Conclusión:** del review 2.ª ronda, lo único realmente no hecho es la **UX de cabina**
+(III.1) y una serie de **endurecimientos finos por subledger** (III.3). El resto ya está.
+
+## III.1 — Reestructuración del front: de "panel ejecutivo" a "cabina del contador" 🔴 (siguiente foco)
+
+**Problema:** hoy `ContabilidadModule.tsx` es **una sola pestaña-fila** con ~20 tabs planas
+(Resumen, Cartera, Acuerdos, Recibos, Cobranza, Facturación, Compras, Tesorería, Activos,
+Inventario, Nómina, Exógena, Centro DIAN, Bancos, Analítica, Comprobantes, Nuevo asiento,
+Plan de cuentas, Reportes, Periodos). Funciona, pero **no guía el trabajo diario** y la
+barra de pestañas ya está saturada.
+
+**Objetivo:** reorganizar la navegación en **3 capas** (no más pestañas sueltas), con el
+**workbench como home** y **drill-down** en cada KPI.
+
+### CAPA A — Trabajo del día (home = workbench, no KPIs ejecutivos)
+La pantalla inicial deja de ser "utilidad/ingresos/banco" y pasa a ser una **bandeja de
+pendientes accionable** agrupada por área. El backend ya expone los datos
+(`GET /workbench` + endpoints por módulo); falta el **rediseño de la home**:
+- **Recaudo:** pagos del día, recibos sin aplicar, recibos huérfanos (por identificar).
+- **Cartera:** vencen hoy/semana, morosos 1-30/31-60/+60, top deudores, barrios/NAP críticos.
+- **Facturación:** ciclo pendiente por correr, facturas con error/sin envío DIAN, NC pendientes.
+- **Compras/CxP:** facturas proveedor vencidas, pagos programados hoy, retenciones del día.
+- **Bancos:** movimientos importados sin conciliar, diferencias por cuenta.
+- **Cierre:** comprobantes en borrador/descuadrados, periodo abierto, alertas exógena/nómina.
+
+### CAPA B — Libros y procesos (cada pestaña = bandeja operativa, no solo resumen)
+Agrupar las pestañas existentes bajo un menú/segmento "Operación contable":
+Cartera · Cobranza · Acuerdos · Recibos · Facturación · Compras/CxP · Tesorería ·
+Bancos · Comprobantes · Nuevo asiento · Plan de cuentas. Regla de UX: **toda lista debe
+ser accionable** (resolver desde ahí), no solo informativa.
+
+### CAPA C — Cierre y cumplimiento (sección separada)
+Agrupar bajo "Cierre y cumplimiento": Periodos (checklist) · Centro DIAN · Exógena ·
+Nómina · Activos/Inventario · NIIF/Reportes · Auditoría.
+
+### Drill-down contable (transversal)
+En cada KPI/celda: **KPI → documento → asiento → tercero → soporte**. El backend ya lo
+permite (`GET /accounting/asientos?sourceModule=&referenciaTipo=&referenciaId=` +
+`GET /accounting/asientos/:id`); falta el **componente de navegación** en el front.
+
+**Entregable III.1:** refactor de `ContabilidadModule.tsx` a un layout de 3 capas
+(sub-navegación por grupo + home workbench + visor de asiento reusable). Sin cambios de
+backend salvo ajustes menores de agregación para las bandejas.
+
+## III.2 — Formalización explícita de subledgers (limpieza arquitectónica) 🟡
+
+Los 5 subledgers ya existen como módulos, pero dispersos. Para evitar el "pantano" que
+advierte el review (lógica de recaudo dentro de contabilidad, DIAN dentro de compras, etc.):
+- Agrupar por carpeta/namespace: `ledger/` (AR: collections, cash, cartera, billing),
+  `payables/` (AP), `treasury/` (cash bancario, tesoreria, banking), `gl/` (accounting),
+  `tax/` (dian, exogena, invoicing, payroll-DIAN).
+- Regla dura: **ningún módulo escribe asientos a mano** → todos pasan por
+  `PostingEngineService`. Hoy solo `cartera` (castigo) está migrado; **migrar el resto**
+  (billing, payables, banking, payroll, assets, cash, tesoreria) al posting engine es
+  trabajo de III.3.B.
+
+## III.3 — Backlog de endurecimiento por subledger (lo fino que aún falta)
+
+> Nada de esto bloquea el uso actual; es lo que falta para que sea "a prueba de contadora"
+> en cada caso real. Priorizado.
+
+### III.3.A — Migrar todos los módulos al posting engine 🔴
+Hoy billing/payables/banking/payroll/assets/cash/tesoreria contabilizan llamando a
+`AccountingService.crearAsiento` directo. Migrarlos a `PostingEngineService.post({evento,…})`
+para que **todo** asiento quede con `sourceModule/evento/autoGenerado` y trazas. (B1 dejó el
+motor; falta la adopción completa.)
+
+### III.3.B — Conciliación bancaria avanzada 🟡
+Hoy: import CSV + match 1:1 por monto/fecha. Falta: match **1:N / N:1**, tolerancia de
+centavos, reglas por referencia/banco/canal, **bandeja de recaudos huérfanos**, aplicar un
+movimiento bancario a varias facturas, parser OFX.
+
+### III.3.C — Facturación recurrente madura 🟡
+Hoy: ciclo + prorrateo + idempotencia. Falta: **cargos recurrentes adicionales** (IP fija,
+TV/OTT, arriendo router/ONU, reconexión, instalación financiada), descuentos recurrentes,
+factura masiva por lotes con reintento, notas crédito por cambio de plan/prorrateo.
+
+### III.3.D — CxP / compras a documento completo 🟡
+Hoy: causación + pago + retenciones. Falta: **estados documentales aplicados** a la compra,
+programación de pagos, adjunto PDF/XML del soporte, radicación interna y (a futuro) aprobación.
+
+### III.3.E — Tesorería a fondo 🟡
+Hoy: egreso/traslado/comisión + saldos + flujo. Falta: **caja menor**, anticipos a/de
+terceros con **legalización**, recaudos no identificados (cruce con cash huérfanos), **arqueo**.
+
+### III.3.F — Activos: movimientos contables del activo 🟡
+Hoy: alta + depreciación línea recta + AssetRegistry. Falta: **mejora/traslado/baja/venta/
+pérdida** con su asiento, **libro auxiliar de activos**, centro de costo por activo.
+
+### III.3.G — Nómina: pipeline laboral completo 🟡
+Hoy: maestro + liquidación básica (salud/pensión/auxilio) + contabilización. Falta:
+**novedades** (horas extra, incapacidades, licencias), prima/cesantías/vacaciones,
+contratos/EPS/caja, y el pipeline DIAN (prenómina→validar→emitir→estado→reproceso).
+
+### III.3.H — Exógena / DIAN a fondo 🟡
+Hoy: motor de mapeo + bandeja de validación + semáforo de habilitación. Falta:
+validación de **municipio/país/DV** por tercero, ajustes manuales auditados, gestión de
+**certificados/resolución** y **centro de estado DIAN** con XML/ZIP/respuesta descargable
+y reproceso por documento.
+
+## III.4 — Higiene operativa (recomendación del review aplicada)
+- **`prisma generate` en el arranque del contenedor** para que el cliente nunca quede
+  desincronizado tras cambios de schema (hoy se corrige a mano con `db push` + restart).
+- Considerar **migraciones versionadas** (`prisma migrate`) cuando las tablas geo migren
+  bajo Prisma (hoy se usa `db push` por convivencia con el SQL-init).
+
+## III.5 — Orden sugerido de la Parte III
+1. **III.1 — Reestructuración del front a cabina (3 capas + workbench home + drill-down).** ✅ (2026-06-20)
+2. **III.3.A — Migrar todos los módulos al posting engine.** ✅ (2026-06-20)
+3. **III.3.B — Conciliación avanzada** y **III.3.C — facturación recurrente madura.** ✅ (2026-06-20)
+4. **III.2 — Reagrupar subledgers** (🟡 lógica unificada; reagrupación física diferida) + **III.3.D–H** (endurecimiento por área). ✅ (2026-06-20)
+5. **III.4 — Higiene** (prisma generate en boot). ✅ (2026-06-20)
+
+## III.6 — Estado de ejecución de la Parte III (2026-06-20) ✅ COMPLETA
+
+- **III.1 Front "cabina":** navegación en 2 niveles (grupo → pestaña) con 6 grupos —
+  Hoy (workbench) · Operación · Activos · Cierre y cumplimiento · Libros · Analítica. El
+  workbench y los KPIs navegan con `goTab` sincronizando el grupo. `ContabilidadModule.tsx`.
+- **III.3.A Posting engine adoptado por TODOS los módulos** que contabilizan: `billing`,
+  `payables`, `cash`, `payroll`, `assets`, `banking`, `tesoreria`, `invoicing`, `cartera`.
+  Cada asiento queda con `sourceModule`/`evento`/`autoGenerado`. **Verificado:** anticipo →
+  `treasury.movement` con `sourceModule=tesoreria`.
+- **III.3.B Conciliación:** tolerancia ±$1 en sugerencias + bandeja de **recaudos huérfanos**
+  (`GET /banking/huerfanos`, panel en pestaña Bancos). **Verificado en vivo.**
+- **III.3.C Facturación recurrente madura:** modelo `CargoRecurrente` (IP fija, TV, arriendo,
+  reconexión, descuentos), integrado al cálculo del ciclo (ingreso por cuenta PUC) +
+  CRUD `GET/POST /billing/cargos`. **Verificado:** cargo "IP fija" $15.000 sobre un servicio.
+- **III.3.D CxP:** `fechaPagoProgramada` + `POST /payables/:id/programar-pago` y
+  `POST /payables/:id/anular` (reversa la causación). 
+- **III.3.E Tesorería a fondo:** anticipos a proveedor (`POST /tesoreria/anticipo`, Dr 133005/
+  Cr banco) y **legalización** (`POST /tesoreria/legalizar`); caja menor = egreso 110510.
+  **Verificado:** anticipo $300.000 `TES-000004`.
+- **III.3.F Activos — baja/venta:** `POST /assets/:id/baja` posts el asiento (dep. acumulada +
+  banco + pérdida/utilidad) y marca `baja`; botón "Dar de baja" en la pestaña Activos.
+  **Verificado:** baja con venta $800k sobre valor en libros $1M → pérdida correcta; balance cuadra.
+- **III.3.G Nómina con novedades:** horas extra, bonificaciones y otras deducciones por empleado
+  en `run({novedades})`, con base de aportes ajustada.
+- **III.3.H Exógena/DIAN:** validación de DV/tipo de documento/formato (Fase E) — se mantiene; la
+  profundización de certificados/centro de estado con XML/ZIP queda como mejora incremental.
+- **III.4 Higiene:** `predev: prisma generate` en `package.json` → el contenedor regenera el
+  cliente Prisma en cada arranque (evita el desfase que exigía `db push` manual).
+- **III.2 Subledgers:** la regla dura ("ningún módulo escribe asientos a mano; todos pasan por el
+  posting engine") **ya se cumple**. La reagrupación física de carpetas se difiere para no
+  desestabilizar imports del sistema en producción (cambio cosmético, no funcional).
+
+> **Verificación global:** `nest build` + `tsc` web en verde; `prisma db push` aplicado; API
+> reiniciada y endpoints nuevos probados en vivo; balance contable cuadra tras cada operación.
+
+> **Posicionamiento (sin cambios):** CICANET no compite como "otro software contable",
+> sino como **backoffice financiero-operativo nativo para ISP** (cartera georreferenciada,
+> recaudo, facturación recurrente, suspensión por mora, conciliación, DIAN y rentabilidad
+> por nodo/zona en un solo sistema). La Parte III protege ese moat puliendo la experiencia
+> de trabajo y el acople entre subledgers, no agregando pestañas.

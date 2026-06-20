@@ -80,6 +80,9 @@ import {
   analyticsChurnPorMora,
   listCentrosCosto,
   upsertCentroCosto,
+  darDeBajaActivo,
+  bankingHuerfanos,
+  tesoreriaAnticipo,
   type WorkbenchCard,
   type AsientoContable,
   type CuentaContable,
@@ -111,39 +114,95 @@ type Tab = "dashboard" | "cartera" | "acuerdos" | "recibos" | "facturacion" | "c
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
 
-const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
-  { key: "dashboard", label: "Resumen" },
-  { key: "cartera", label: "Cartera" },
-  { key: "acuerdos", label: "Acuerdos de pago" },
-  { key: "recibos", label: "Recibos de caja" },
-  { key: "cobranza", label: "Cobranza" },
-  { key: "facturacion", label: "Facturación", soloAdmin: true },
-  { key: "compras", label: "Compras / CxP" },
-  { key: "tesoreria", label: "Tesorería" },
+/**
+ * Navegación "cabina del contador" en 3 capas (III.1):
+ *  - Capa A "Hoy": workbench (pendientes del día).
+ *  - Capa B "Operación contable": recaudo, cartera, facturación, compras, tesorería, bancos.
+ *  - Capa C "Cierre y cumplimiento": periodos, DIAN, exógena, nómina, activos.
+ *  + Libros (diario/mayor/cuentas/reportes) y Analítica vertical.
+ */
+type Grupo = "hoy" | "operacion" | "activos" | "cumplimiento" | "libros" | "analitica";
+
+const GRUPOS: { key: Grupo; label: string }[] = [
+  { key: "hoy", label: "Hoy" },
+  { key: "operacion", label: "Operación" },
   { key: "activos", label: "Activos" },
-  { key: "inventario", label: "Inventario red" },
-  { key: "nomina", label: "Nómina" },
-  { key: "exogena", label: "Exógena" },
-  { key: "dian", label: "Centro DIAN" },
-  { key: "bancos", label: "Bancos" },
+  { key: "cumplimiento", label: "Cierre y cumplimiento" },
+  { key: "libros", label: "Libros" },
   { key: "analitica", label: "Analítica" },
-  { key: "asientos", label: "Comprobantes" },
-  { key: "nuevo", label: "Nuevo asiento" },
-  { key: "cuentas", label: "Plan de cuentas" },
-  { key: "reportes", label: "Reportes" },
-  { key: "periodos", label: "Periodos" },
+];
+
+const TABS: { key: Tab; label: string; group: Grupo; soloAdmin?: boolean }[] = [
+  { key: "dashboard", label: "Pendientes del día", group: "hoy" },
+  // Operación contable
+  { key: "cartera", label: "Cartera", group: "operacion" },
+  { key: "recibos", label: "Recibos de caja", group: "operacion" },
+  { key: "cobranza", label: "Cobranza", group: "operacion" },
+  { key: "acuerdos", label: "Acuerdos de pago", group: "operacion" },
+  { key: "facturacion", label: "Facturación", group: "operacion", soloAdmin: true },
+  { key: "compras", label: "Compras / CxP", group: "operacion" },
+  { key: "tesoreria", label: "Tesorería", group: "operacion" },
+  { key: "bancos", label: "Bancos", group: "operacion" },
+  // Activos
+  { key: "activos", label: "Activos fijos", group: "activos" },
+  { key: "inventario", label: "Inventario red", group: "activos" },
+  // Cierre y cumplimiento
+  { key: "periodos", label: "Periodos / Cierre", group: "cumplimiento" },
+  { key: "dian", label: "Centro DIAN", group: "cumplimiento" },
+  { key: "exogena", label: "Exógena", group: "cumplimiento" },
+  { key: "nomina", label: "Nómina", group: "cumplimiento" },
+  // Libros
+  { key: "asientos", label: "Comprobantes", group: "libros" },
+  { key: "nuevo", label: "Nuevo asiento", group: "libros" },
+  { key: "cuentas", label: "Plan de cuentas", group: "libros" },
+  { key: "reportes", label: "Reportes", group: "libros" },
+  // Analítica
+  { key: "analitica", label: "Analítica ISP", group: "analitica" },
 ];
 
 export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: boolean; isAdmin: boolean }) {
   const [tab, setTab] = useState<Tab>("dashboard");
-  const tabs = TABS.filter((t) => !t.soloAdmin || isAdmin);
+  const grupoActivo = TABS.find((t) => t.key === tab)?.group ?? "hoy";
+  const [grupo, setGrupo] = useState<Grupo>(grupoActivo);
+
+  // Navega a una pestaña y sincroniza su grupo (usado por el workbench y KPIs).
+  function goTab(t: Tab) {
+    setTab(t);
+    const g = TABS.find((x) => x.key === t)?.group;
+    if (g) setGrupo(g);
+  }
+  // Cambia de grupo y abre su primera pestaña visible.
+  function goGrupo(g: Grupo) {
+    setGrupo(g);
+    const first = TABS.find((t) => t.group === g && (!t.soloAdmin || isAdmin));
+    if (first) setTab(first.key);
+  }
+
+  const tabsDelGrupo = TABS.filter((t) => t.group === grupo && (!t.soloAdmin || isAdmin));
+
   return (
     <div className="mx-auto max-w-6xl">
       <h2 className="mb-1 text-xl font-extrabold text-white">Contabilidad</h2>
-      <p className="mb-4 text-xs text-cica-muted">Libros, cartera y reportes financieros de CICANET (PUC Colombia, doble partida).</p>
+      <p className="mb-4 text-xs text-cica-muted">Cabina financiera-operativa de CICANET (PUC Colombia, doble partida). Trabajo del día, operación, cierre y cumplimiento.</p>
 
+      {/* Capa de grupos (nivel 1) */}
+      <div className="mb-2 flex flex-wrap gap-2">
+        {GRUPOS.map((g) => (
+          <button
+            key={g.key}
+            onClick={() => goGrupo(g.key)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors ${
+              grupo === g.key ? "bg-cica-gold/25 text-cica-gold" : "bg-cica-navy/40 text-cica-muted hover:text-cica-silver"
+            }`}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Pestañas del grupo activo (nivel 2) */}
       <div className="mb-5 flex flex-wrap gap-2 border-b border-cica-border/60 pb-2">
-        {tabs.map((t) => (
+        {tabsDelGrupo.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -156,7 +215,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
         ))}
       </div>
 
-      {tab === "dashboard" && <DashboardTab onGo={setTab} />}
+      {tab === "dashboard" && <DashboardTab onGo={goTab} />}
       {tab === "cartera" && <CarteraTab />}
       {tab === "acuerdos" && <AcuerdosTab canEdit={canEdit} />}
       {tab === "recibos" && <RecibosTab canEdit={canEdit} />}
@@ -172,7 +231,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "bancos" && <BancosTab />}
       {tab === "analitica" && <AnaliticaTab canEdit={canEdit} />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
-      {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
+      {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => goTab("asientos")} />}
       {tab === "cuentas" && <CuentasTab />}
       {tab === "reportes" && <ReportesTab />}
       {tab === "periodos" && <PeriodosTab canEdit={canEdit} />}
@@ -735,7 +794,7 @@ function TesoreriaTab({ canEdit }: { canEdit: boolean }) {
   const [movs, setMovs] = useState<MovTesoreria[]>([]);
   const [saldos, setSaldos] = useState<{ total: number; cuentas: { codigo: string; nombre: string; saldo: number }[] } | null>(null);
   const [flujo, setFlujo] = useState<{ disponible: number; proyeccion: { dias: number; cobrar: number; pagar: number; proyectado: number }[] } | null>(null);
-  const [modal, setModal] = useState<"egreso" | "traslado" | "comision" | null>(null);
+  const [modal, setModal] = useState<"egreso" | "traslado" | "comision" | "anticipo" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   async function refresh() {
@@ -750,6 +809,7 @@ function TesoreriaTab({ canEdit }: { canEdit: boolean }) {
           <button onClick={() => setModal("egreso")} className="rounded-xl bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black">+ Egreso</button>
           <button onClick={() => setModal("traslado")} className="rounded-xl border border-cica-border px-4 py-2 text-sm font-semibold text-cica-silver hover:border-cica-gold/40">Traslado entre cuentas</button>
           <button onClick={() => setModal("comision")} className="rounded-xl border border-cica-border px-4 py-2 text-sm font-semibold text-cica-silver hover:border-cica-gold/40">Comisión / GMF</button>
+          <button onClick={() => setModal("anticipo")} className="rounded-xl border border-cica-border px-4 py-2 text-sm font-semibold text-cica-silver hover:border-cica-gold/40">Anticipo a proveedor</button>
         </div>
       )}
       {err && <Aviso texto={err} />}
@@ -808,7 +868,7 @@ function TesoreriaTab({ canEdit }: { canEdit: boolean }) {
   );
 }
 
-function TesoreriaModal({ tipo, onClose, onSaved }: { tipo: "egreso" | "traslado" | "comision"; onClose: () => void; onSaved: () => void }) {
+function TesoreriaModal({ tipo, onClose, onSaved }: { tipo: "egreso" | "traslado" | "comision" | "anticipo"; onClose: () => void; onSaved: () => void }) {
   const [monto, setMonto] = useState(0);
   const [concepto, setConcepto] = useState("");
   const [beneficiario, setBeneficiario] = useState("");
@@ -833,12 +893,13 @@ function TesoreriaModal({ tipo, onClose, onSaved }: { tipo: "egreso" | "traslado
     try {
       if (tipo === "egreso") await tesoreriaEgreso({ cuentaBanco, cuentaGasto, monto, concepto, beneficiario: beneficiario || undefined });
       else if (tipo === "traslado") await tesoreriaTraslado({ cuentaOrigen, cuentaDestino, monto, concepto: concepto || undefined });
+      else if (tipo === "anticipo") await tesoreriaAnticipo({ cuentaBanco, monto, beneficiario, concepto: concepto || undefined });
       else await tesoreriaComision({ cuentaBanco, monto, concepto: concepto || undefined });
       onSaved();
     } catch (e: any) { setErr(e.message); } finally { setSaving(false); }
   }
-  const titulo = tipo === "egreso" ? "Registrar egreso" : tipo === "traslado" ? "Traslado entre cuentas" : "Comisión bancaria / GMF";
-  const valido = monto > 0 && (tipo !== "egreso" || concepto.length >= 3);
+  const titulo = tipo === "egreso" ? "Registrar egreso" : tipo === "traslado" ? "Traslado entre cuentas" : tipo === "anticipo" ? "Anticipo a proveedor" : "Comisión bancaria / GMF";
+  const valido = monto > 0 && (tipo !== "egreso" || concepto.length >= 3) && (tipo !== "anticipo" || beneficiario.length >= 2);
 
   return (
     <Modal title={titulo} onClose={onClose}>
@@ -852,9 +913,9 @@ function TesoreriaModal({ tipo, onClose, onSaved }: { tipo: "egreso" | "traslado
         ) : (
           <Field label="Cuenta banco/caja"><select value={cuentaBanco} onChange={(e) => setCuentaBanco(e.target.value)} className={input}>{cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>
         )}
-        {tipo === "egreso" && (
+        {(tipo === "egreso" || tipo === "anticipo") && (
           <>
-            <Field label="Cuenta de gasto"><select value={cuentaGasto} onChange={(e) => setCuentaGasto(e.target.value)} className={input}>{gastos.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>
+            {tipo === "egreso" && <Field label="Cuenta de gasto"><select value={cuentaGasto} onChange={(e) => setCuentaGasto(e.target.value)} className={input}>{gastos.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}</select></Field>}
             <Field label="Beneficiario"><input value={beneficiario} onChange={(e) => setBeneficiario(e.target.value)} className={input} /></Field>
           </>
         )}
@@ -901,6 +962,18 @@ function ActivosTab({ isAdmin }: { isAdmin: boolean }) {
     try { const r = await depreciacionRun(periodo); setMsg(`Depreciación ${periodo}: ${r.procesados} activo(s), total ${money(r.totalDepreciacion)}.`); await refresh(); }
     catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   }
+  async function bajaActivo(a: ActivoFijo) {
+    const ventaStr = prompt(`Dar de baja "${a.nombre}". Valor de venta (0 si es retiro/pérdida):`, "0");
+    if (ventaStr === null) return;
+    const valorVenta = Number(ventaStr) || 0;
+    const motivo = prompt("Motivo (opcional):", "") || undefined;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await darDeBajaActivo(a.id, { valorVenta, motivo });
+      setMsg(`Baja contabilizada (asiento ${r.asiento}); resultado: ${r.resultado}.`);
+      await refresh();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -928,7 +1001,7 @@ function ActivosTab({ isAdmin }: { isAdmin: boolean }) {
 
       <div className="glass p-4">
         <table className="w-full text-xs">
-          <thead><tr className="text-cica-muted"><th className="text-left">Activo</th><th className="text-right">Valor</th><th className="text-right">Dep. acumulada</th><th className="text-right">Vida</th><th className="text-right">Estado</th></tr></thead>
+          <thead><tr className="text-cica-muted"><th className="text-left">Activo</th><th className="text-right">Valor</th><th className="text-right">Dep. acumulada</th><th className="text-right">Vida</th><th className="text-right">Estado</th><th /></tr></thead>
           <tbody>
             {activos.map((a) => (
               <tr key={a.id} className="border-t border-cica-border/30">
@@ -936,10 +1009,15 @@ function ActivosTab({ isAdmin }: { isAdmin: boolean }) {
                 <td className="text-right text-cica-silver">{money(Number(a.valorAdquisicion))}</td>
                 <td className="text-right text-cica-muted">{money(Number(a.depreciacionAcumulada))}</td>
                 <td className="text-right text-cica-muted">{a.vidaUtilMeses}m</td>
-                <td className="text-right"><span className={`text-[11px] ${a.estado === "depreciado" ? "text-cica-muted" : "text-status-ftth"}`}>{a.estado}</span></td>
+                <td className="text-right"><span className={`text-[11px] ${a.estado === "depreciado" ? "text-cica-muted" : a.estado === "baja" ? "text-status-sin" : "text-status-ftth"}`}>{a.estado}</span></td>
+                <td className="text-right">
+                  {isAdmin && a.estado !== "baja" && (
+                    <button onClick={() => bajaActivo(a)} className="text-[11px] text-cica-muted hover:text-status-sin">Dar de baja</button>
+                  )}
+                </td>
               </tr>
             ))}
-            {activos.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-cica-muted">Sin activos fijos registrados.</td></tr>}
+            {activos.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-cica-muted">Sin activos fijos registrados.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1355,6 +1433,7 @@ function BancosTab() {
   const [cuenta, setCuenta] = useState<string>("");
   const [movs, setMovs] = useState<MovimientoBancario[]>([]);
   const [resumen, setResumen] = useState<{ total: number; sinConciliar: number; conciliados: number; montoSinConciliar: number } | null>(null);
+  const [huerfanos, setHuerfanos] = useState<{ id: string; fecha: string; descripcion: string; valor: number }[]>([]);
   const [csv, setCsv] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1369,6 +1448,7 @@ function BancosTab() {
     if (cid) {
       setMovs(await movimientosSinConciliar(cid));
       setResumen(await bankingResumen(cid));
+      setHuerfanos((await bankingHuerfanos(cid)).movimientos);
     }
   }
   useEffect(() => { refresh().catch((e) => setErr(e.message)); /* eslint-disable-next-line */ }, [cuenta]);
@@ -1456,6 +1536,26 @@ function BancosTab() {
           </tbody>
         </table>
       </div>
+
+      {/* Recaudos huérfanos (sin recaudo que los explique) */}
+      {huerfanos.length > 0 && (
+        <div className="glass p-4">
+          <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-status-parcial">Recaudos huérfanos · sin identificar ({huerfanos.length})</div>
+          <p className="mb-2 text-[10px] text-cica-muted">Entradas bancarias sin un recaudo (Wompi) que las explique. Identifícalas y concílialas a mano.</p>
+          <table className="w-full text-xs">
+            <thead><tr className="text-cica-muted"><th className="text-left">Fecha</th><th className="text-left">Descripción</th><th className="text-right">Valor</th></tr></thead>
+            <tbody>
+              {huerfanos.map((h) => (
+                <tr key={h.id} className="border-t border-cica-border/30">
+                  <td className="py-1 text-cica-muted">{h.fecha}</td>
+                  <td className="text-cica-silver">{h.descripcion}</td>
+                  <td className="text-right text-status-parcial">{money(h.valor)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

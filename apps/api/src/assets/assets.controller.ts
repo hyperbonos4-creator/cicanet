@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { AssetsService } from './assets.service';
 import { JwtAuthGuard, Roles, RolesGuard } from '../auth/guards';
@@ -29,5 +29,11 @@ export class AssetsController {
   @Roles('admin')
   run(@Body() body: { periodo: string; dryRun?: boolean }, @Req() req: Request) {
     return this.assets.run(body.periodo, { dryRun: body.dryRun, actor: (req as any).user?.username });
+  }
+
+  @Post(':id/baja')
+  @Roles('admin', 'contador')
+  darDeBaja(@Param('id') id: string, @Body() body: { motivo?: string; valorVenta?: number; cuentaBanco?: string }, @Req() req: Request) {
+    return this.assets.darDeBaja(id, { ...body, actor: (req as any).user?.username });
   }
 }

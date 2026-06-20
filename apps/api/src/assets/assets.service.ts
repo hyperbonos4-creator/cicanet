@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -18,6 +19,7 @@ export class AssetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   list() {
@@ -82,18 +84,18 @@ export class AssetsService {
       const cuota = this.cuotaMensual(a);
       if (cuota <= 0) continue;
       try {
-        const asiento = await this.accounting.crearAsiento({
+        const asiento = await this.posting.post({
+          evento: 'depreciation.posted',
+          sourceModule: 'assets',
           fecha,
           tipo: 'depreciacion',
           descripcion: `Depreciación ${periodo} - ${a.nombre}`,
-          referenciaTipo: 'depreciacion',
-          referenciaId: a.id,
+          referencia: { tipo: 'depreciacion', id: a.id },
           lineas: [
             { cuenta: a.cuentaGasto, debito: cuota, descripcion: `Depreciación ${a.nombre}` },
             { cuenta: a.cuentaDepAcum, credito: cuota, descripcion: `Dep. acum. ${a.nombre}` },
           ],
-          contabilizar: true,
-          creadoPor: opts.actor,
+          actor: opts.actor,
         });
         await this.prisma.depreciacionRegistro.create({ data: { activoFijoId: a.id, periodo, valor: cuota, asientoId: asiento.id } });
         const nuevaAcum = round2(D(a.depreciacionAcumulada) + cuota);
@@ -113,5 +115,52 @@ export class AssetsService {
 
   private validarPeriodo(periodo: string) {
     if (!/^\d{4}-\d{2}$/.test(periodo)) throw new BadRequestException('Periodo inválido (YYYY-MM).');
+  }
+
+  /**
+   * Da de baja un activo fijo (retiro o venta) y contabiliza (III.3.F):
+   *  Dr depreciación acumulada (lo depreciado)
+   *  Dr banco/caja (si hay venta)
+   *  Cr activo (valor de adquisición)
+   *  + cuadre: pérdida (Dr 531025) o utilidad (Cr 424540) en venta/retiro de PPE.
+   */
+  async darDeBaja(id: string, input: { motivo?: string; valorVenta?: number; cuentaBanco?: string; actor?: string }) {
+    const a = await this.prisma.activoFijo.findUnique({ where: { id } });
+    if (!a) throw new NotFoundException('Activo no encontrado.');
+    if (a.estado === 'baja') throw new BadRequestException('El activo ya está dado de baja.');
+
+    const valorAdq = round2(D(a.valorAdquisicion));
+    const depAcum = round2(D(a.depreciacionAcumulada));
+    const valorVenta = round2(D(input.valorVenta));
+    const valorLibros = round2(valorAdq - depAcum);
+
+    await this.asegurarCuenta('531025', 'Pérdida en venta/retiro de PPE');
+    await this.asegurarCuenta('424540', 'Utilidad en venta de PPE');
+
+    const lineas: any[] = [];
+    if (depAcum > 0) lineas.push({ cuenta: a.cuentaDepAcum, debito: depAcum, descripcion: 'Depreciación acumulada' });
+    if (valorVenta > 0) lineas.push({ cuenta: input.cuentaBanco || '111005', debito: valorVenta, descripcion: 'Producto de la venta' });
+    lineas.push({ cuenta: a.cuentaActivo, credito: valorAdq, descripcion: `Baja activo ${a.nombre}` });
+
+    const diff = round2(valorLibros - valorVenta); // >0 pérdida ; <0 utilidad
+    if (diff > 0) lineas.push({ cuenta: '531025', debito: diff, descripcion: 'Pérdida en baja/venta de PPE' });
+    else if (diff < 0) lineas.push({ cuenta: '424540', credito: -diff, descripcion: 'Utilidad en venta de PPE' });
+
+    const asiento = await this.posting.post({
+      evento: 'asset.disposed',
+      sourceModule: 'assets',
+      tipo: 'ajuste',
+      descripcion: `Baja de activo ${a.nombre}${input.motivo ? ': ' + input.motivo : ''}${valorVenta > 0 ? ` (venta ${valorVenta})` : ''}`,
+      referencia: { tipo: 'baja_activo', id: a.id },
+      lineas,
+      actor: input.actor,
+    });
+    await this.prisma.activoFijo.update({ where: { id }, data: { estado: 'baja' } });
+    return { ok: true, asiento: asiento.numero, valorLibros, valorVenta, resultado: diff > 0 ? 'perdida' : diff < 0 ? 'utilidad' : 'neutro' };
+  }
+
+  private async asegurarCuenta(codigo: string, nombre: string) {
+    const existe = await this.prisma.cuentaContable.findUnique({ where: { codigo } });
+    if (!existe) { try { await this.accounting.crearCuenta({ codigo, nombre, imputable: true }); } catch { /* carrera */ } }
   }
 }

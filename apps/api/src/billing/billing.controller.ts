@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard, Roles, RolesGuard } from '../auth/guards';
@@ -36,5 +36,29 @@ export class BillingController {
   @Roles('admin')
   suspender(@Body() body: { diasGracia?: number; aplicar?: boolean }) {
     return this.billing.suspenderMorosos({ diasGracia: body.diasGracia, aplicar: body.aplicar });
+  }
+
+  // ---- Cargos recurrentes (IP fija, TV, arriendo, descuentos…) ----
+  @Get('cargos')
+  listCargos(@Query('servicioId') servicioId: string) {
+    return this.billing.listCargos(servicioId);
+  }
+
+  @Post('cargos')
+  @Roles('admin')
+  crearCargo(@Body() body: { servicioId: string; concepto: string; monto: number; cuentaIngreso?: string; ivaPct?: number }) {
+    return this.billing.crearCargo(body);
+  }
+
+  @Post('cargos/:id/toggle')
+  @Roles('admin')
+  toggleCargo(@Param('id') id: string, @Body() body: { activo: boolean }) {
+    return this.billing.toggleCargo(id, body.activo);
+  }
+
+  @Delete('cargos/:id')
+  @Roles('admin')
+  eliminarCargo(@Param('id') id: string) {
+    return this.billing.eliminarCargo(id);
   }
 }

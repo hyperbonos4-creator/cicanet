@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleIni
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -43,6 +44,7 @@ export class CashService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   async onModuleInit() {
@@ -113,11 +115,14 @@ export class CashService implements OnModuleInit {
     } else {
       lineas.push({ cuenta: CUENTAS.porIdentificar, credito: monto, descripcion: 'Recaudo por identificar' });
     }
-    const asiento = await this.accounting.crearAsiento({
+    const asiento = await this.posting.post({
+      evento: 'payment.received',
+      sourceModule: 'cash',
       fecha, tipo: 'recaudo',
       descripcion: `Recibo de caja ${numero}${cliente ? ' - ' + cliente.nombre : ' (por identificar)'}`,
-      referenciaTipo: 'recibo_caja', referenciaId: numero,
-      lineas, contabilizar: true, creadoPor: input.creadoPor,
+      referencia: { tipo: 'recibo_caja', id: numero },
+      trazas: { clienteId: cliente?.id ?? undefined },
+      lineas, actor: input.creadoPor,
     });
 
     // Persistir recibo.
@@ -168,15 +173,18 @@ export class CashService implements OnModuleInit {
       const { saldo: saldoFac } = await this.saldoFactura(ap.facturaId);
       if (m > saldoFac + EPS) throw new BadRequestException('La aplicación supera el saldo de la factura.');
       // Reclasificación: Dr anticipo/por-identificar ; Cr CxC (tercero).
-      const asiento = await this.accounting.crearAsiento({
+      const asiento = await this.posting.post({
+        evento: 'payment.applied',
+        sourceModule: 'cash',
         fecha: new Date(), tipo: 'recaudo',
         descripcion: `Aplicación recibo ${recibo.numero}`,
-        referenciaTipo: 'recibo_caja', referenciaId: recibo.numero,
+        referencia: { tipo: 'recibo_caja', id: recibo.numero },
+        trazas: { clienteId: recibo.clienteId ?? undefined },
         lineas: [
           { cuenta: cuentaSaldo, debito: m, terceroId: tercero.id, descripcion: 'Aplicación de anticipo' },
           { cuenta: CUENTAS.cxc, credito: m, terceroId: tercero.id, descripcion: 'Abono CxC' },
         ],
-        contabilizar: true, creadoPor: actor,
+        actor,
       });
       await this.registrarAplicacion(reciboId, ap.facturaId, m, recibo.medioPago, recibo.numero, asiento.id);
       saldo = round2(saldo - m);

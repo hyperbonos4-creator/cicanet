@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingService } from '../accounting/accounting.service';
+import { PostingEngineService } from '../accounting/posting-engine.service';
 
 const D = (n: Prisma.Decimal | number | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -10,6 +11,10 @@ const DAY = 86_400_000;
 export interface EgresoInput { cuentaBanco: string; cuentaGasto: string; monto: number; concepto: string; beneficiario?: string; fecha?: string; }
 export interface TrasladoInput { cuentaOrigen: string; cuentaDestino: string; monto: number; concepto?: string; fecha?: string; }
 export interface ComisionInput { cuentaBanco: string; monto: number; concepto?: string; cuentaGasto?: string; fecha?: string; }
+export interface AnticipoInput { cuentaBanco: string; monto: number; beneficiario: string; concepto?: string; fecha?: string; }
+export interface LegalizarInput { cuentaGasto: string; monto: number; concepto?: string; beneficiario?: string; fecha?: string; }
+
+const CUENTA_ANTICIPO = '133005'; // Anticipos y avances a proveedores
 
 /**
  * Tesorería: egresos directos, traslados entre cuentas/cajas y comisiones
@@ -21,6 +26,7 @@ export class TesoreriaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
+    private readonly posting: PostingEngineService,
   ) {}
 
   private async siguienteNumero(): Promise<string> {
@@ -39,13 +45,14 @@ export class TesoreriaService {
     this.validarDisponible(input.cuentaBanco);
     if (!input.concepto?.trim()) throw new BadRequestException('El concepto es obligatorio.');
     const fecha = input.fecha ? new Date(input.fecha) : new Date();
-    const asiento = await this.accounting.crearAsiento({
+    const asiento = await this.posting.post({
+      evento: 'treasury.movement', sourceModule: 'tesoreria',
       fecha, tipo: 'gasto',
       descripcion: `Egreso: ${input.concepto}${input.beneficiario ? ' - ' + input.beneficiario : ''}`,
-      referenciaTipo: 'tesoreria', lineas: [
+      referencia: { tipo: 'tesoreria' }, lineas: [
         { cuenta: input.cuentaGasto, debito: monto, descripcion: input.concepto },
         { cuenta: input.cuentaBanco, credito: monto, descripcion: input.concepto },
-      ], contabilizar: true, creadoPor: actor,
+      ], actor,
     });
     return this.persistir('egreso', { fecha, monto, concepto: input.concepto, beneficiario: input.beneficiario, cuentaOrigen: input.cuentaBanco, contraCuenta: input.cuentaGasto, asientoId: asiento.id, creadoPor: actor });
   }
@@ -59,12 +66,13 @@ export class TesoreriaService {
     if (input.cuentaOrigen === input.cuentaDestino) throw new BadRequestException('Las cuentas de origen y destino deben ser distintas.');
     const fecha = input.fecha ? new Date(input.fecha) : new Date();
     const concepto = input.concepto?.trim() || `Traslado ${input.cuentaOrigen} → ${input.cuentaDestino}`;
-    const asiento = await this.accounting.crearAsiento({
-      fecha, tipo: 'gasto', descripcion: concepto, referenciaTipo: 'tesoreria',
+    const asiento = await this.posting.post({
+      evento: 'treasury.movement', sourceModule: 'tesoreria',
+      fecha, tipo: 'gasto', descripcion: concepto, referencia: { tipo: 'tesoreria' },
       lineas: [
         { cuenta: input.cuentaDestino, debito: monto, descripcion: concepto },
         { cuenta: input.cuentaOrigen, credito: monto, descripcion: concepto },
-      ], contabilizar: true, creadoPor: actor,
+      ], actor,
     });
     return this.persistir('traslado', { fecha, monto, concepto, cuentaOrigen: input.cuentaOrigen, cuentaDestino: input.cuentaDestino, asientoId: asiento.id, creadoPor: actor });
   }
@@ -77,12 +85,13 @@ export class TesoreriaService {
     const fecha = input.fecha ? new Date(input.fecha) : new Date();
     const concepto = input.concepto?.trim() || 'Comisión bancaria';
     const cuentaGasto = input.cuentaGasto || '530505';
-    const asiento = await this.accounting.crearAsiento({
-      fecha, tipo: 'gasto', descripcion: concepto, referenciaTipo: 'tesoreria',
+    const asiento = await this.posting.post({
+      evento: 'treasury.movement', sourceModule: 'tesoreria',
+      fecha, tipo: 'gasto', descripcion: concepto, referencia: { tipo: 'tesoreria' },
       lineas: [
         { cuenta: cuentaGasto, debito: monto, descripcion: concepto },
         { cuenta: input.cuentaBanco, credito: monto, descripcion: concepto },
-      ], contabilizar: true, creadoPor: actor,
+      ], actor,
     });
     return this.persistir('comision', { fecha, monto, concepto, cuentaOrigen: input.cuentaBanco, contraCuenta: cuentaGasto, asientoId: asiento.id, creadoPor: actor });
   }
@@ -90,6 +99,49 @@ export class TesoreriaService {
   private async persistir(tipo: string, data: any) {
     const numero = await this.siguienteNumero();
     return this.prisma.movimientoTesoreria.create({ data: { numero, tipo, ...data } });
+  }
+
+  private async asegurarCuenta(codigo: string, nombre: string) {
+    const existe = await this.prisma.cuentaContable.findUnique({ where: { codigo } });
+    if (!existe) { try { await this.accounting.crearCuenta({ codigo, nombre, imputable: true }); } catch { /* carrera */ } }
+  }
+
+  /** Anticipo a proveedor: Dr 133005 anticipos / Cr banco. */
+  async anticipo(input: AnticipoInput, actor?: string) {
+    const monto = round2(D(input.monto));
+    if (monto <= 0) throw new BadRequestException('El monto debe ser mayor a cero.');
+    this.validarDisponible(input.cuentaBanco);
+    if (!input.beneficiario?.trim()) throw new BadRequestException('El beneficiario es obligatorio.');
+    await this.asegurarCuenta(CUENTA_ANTICIPO, 'Anticipos y avances a proveedores');
+    const fecha = input.fecha ? new Date(input.fecha) : new Date();
+    const concepto = input.concepto?.trim() || `Anticipo a ${input.beneficiario}`;
+    const asiento = await this.posting.post({
+      evento: 'treasury.movement', sourceModule: 'tesoreria',
+      fecha, tipo: 'gasto', descripcion: `Anticipo: ${concepto}`, referencia: { tipo: 'tesoreria' },
+      lineas: [
+        { cuenta: CUENTA_ANTICIPO, debito: monto, descripcion: concepto },
+        { cuenta: input.cuentaBanco, credito: monto, descripcion: concepto },
+      ], actor,
+    });
+    return this.persistir('anticipo', { fecha, monto, concepto, beneficiario: input.beneficiario, cuentaOrigen: input.cuentaBanco, contraCuenta: CUENTA_ANTICIPO, asientoId: asiento.id, creadoPor: actor });
+  }
+
+  /** Legaliza un anticipo: Dr gasto/activo / Cr 133005 anticipos. */
+  async legalizar(input: LegalizarInput, actor?: string) {
+    const monto = round2(D(input.monto));
+    if (monto <= 0) throw new BadRequestException('El monto debe ser mayor a cero.');
+    await this.asegurarCuenta(CUENTA_ANTICIPO, 'Anticipos y avances a proveedores');
+    const fecha = input.fecha ? new Date(input.fecha) : new Date();
+    const concepto = input.concepto?.trim() || 'Legalización de anticipo';
+    const asiento = await this.posting.post({
+      evento: 'treasury.movement', sourceModule: 'tesoreria',
+      fecha, tipo: 'gasto', descripcion: `Legalización: ${concepto}`, referencia: { tipo: 'tesoreria' },
+      lineas: [
+        { cuenta: input.cuentaGasto, debito: monto, descripcion: concepto },
+        { cuenta: CUENTA_ANTICIPO, credito: monto, descripcion: concepto },
+      ], actor,
+    });
+    return this.persistir('legalizacion', { fecha, monto, concepto, beneficiario: input.beneficiario, contraCuenta: input.cuentaGasto, cuentaOrigen: CUENTA_ANTICIPO, asientoId: asiento.id, creadoPor: actor });
   }
 
   list(tipo?: string) {
