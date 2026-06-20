@@ -350,6 +350,48 @@ export class GeoService {
    * Geolocaliza una IP pública real. Para IPs privadas/localhost (desarrollo)
    * devuelve el centro del barrio como fallback honesto (fuente: 'fallback').
    */
+  /**
+   * Street View: consulta la API de metadatos de Google (GRATIS) para saber si
+   * existe panorámica cerca del punto. Devuelve disponibilidad, panoId, la
+   * coordenada real del panorama y su fecha. No expone la clave al cliente.
+   */
+  async streetViewMeta(
+    lat: number,
+    lng: number,
+    radius = 50,
+  ): Promise<{
+    disponible: boolean;
+    panoId: string | null;
+    lat: number;
+    lng: number;
+    fecha: string | null;
+    fuente: string | null;
+  }> {
+    const sinDatos = { disponible: false, panoId: null, lat, lng, fecha: null, fuente: null };
+    if (!config.geo.googleKey) return sinDatos;
+    const url =
+      `https://maps.googleapis.com/maps/api/streetview/metadata` +
+      `?location=${lat},${lng}&radius=${radius}&source=outdoor` +
+      `&key=${encodeURIComponent(config.geo.googleKey)}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (d.status !== 'OK') return sinDatos;
+      return {
+        disponible: true,
+        panoId: d.pano_id || null,
+        lat: d.location?.lat ?? lat,
+        lng: d.location?.lng ?? lng,
+        fecha: d.date || null,
+        fuente: d.copyright || null,
+      };
+    } catch (e: any) {
+      this.logger.warn(`Street View metadata falló (${lat},${lng}): ${e.message}`);
+      return sinDatos;
+    }
+  }
+
   async locateByIp(ip?: string): Promise<IpLocation> {
     const [cx, cy] = geo.meta.center;
     const fallback: IpLocation = {

@@ -6,12 +6,14 @@ import {
   createCliente,
   updateCliente,
   deleteCliente,
+  getCliente,
   type Cliente,
   type ClienteInput,
   type ClienteStats,
 } from "../../lib/api";
 import ClienteForm from "./ClienteForm";
 import ClienteDetail from "./ClienteDetail";
+import Customer360 from "./Customer360";
 
 const ESTADO_TONE: Record<string, string> = {
   activo: "text-status-ftth bg-status-ftth/10 border-status-ftth/30",
@@ -26,7 +28,7 @@ const SERVICIO_LABEL: Record<string, string> = {
   cortado: "Cortado",
 };
 
-type View = { mode: "list" } | { mode: "new" } | { mode: "edit"; cliente: Cliente } | { mode: "detail"; id: string };
+type View = { mode: "list" } | { mode: "new" } | { mode: "edit"; cliente: Cliente } | { mode: "detail"; id: string } | { mode: "c360"; id: string };
 
 export default function ClientesModule({
   canEdit,
@@ -107,6 +109,24 @@ export default function ClientesModule({
     );
   }
 
+  if (view.mode === "c360") {
+    return (
+      <Customer360
+        id={view.id}
+        canEdit={canEdit}
+        onBack={() => setView({ mode: "list" })}
+        onEdit={async (cid) => {
+          try {
+            const full = await getCliente(cid);
+            setView({ mode: "edit", cliente: full });
+          } catch {
+            setView({ mode: "detail", id: cid });
+          }
+        }}
+      />
+    );
+  }
+
   // ---- Vista lista ----
   return (
     <div className="mx-auto max-w-6xl">
@@ -170,7 +190,7 @@ export default function ClientesModule({
                 clientes.map((c) => (
                   <tr
                     key={c.id}
-                    onClick={() => setView({ mode: "detail", id: c.id })}
+                    onClick={() => setView({ mode: "c360", id: c.id })}
                     className="cursor-pointer border-b border-cica-border/30 transition-colors hover:bg-cica-navy/40"
                   >
                     <td className="px-4 py-2.5">

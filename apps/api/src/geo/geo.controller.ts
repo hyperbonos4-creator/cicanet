@@ -52,6 +52,12 @@ export class GeoController {
     return { direccion };
   }
 
+  /** ¿Hay Street View cerca de este punto? (metadata gratuita de Google). */
+  @Get('streetview')
+  streetview(@Query('lat') lat: string, @Query('lng') lng: string) {
+    return this.geo.streetViewMeta(parseFloat(lat), parseFloat(lng));
+  }
+
   /** Atajo GET para geocodificar desde la barra de búsqueda. */
   @Get('geocode')
   geocodeQuery(@Query('q') q: string) {

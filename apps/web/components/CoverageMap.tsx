@@ -1,9 +1,21 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map as MlMap, Popup, Marker } from "maplibre-gl";
+import { API_URL } from "../lib/api";
 
 type FC = { type: "FeatureCollection"; features: any[] };
+
+// Ortofoto oficial de GeoMedellín (capa cliente: la pide el navegador, que sí
+// alcanza el servidor municipal aunque un backend en datacenter no pueda).
+// Déjala vacía y el botón "Ortofoto Medellín" no aparece. Para activarla, pega
+// aquí (o en NEXT_PUBLIC_GEOMEDELLIN_TILES) el endpoint de teselas del servicio
+// cacheado, con el patrón {z}/{y}/{x} de ArcGIS, p.ej.:
+//   https://www.medellin.gov.co/arcgis/rest/services/<carpeta>/IMAGEN_WEBM_2024/MapServer/tile/{z}/{y}/{x}
+const GEOMEDELLIN_TILES =
+  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_GEOMEDELLIN_TILES) || "";
+
+type Basemap = "dark" | "satelite" | "esri" | "ortofoto";
 
 export type MapData = {
   meta: { center: [number, number]; zoom: number; bbox?: [number, number, number, number] };
@@ -104,6 +116,7 @@ export default function CoverageMap({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
+  const [basemap, setBasemap] = useState<Basemap>("dark");
   const markersRef = useRef<Marker[]>([]);
   const labelsRef = useRef<Marker[]>([]);
   const checkMarkerRef = useRef<Marker | null>(null);
@@ -140,6 +153,63 @@ export default function CoverageMap({
 
     map.on("load", () => {
       loadedRef.current = true;
+
+      // === Base satelital en DOS capas (resiliencia + nitidez) ===========
+      // 1) Base Esri World Imagery (gratis, sin token): garantiza que SIEMPRE
+      //    haya imagen aunque el proxy/Mapbox falle. Va debajo.
+      map.addSource("sat-base", {
+        type: "raster",
+        tiles: [
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        ],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
+      });
+      map.addLayer({
+        id: "sat-base",
+        type: "raster",
+        source: "sat-base",
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 1 },
+      });
+      // 2) Mapbox Satellite @2x (512 px, hasta z22) vía proxy del backend (token
+      //    en el servidor). Va ENCIMA de Esri; si una tesela no llega (204), se
+      //    ve la de Esri debajo. Mucho más nítida y permite acercar mucho más.
+      map.addSource("sat-hd", {
+        type: "raster",
+        tiles: [`${API_URL}/tiles/satellite/{z}/{x}/{y}`],
+        tileSize: 512,
+        minzoom: 0,
+        maxzoom: 22,
+        attribution: "Imagery © Mapbox, Maxar",
+      });
+      map.addLayer({
+        id: "sat-hd",
+        type: "raster",
+        source: "sat-hd",
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 1 },
+      });
+      // 3) Ortofoto oficial GeoMedellín (opcional, cliente). Va encima de Esri;
+      //    si una tesela no llega, se ve Esri debajo. Solo si hay endpoint.
+      if (GEOMEDELLIN_TILES) {
+        map.addSource("ortofoto", {
+          type: "raster",
+          tiles: [GEOMEDELLIN_TILES],
+          tileSize: 256,
+          minzoom: 0,
+          maxzoom: 22,
+          attribution: "Ortofoto © Alcaldía de Medellín · GeoMedellín",
+        });
+        map.addLayer({
+          id: "ortofoto",
+          type: "raster",
+          source: "ortofoto",
+          layout: { visibility: "none" },
+          paint: { "raster-opacity": 1 },
+        });
+      }
 
       // --- Comuna 1: los 12 barrios reales (contexto) ---
       map.addSource("comuna1", { type: "geojson", data: data.comuna1 as any });
@@ -338,6 +408,21 @@ export default function CoverageMap({
           "circle-stroke-color": "#04060C",
         },
       });
+      // Badge: punto dorado que marca los activos que YA tienen evidencia
+      // fotográfica. Es un círculo desplazado (no requiere glyphs en el estilo).
+      map.addLayer({
+        id: "infra-assets-cam",
+        type: "circle",
+        source: "infra-assets",
+        filter: [">", ["coalesce", ["get", "fotosCount"], 0], 0],
+        paint: {
+          "circle-radius": 3,
+          "circle-color": "#F5C518",
+          "circle-translate": [7, -7],
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "#04060C",
+        },
+      });
 
       map.on("click", "clients-dot", (e) => {
         const f = e.features?.[0];
@@ -530,7 +615,51 @@ export default function CoverageMap({
     });
   }, [showOnlyInfra, infra]);
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  // Conmuta entre base oscura y las distintas imágenes (satélite/ortofoto).
+  // Esri siempre actúa de respaldo bajo Mapbox/Ortofoto para que nunca quede en
+  // blanco. Al usar imagen se atenúan los rellenos de cobertura.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const sat = basemap !== "dark";
+    const show = (id: string, on: boolean) => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    };
+    show("carto", basemap === "dark");
+    // Esri visible como respaldo en cualquier modo de imagen.
+    show("sat-base", sat);
+    show("sat-hd", basemap === "satelite");
+    show("ortofoto", basemap === "ortofoto");
+    if (map.getLayer("coverage-fill")) {
+      map.setPaintProperty("coverage-fill", "fill-opacity", sat ? 0.08 : 0.18);
+    }
+  }, [basemap]);
+
+  const BASEMAPS: { id: Basemap; label: string; show: boolean }[] = [
+    { id: "dark", label: "◑ Mapa", show: true },
+    { id: "satelite", label: "🛰️ Satélite HD", show: true },
+    { id: "esri", label: "🌎 Esri", show: true },
+    { id: "ortofoto", label: "🏙️ Ortofoto Medellín", show: !!GEOMEDELLIN_TILES },
+  ];
+
+  return (
+    <div ref={containerRef} className="absolute inset-0">
+      {/* Selector de base: oscuro operativo + imágenes (satélite/ortofoto) */}
+      <div className="pointer-events-auto absolute left-3 top-3 z-10 flex overflow-hidden rounded-lg border border-white/10 bg-black/55 text-[11px] font-semibold shadow-lg backdrop-blur">
+        {BASEMAPS.filter((b) => b.show).map((b) => (
+          <button
+            key={b.id}
+            onClick={() => setBasemap(b.id)}
+            className={`px-3 py-1.5 transition-colors ${
+              basemap === b.id ? "bg-cica-gold text-black" : "text-cica-silver hover:bg-white/10"
+            }`}
+          >
+            {b.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function emptyFC(): any {

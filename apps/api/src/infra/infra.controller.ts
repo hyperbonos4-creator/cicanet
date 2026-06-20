@@ -7,8 +7,11 @@ import {
   Post,
   Put,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   IsIn,
   IsInt,
@@ -127,6 +130,41 @@ export class InfraController {
   @Roles('admin', 'operador')
   deleteAsset(@Param('id') id: string) {
     return this.infra.deleteAsset(id);
+  }
+
+  // ---- Evidencia fotográfica (vista de calle propia, georreferenciada) ----
+
+  /**
+   * Sube una foto de evidencia a un activo (multipart `file` + campo `categoria`).
+   * Los técnicos también pueden subir: capturan la realidad en campo al instalar.
+   * Límite 8 MB, solo imágenes JPG/PNG/WebP.
+   */
+  @Post('assets/:id/photos')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador', 'tecnico')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 8 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok = /^image\/(jpe?g|png|webp)$/i.test(file.mimetype);
+        cb(ok ? null : new Error('Formato no soportado. Usa JPG, PNG o WebP.'), ok);
+      },
+    }),
+  )
+  addPhoto(
+    @Param('id') id: string,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number },
+    @Body('categoria') categoria: string,
+    @Req() req: Request,
+  ) {
+    return this.infra.addPhoto(id, file, categoria, (req as any).user?.username);
+  }
+
+  @Delete('assets/:id/photos/:photoId')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  deletePhoto(@Param('id') id: string, @Param('photoId') photoId: string) {
+    return this.infra.removePhoto(id, photoId);
   }
 
   @Get('fiber')

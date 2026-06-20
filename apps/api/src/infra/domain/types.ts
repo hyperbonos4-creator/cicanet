@@ -83,6 +83,7 @@ export interface PhotoRef {
   categoria: PhotoCategory;
   url: string;
   subidoEn: string;
+  autor?: string;
 }
 
 export interface DocRef {

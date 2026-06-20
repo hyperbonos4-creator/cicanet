@@ -158,6 +158,9 @@ services:
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api}
       NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:4000/realtime}
+      # Ortofoto oficial GeoMedellín (capa cliente). Endpoint de teselas ArcGIS
+      # con patrón {z}/{y}/{x}. Si está vacío, el botón "Ortofoto Medellín" no aparece.
+      NEXT_PUBLIC_GEOMEDELLIN_TILES: ${NEXT_PUBLIC_GEOMEDELLIN_TILES:-}
     volumes:
       - ./apps/web:/app
       - /app/node_modules

@@ -156,6 +156,35 @@ export function reverseGeocode(lat: number, lng: number): Promise<{ direccion: s
   });
 }
 
+// ---- Street View (Google, gateado por disponibilidad) ----
+export type StreetViewMeta = {
+  disponible: boolean;
+  panoId: string | null;
+  lat: number;
+  lng: number;
+  fecha: string | null;
+  fuente: string | null;
+};
+
+/** ¿Hay panorámica de Street View cerca del punto? (metadata gratuita). */
+export function streetViewMeta(lat: number, lng: number): Promise<StreetViewMeta> {
+  return authFetch(`/geo/streetview?lat=${lat}&lng=${lng}`);
+}
+
+/** URL de imagen Street View servida por el proxy (clave en el servidor). */
+export function streetViewImageUrl(p: {
+  lat: number; lng: number; heading?: number; pitch?: number; fov?: number;
+}): string {
+  const qs = new URLSearchParams({
+    lat: String(p.lat),
+    lng: String(p.lng),
+    heading: String(p.heading ?? 0),
+    pitch: String(p.pitch ?? 0),
+    fov: String(p.fov ?? 90),
+  }).toString();
+  return `${MEDIA_ORIGIN}/api/tiles/streetview?${qs}`;
+}
+
 // ---- Infraestructura: NAPs ----
 export type NapRecord = {
   id: string;
@@ -311,6 +340,62 @@ export function getAssetDetail(id: string): Promise<any> {
   return authFetch(`/infra/assets/${encodeURIComponent(id)}`);
 }
 
+// ---- Evidencia fotográfica georreferenciada (vista de calle propia) ----
+export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion";
+
+export type AssetPhoto = {
+  id: string;
+  categoria: PhotoCategory;
+  url: string;
+  subidoEn: string;
+  autor?: string;
+};
+
+/** Origen de la API sin el sufijo /api, para componer URLs de /uploads. */
+export const MEDIA_ORIGIN = API_URL.replace(/\/api\/?$/, "");
+
+/** URL absoluta y servible de una foto guardada (`/uploads/...`). */
+export function mediaUrl(url: string): string {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${MEDIA_ORIGIN}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/** Sube una foto de evidencia a un activo (multipart). Devuelve la foto creada. */
+export async function uploadAssetPhoto(
+  assetId: string,
+  file: File,
+  categoria: PhotoCategory,
+): Promise<{ foto: AssetPhoto }> {
+  const token = getToken();
+  const form = new FormData();
+  form.append("file", file);
+  form.append("categoria", categoria);
+  const res = await fetch(`${API_URL}/infra/assets/${encodeURIComponent(assetId)}/photos`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form, // sin Content-Type: el navegador fija el boundary del multipart.
+  });
+  if (res.status === 401) {
+    clearSession();
+    if (typeof window !== "undefined") window.location.href = "/login";
+    throw new Error("Sesión expirada");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg = body?.message || `Error ${res.status}`;
+    throw new Error(Array.isArray(msg) ? msg.join(" · ") : msg);
+  }
+  return res.json();
+}
+
+export function deleteAssetPhoto(assetId: string, photoId: string): Promise<{ id: string }> {
+  return authFetch(
+    `/infra/assets/${encodeURIComponent(assetId)}/photos/${encodeURIComponent(photoId)}`,
+    { method: "DELETE" },
+  );
+}
+
 // ---- Modo construcción / simulador de venta ----
 export type ConstructionResult = {
   punto: { lng: number; lat: number };
@@ -427,6 +512,45 @@ export function updateCliente(id: string, input: ClienteInput): Promise<Cliente>
 }
 export function deleteCliente(id: string): Promise<{ id: string }> {
   return authFetch(`/clientes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- Customer 360 (vista integral del suscriptor) ----
+export type Cliente360 = {
+  cliente: {
+    id: string; nombre: string; tipoDocumento: string; documento: string;
+    tipoCliente: string; email: string | null; telefonoMovil: string | null;
+    telefonoFijo: string | null; estado: string; creadoEn: string;
+  };
+  ubicacion: {
+    direccion: string; barrio: string | null; comuna: string | null; ciudad: string;
+    estrato: number | null; lat: number | null; lng: number | null; referencias: string | null;
+  };
+  servicio: {
+    plan: string; estadoServicio: string; estadoCliente: string; tecnologia: string;
+    velocidadBajada: number | null; velocidadSubida: number | null; tarifa: number; saldo: number;
+    diaCorte: number | null; cicloFacturacion: string | null; metodoPago: string | null;
+    numeroContrato: string | null; fechaInstalacion: string | null;
+    ip: string | null; vlan: number | null; onuSerial: string | null; puerto: number | null; napId: string | null;
+  };
+  facturacion: {
+    saldo: number; vencidas: number; pendientes: number;
+    ultimoPago: { monto: number; fecha: string | null; metodo: string } | null;
+    proximoVencimiento: string | null;
+    facturas: { id: string; periodo: string; total: number; estado: string; fechaEmision: string | null; fechaVencimiento: string | null; pagada: boolean }[];
+  };
+  tickets: { id: string; codigo: string; asunto: string; categoria: string; estado: string; creadoEn: string }[];
+  ticketsAbiertos: number;
+  red: {
+    encontrado: boolean;
+    onu: { onuSerial: string | null; puerto: number | null; ip: string | null; vlan: number | null };
+    nap: { id: string; nombre: string; tipo: string; direccion: string | null; capacidad: { total: number; usados: number; libres: number; semaforo: string } | null; impacto: { clientesDependientes: number; napsDependientes: number; ingresosMensuales: number } } | null;
+    cadena: { id: string; nombre: string; tipo: string }[];
+  };
+  alertas: { tipo: string; nivel: "alta" | "media" | "info"; mensaje: string }[];
+};
+
+export function getCliente360(id: string): Promise<Cliente360> {
+  return authFetch(`/clientes/${encodeURIComponent(id)}/360`);
 }
 
 // ---- Soporte (canal de WhatsApp configurable por el admin) ----

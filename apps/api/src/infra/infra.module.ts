@@ -9,5 +9,6 @@ import { RolesGuard } from '../auth/guards';
   imports: [AuthModule, GeoModule],
   controllers: [InfraController],
   providers: [InfraService, RolesGuard],
+  exports: [InfraService],
 })
 export class InfraModule {}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createInfraFiber,
   createInfraAsset,
@@ -8,6 +8,14 @@ import {
   deleteInfraAsset,
   setAssetParent,
   getAssetDetail,
+  uploadAssetPhoto,
+  deleteAssetPhoto,
+  mediaUrl,
+  streetViewMeta,
+  streetViewImageUrl,
+  type StreetViewMeta,
+  type AssetPhoto,
+  type PhotoCategory,
   type NapRecord,
   type ZoneRecord,
   type InfraBundle,
@@ -209,7 +217,7 @@ function ActivosView({
 
   if (selected) {
     const nap = naps.find((n) => n.id === selected);
-    return <AssetDetail id={selected} nap={nap} onBack={() => setSelected(null)} onFocus={onFocus} canEdit={canEdit} onDelete={eliminar} />;
+    return <AssetDetail id={selected} nap={nap} onBack={() => setSelected(null)} onFocus={onFocus} canEdit={canEdit} onDelete={eliminar} onInfraChanged={onInfraChanged} />;
   }
 
   return (
@@ -314,14 +322,19 @@ function ActivosView({
 /* =================== Ficha de activo =================== */
 
 function AssetDetail({
-  id, nap, onBack, onFocus, canEdit, onDelete,
+  id, nap, onBack, onFocus, canEdit, onDelete, onInfraChanged,
 }: {
   id: string; nap?: NapRecord; onBack: () => void;
   onFocus: (lng: number, lat: number, color?: string) => void;
-  canEdit: boolean; onDelete: (id: string) => void;
+  canEdit: boolean; onDelete: (id: string) => void; onInfraChanged?: () => void;
 }) {
   const [d, setD] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  function load() {
+    setErr(null);
+    getAssetDetail(id).then(setD).catch((e) => setErr(e.message));
+  }
 
   useEffect(() => {
     let alive = true;
@@ -390,6 +403,12 @@ function AssetDetail({
             </div>
           )}
 
+          {/* Street View (solo aparece donde Google tiene panorámica) */}
+          <StreetViewSection lat={d.lat} lng={d.lng} nombre={d.nombre} />
+
+          {/* Evidencia fotográfica georreferenciada — la "vista de calle" propia */}
+          <EvidenciaSection assetId={d.id} fotos={d.fotos || []} canEdit={canEdit} onChanged={() => { load(); onInfraChanged?.(); }} />
+
           <button onClick={() => onFocus(d.lng, d.lat, dotColor(d.tipo))} className="rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-1.5 text-[11px] text-cica-silver transition-colors hover:border-cica-gold/40">
             Ver en el mapa
           </button>
@@ -399,10 +418,229 @@ function AssetDetail({
   );
 }
 
+/* =================== Street View (Google, gateado por disponibilidad) =================== */
+
+function StreetViewSection({ lat, lng, nombre }: { lat: number; lng: number; nombre: string }) {
+  const [meta, setMeta] = useState<StreetViewMeta | null>(null);
+  const [open, setOpen] = useState(false);
+  const [heading, setHeading] = useState(0);
+  const [pitch, setPitch] = useState(0);
+  const [fov, setFov] = useState(90);
+
+  useEffect(() => {
+    let alive = true;
+    setMeta(null);
+    streetViewMeta(lat, lng).then((m) => alive && setMeta(m)).catch(() => alive && setMeta({ disponible: false } as any));
+    return () => { alive = false; };
+  }, [lat, lng]);
+
+  // No mostramos nada donde Google no tiene panorámica (los callejones).
+  if (!meta || !meta.disponible) return null;
+
+  const svLat = meta.lat ?? lat;
+  const svLng = meta.lng ?? lng;
+  const rot = (delta: number) => setHeading((h) => (h + delta + 360) % 360);
+  const tilt = (delta: number) => setPitch((p) => Math.max(-90, Math.min(90, p + delta)));
+  const zoom = (delta: number) => setFov((f) => Math.max(20, Math.min(120, f + delta)));
+  const gmaps = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${svLat},${svLng}`;
+
+  return (
+    <div className="rounded-lg border border-cica-glow/30 bg-cica-navy/30 p-3">
+      <button
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-cica-glow/40 bg-cica-glow/10 px-3 py-2 text-[11px] font-bold text-cica-glow transition-colors hover:bg-cica-glow/20"
+      >
+        🛣️ Ver Street View {meta.fecha ? <span className="font-normal text-cica-muted">· {meta.fecha}</span> : null}
+      </button>
+
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 p-6 backdrop-blur-sm"
+        >
+          <div className="relative w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-extrabold text-white">🛣️ {nombre}</span>
+              <button onClick={() => setOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black shadow-lg">✕</button>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-white/10 bg-black">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={streetViewImageUrl({ lat: svLat, lng: svLng, heading, pitch, fov })}
+                alt={`Street View de ${nombre}`}
+                className="w-full select-none"
+                draggable={false}
+              />
+            </div>
+            {/* Controles tipo Street View */}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <SvBtn onClick={() => rot(-45)}>⟲ Izq.</SvBtn>
+              <SvBtn onClick={() => tilt(15)}>▲ Arriba</SvBtn>
+              <SvBtn onClick={() => tilt(-15)}>▼ Abajo</SvBtn>
+              <SvBtn onClick={() => rot(45)}>Der. ⟳</SvBtn>
+              <SvBtn onClick={() => zoom(-15)}>＋ Zoom</SvBtn>
+              <SvBtn onClick={() => zoom(15)}>－ Zoom</SvBtn>
+              <a
+                href={gmaps}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-3 py-1.5 text-[11px] font-semibold text-cica-gold hover:bg-cica-gold/20"
+              >
+                Abrir en Google Maps ↗
+              </a>
+            </div>
+            <p className="mt-2 text-center text-[10px] text-cica-muted">
+              Imagen © Google · arrastra los controles para mirar alrededor
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SvBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-lg border border-cica-border bg-cica-navy/70 px-3 py-1.5 text-[11px] font-semibold text-cica-silver transition-colors hover:border-cica-glow/50 hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+/* =================== Evidencia fotográfica (vista de calle propia) =================== */
+
+const PHOTO_CATS: { id: PhotoCategory; label: string; icon: string }[] = [
+  { id: "vista_general", label: "Vista general", icon: "🏠" },
+  { id: "frontal", label: "Frontal", icon: "📸" },
+  { id: "placa_serial", label: "Placa / serial", icon: "🔖" },
+  { id: "instalacion", label: "Instalación", icon: "🔧" },
+];
+const CAT_LABEL: Record<string, string> = Object.fromEntries(PHOTO_CATS.map((c) => [c.id, c.label]));
+
+function EvidenciaSection({
+  assetId, fotos, canEdit, onChanged,
+}: {
+  assetId: string; fotos: AssetPhoto[]; canEdit: boolean; onChanged: () => void;
+}) {
+  const [cat, setCat] = useState<PhotoCategory>("vista_general");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<AssetPhoto | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true); setErr(null);
+    try {
+      await uploadAssetPhoto(assetId, file, cat);
+      onChanged();
+    } catch (e: any) {
+      setErr(e.message || "No se pudo subir la foto");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function remove(photoId: string) {
+    setErr(null);
+    try { await deleteAssetPhoto(assetId, photoId); onChanged(); }
+    catch (e: any) { setErr(e.message); }
+  }
+
+  return (
+    <div className="rounded-lg border border-cica-border/60 bg-cica-navy/30 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-cica-muted">
+          <span className="text-cica-gold">◉</span> Evidencia en terreno
+          {fotos.length > 0 && <span className="text-cica-muted">· {fotos.length}</span>}
+        </span>
+      </div>
+
+      {fotos.length === 0 ? (
+        <p className="py-3 text-center text-[10px] text-cica-muted">
+          Sin fotos. {canEdit ? "Sube la vista real del activo." : "Aún no hay evidencia."}
+        </p>
+      ) : (
+        <div className="grid grid-cols-3 gap-1.5">
+          {fotos.map((f) => (
+            <div key={f.id} className="group relative aspect-square overflow-hidden rounded-md border border-cica-border/60">
+              <img
+                src={mediaUrl(f.url)}
+                alt={CAT_LABEL[f.categoria] || f.categoria}
+                loading="lazy"
+                onClick={() => setLightbox(f)}
+                className="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-110"
+              />
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-[8px] font-semibold text-white">
+                {CAT_LABEL[f.categoria] || f.categoria}
+              </span>
+              {canEdit && (
+                <button
+                  onClick={() => remove(f.id)}
+                  title="Eliminar foto"
+                  className="absolute right-1 top-1 hidden h-5 w-5 items-center justify-center rounded-full bg-black/70 text-[10px] text-white hover:bg-status-sin group-hover:flex"
+                >✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {err && <div className="mt-2 text-[10px] text-status-sin">{err}</div>}
+
+      {canEdit && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <select
+            value={cat}
+            onChange={(e) => setCat(e.target.value as PhotoCategory)}
+            className="flex-1 rounded-lg border border-cica-border bg-cica-navy/80 px-2 py-1.5 text-[10px] text-cica-silver outline-none focus:border-cica-gold"
+          >
+            {PHOTO_CATS.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
+          </select>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onPick} className="hidden" />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+            className="btn-cica px-3 py-1.5 text-[10px] disabled:opacity-50"
+          >
+            {busy ? "Subiendo…" : "+ Foto"}
+          </button>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 p-6 backdrop-blur-sm"
+        >
+          <div className="relative max-h-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <img src={mediaUrl(lightbox.url)} alt={CAT_LABEL[lightbox.categoria]} className="max-h-[80vh] rounded-lg object-contain" />
+            <div className="mt-2 flex items-center justify-between text-[11px] text-cica-silver">
+              <span className="font-semibold text-white">{CAT_LABEL[lightbox.categoria] || lightbox.categoria}</span>
+              <span className="text-cica-muted">
+                {new Date(lightbox.subidoEn).toLocaleString("es-CO")}{lightbox.autor ? ` · ${lightbox.autor}` : ""}
+              </span>
+            </div>
+            <button
+              onClick={() => setLightbox(null)}
+              className="absolute -right-3 -top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white text-black shadow-lg"
+            >✕</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* =================== Vista: Topología =================== */
 
-function TopologiaView({
-  assets, fibras, canEdit, onFocus, onInfraChanged, setNetErr,
+function TopologiaView({  assets, fibras, canEdit, onFocus, onInfraChanged, setNetErr,
 }: {
   assets: AssetFeature[]; fibras: any[]; canEdit: boolean;
   onFocus: (lng: number, lat: number, color?: string) => void;

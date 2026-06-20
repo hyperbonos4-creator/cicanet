@@ -12,6 +12,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AssistantModule } from './assistant/assistant.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { MeModule } from './me/me.module';
+import { Customer360Module } from './customer360/customer360.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -29,6 +30,7 @@ import { HealthController } from './health.controller';
     AssistantModule,
     TicketsModule,
     MeModule,
+    Customer360Module,
   ],
   controllers: [HealthController],
 })

@@ -5,11 +5,20 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { config } from '../config';
 import { GeoService } from '../geo/geo.service';
-import type { Asset, AssetType, FiberSegment, Site } from './domain/types';
+import {
+  PHOTO_CATEGORIES,
+  type Asset,
+  type AssetType,
+  type FiberSegment,
+  type PhotoCategory,
+  type PhotoRef,
+  type Site,
+} from './domain/types';
 import { semaphore as capSemaphore, freePorts } from './domain/capacity';
 import { descendants as topoDescendants, dependentClients, type TopoNode } from './domain/topology';
 import {
@@ -49,6 +58,8 @@ export class InfraService implements OnModuleInit {
   private readonly assetsFile = resolve(this.dir, 'infra-assets.json');
   private readonly fiberFile = resolve(this.dir, 'infra-fiber.json');
   private readonly sitesFile = resolve(this.dir, 'infra-sites.json');
+  /** Carpeta donde viven las fotos de evidencia; se sirve estáticamente en /uploads. */
+  private readonly uploadsDir = resolve(this.dir, 'uploads');
 
   constructor(private readonly geo: GeoService) {}
 
@@ -168,6 +179,8 @@ export class InfraService implements OnModuleInit {
               padreId: a.padreId || null,
               padreNombre: a.padreId ? byId.get(a.padreId)?.nombre || null : null,
               clientesDependientes: dependentClients(nodes, a.id).length,
+              // Evidencia fotográfica georreferenciada (vista de calle propia).
+              fotosCount: a.fotos?.length ?? 0,
               // Capacidad y semáforo (R9) para NAP/CTO.
               puertosTotal: cap?.total ?? null,
               puertosUsados: cap?.usados ?? null,
@@ -261,7 +274,80 @@ export class InfraService implements OnModuleInit {
     if (i === -1) throw new NotFoundException('Activo no encontrado.');
     this.assets.splice(i, 1);
     this.persist(this.assetsFile, this.assets);
+    // Borra también la evidencia fotográfica del activo (no deja huérfanos en disco).
+    try {
+      const folder = resolve(this.uploadsDir, id);
+      if (existsSync(folder)) rmSync(folder, { recursive: true, force: true });
+    } catch (e: any) {
+      this.logger.warn(`No se pudo borrar la evidencia de ${id}: ${e.message}`);
+    }
     return { id };
+  }
+
+  // ---- evidencia fotográfica (vista de calle propia, georreferenciada) ----
+
+  /**
+   * Adjunta una foto de evidencia a un activo. La imagen se guarda en disco
+   * (DATA_DIR/uploads/<activo>/<archivo>) y se sirve estáticamente en /uploads.
+   * Esta es la "vista de calle" real de CICANET: cobertura 100 % porque la
+   * generan los técnicos al instalar, incluso en callejones donde no llega
+   * Street View ni Mapillary.
+   */
+  addPhoto(
+    assetId: string,
+    file: { buffer: Buffer; mimetype: string; size: number },
+    categoria: string,
+    autor?: string,
+  ): { asset: Asset; foto: PhotoRef } {
+    const asset = this.assets.find((a) => a.id === assetId);
+    if (!asset) throw new NotFoundException('Activo no encontrado.');
+    if (!file?.buffer?.length) throw new BadRequestException('No se recibió ninguna imagen.');
+
+    const ext = EXT_BY_MIME[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException('Formato no soportado. Usa JPG, PNG o WebP.');
+    }
+    const cat: PhotoCategory = (PHOTO_CATEGORIES as string[]).includes(categoria)
+      ? (categoria as PhotoCategory)
+      : 'vista_general';
+
+    const folder = resolve(this.uploadsDir, assetId);
+    if (!existsSync(folder)) mkdirSync(folder, { recursive: true });
+
+    const fileId = `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
+    const filename = `${fileId}.${ext}`;
+    writeFileSync(resolve(folder, filename), file.buffer);
+
+    const foto: PhotoRef = {
+      id: fileId,
+      categoria: cat,
+      url: `/api/uploads/${assetId}/${filename}`,
+      subidoEn: new Date().toISOString(),
+      autor,
+    };
+    asset.fotos = [...(asset.fotos || []), foto];
+    this.persist(this.assetsFile, this.assets);
+    this.logger.log(`Evidencia añadida a ${assetId}: ${categoria} (${Math.round(file.size / 1024)} KB)`);
+    return { asset, foto };
+  }
+
+  /** Elimina una foto de evidencia del activo (registro + archivo en disco). */
+  removePhoto(assetId: string, photoId: string): { id: string } {
+    const asset = this.assets.find((a) => a.id === assetId);
+    if (!asset) throw new NotFoundException('Activo no encontrado.');
+    const foto = asset.fotos?.find((f) => f.id === photoId);
+    if (!foto) throw new NotFoundException('Foto no encontrada.');
+    asset.fotos = (asset.fotos || []).filter((f) => f.id !== photoId);
+    this.persist(this.assetsFile, this.assets);
+    try {
+      // El archivo en disco es uploadsDir/<assetId>/<nombre> (el url es público).
+      const filename = foto.url.split('/').pop() || '';
+      const abs = resolve(this.uploadsDir, assetId, filename);
+      if (filename && existsSync(abs)) rmSync(abs, { force: true });
+    } catch (e: any) {
+      this.logger.warn(`No se pudo borrar el archivo de ${photoId}: ${e.message}`);
+    }
+    return { id: photoId };
   }
 
   // ---- alta de fibra (lo que traza la red) ----
@@ -458,6 +544,14 @@ export class InfraService implements OnModuleInit {
     }
   }
 }
+
+/** Extensiones permitidas para la evidencia fotográfica, por MIME type. */
+const EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
 
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000;
