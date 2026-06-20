@@ -82,10 +82,31 @@ export const FAQ: FaqEntry[] = [
   },
   {
     id: 'app',
-    keywords: ['app', 'aplicacion', 'descargar', 'celular', 'instalar app', 'iphone', 'android'],
-    pregunta: '¿Qué puedo hacer en la app?',
+    keywords: ['app', 'aplicacion', 'descargar', 'celular', 'instalar app', 'iphone', 'android', 'que puedo hacer', 'secciones', 'menu'],
+    pregunta: '¿Qué puedo hacer en la app y cómo está organizada?',
     respuesta:
-      'En la app CICANET puedes ver el estado de tu servicio en tiempo real, consultar y pagar tus facturas, revisar los dispositivos conectados y contactar a soporte. Está disponible para Android y iPhone.',
+      'La app CICANET (Android e iPhone) tiene 4 secciones en la barra inferior: "Inicio" (estado de tu servicio), "Facturas" (ver y pagar), "Dispositivos" (equipos conectados) y "Perfil" (tu cuenta, soporte y ajustes). No tiene un menú de "Configuración/Ajustes" aparte: todo está en esas 4 pestañas.',
+  },
+  {
+    id: 'cambiar_clave_app',
+    keywords: ['cambiar contrasena', 'cambiar clave', 'contrasena de la app', 'clave de la cuenta', 'restablecer', 'olvide mi contrasena', 'cambiar password', 'nueva contrasena'],
+    pregunta: '¿Cómo cambio la contraseña de mi cuenta en la app?',
+    respuesta:
+      'La contraseña de tu cuenta CICANET se cambia desde la pestaña "Perfil" → opción "Cambiar contraseña". Si olvidaste tu contraseña y no puedes entrar, un asesor te ayuda a restablecerla. (Ojo: esta es la clave para entrar a la app, distinta de la clave del WiFi de tu casa).',
+  },
+  {
+    id: 'cambiar_clave_wifi',
+    keywords: ['contrasena del wifi', 'clave del wifi', 'contrasena del internet', 'clave del router', 'cambiar el nombre del wifi', 'ssid', 'contrasena de mi red', 'clave de mi red'],
+    pregunta: '¿Cómo cambio la contraseña del WiFi (la de mi router)?',
+    respuesta:
+      'La contraseña del WiFi de tu casa (la del router/ONU) es distinta de la de la app. Por ahora ese cambio lo hace nuestro equipo técnico de forma remota: dime que quieres cambiarla y te conecto con un asesor para gestionarlo en el momento. Pronto podrás cambiarla tú mismo desde la app.',
+  },
+  {
+    id: 'dispositivos',
+    keywords: ['dispositivos', 'quien esta conectado', 'cuantos equipos', 'aparatos conectados', 'bloquear dispositivo', 'red de mi casa'],
+    pregunta: '¿Quién está conectado a mi red / mis dispositivos?',
+    respuesta:
+      'En la pestaña "Dispositivos" de la app puedes ver los equipos detectados en tu red. La función de bloquear dispositivos desconocidos está en camino y requiere que tu router sea administrable; si sospechas de un equipo extraño, un asesor puede ayudarte ya mismo.',
   },
   {
     id: 'velocidad_real',
@@ -133,3 +154,43 @@ export function normalize(s: string): string {
     .replace(/[\u0300-\u036f]/g, '') // quita tildes
     .trim();
 }
+
+/**
+ * Mapa de la app (FUENTE DE VERDAD). El agente lo consulta con la herramienta
+ * `consultar_funciones_app` para guiar al usuario SIN inventar pantallas/botones.
+ * Si una función no está aquí, NO existe (todavía) en la app.
+ */
+export const APP_MAP = {
+  pestanas: [
+    {
+      nombre: 'Inicio',
+      descripcion: 'Estado del servicio en tiempo real y accesos rápidos.',
+      acciones: ['Ver estado del servicio', 'Botón Pagar', 'Botón Soporte (abre el chat con Cica)'],
+    },
+    {
+      nombre: 'Facturas',
+      descripcion: 'Tus facturas y el pago.',
+      acciones: ['Ver facturas', 'Pagar en línea (PSE, Nequi, tarjeta, Bancolombia)', 'Transferencia manual'],
+    },
+    {
+      nombre: 'Dispositivos',
+      descripcion: 'Equipos detectados en tu red.',
+      acciones: ['Ver dispositivos conectados'],
+    },
+    {
+      nombre: 'Perfil',
+      descripcion: 'Tu cuenta y soporte.',
+      acciones: [
+        'Cambiar contraseña (de la cuenta de la app)',
+        'Soporte (chat con Cica / WhatsApp)',
+        'Acerca de CICANET',
+        'Cerrar sesión',
+      ],
+    },
+  ],
+  notas: [
+    'La app tiene exactamente 4 pestañas en la barra inferior: Inicio, Facturas, Dispositivos y Perfil.',
+    'NO existe un menú "Configuración" o "Ajustes" separado.',
+    'La contraseña del WiFi (router de la casa) NO se cambia desde la app por ahora; la gestiona soporte.',
+  ],
+};

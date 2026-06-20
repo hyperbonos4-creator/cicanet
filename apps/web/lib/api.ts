@@ -512,3 +512,34 @@ export function assistantChat(
     body: JSON.stringify({ messages }),
   });
 }
+
+// ---- Tickets de soporte (los crea Cica o el staff) ----
+export type Ticket = {
+  id: string;
+  codigo: string;
+  asunto: string;
+  descripcion: string;
+  categoria: string;
+  contacto: string | null;
+  estado: "abierto" | "en_proceso" | "resuelto" | "cerrado";
+  origen: string;
+  creadoEn: string;
+};
+export type TicketStats = {
+  total: number;
+  porEstado: Record<string, number>;
+};
+
+export function listTickets(estado?: string): Promise<Ticket[]> {
+  const qs = estado ? `?estado=${encodeURIComponent(estado)}` : "";
+  return authFetch(`/tickets${qs}`);
+}
+export function ticketStats(): Promise<TicketStats> {
+  return authFetch("/tickets/stats");
+}
+export function updateTicketEstado(id: string, estado: string): Promise<Ticket> {
+  return authFetch(`/tickets/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ estado }),
+  });
+}

@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import type { SessionUser, IpLocation } from "../lib/api";
 
-export type Section = "dashboard" | "clientes" | "red" | "infra" | "soporte";
+export type Section = "dashboard" | "clientes" | "red" | "infra" | "soporte" | "tickets";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrador",
@@ -32,6 +33,10 @@ const NAV: { key: Section; label: string; sub: string; icon: JSX.Element }[] = [
     key: "soporte", label: "Soporte", sub: "Canal de WhatsApp",
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5Z" /></svg>),
   },
+  {
+    key: "tickets", label: "Tickets", sub: "Solicitudes de soporte",
+    icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="M9 12h6M9 16h4" /></svg>),
+  },
 ];
 
 export default function AppShell({
@@ -45,12 +50,30 @@ export default function AppShell({
   ipLoc: IpLocation | null;
   children: React.ReactNode;
 }) {
-  const current = NAV.find((n) => n.key === section)!;
+  const current = NAV.find((n) => n.key === section) ?? NAV[0];
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  function go(s: Section) {
+    onSection(s);
+    setMenuOpen(false);
+  }
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-cica-black text-cica-silver">
+      {/* Backdrop (móvil) */}
+      {menuOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
+
       {/* ===== Sidebar ===== */}
-      <nav className="z-20 flex w-[228px] shrink-0 flex-col border-r border-cica-border/70 bg-cica-navy/80 backdrop-blur-xl">
+      <nav
+        className={`fixed inset-y-0 left-0 z-40 flex w-[228px] shrink-0 flex-col border-r border-cica-border/70 bg-cica-navy/95 backdrop-blur-xl transition-transform duration-200 md:static md:z-20 md:translate-x-0 md:bg-cica-navy/80 ${
+          menuOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="flex items-center gap-3 px-5 py-5">
           <Image src="/cicanet-logo.png" alt="CICANET" width={38} height={38} className="rounded-full shadow-glow" priority />
           <div>
@@ -65,7 +88,7 @@ export default function AppShell({
             return (
               <button
                 key={n.key}
-                onClick={() => onSection(n.key)}
+                onClick={() => go(n.key)}
                 className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all ${
                   active
                     ? "bg-gradient-to-r from-cica-amber/25 to-cica-gold/10 text-cica-gold"
@@ -102,9 +125,19 @@ export default function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topbar */}
         <header className="z-10 flex shrink-0 items-center justify-between border-b border-cica-border/70 bg-cica-navy/60 px-6 py-3.5 backdrop-blur-xl">
-          <div>
-            <h1 className="text-[15px] font-extrabold tracking-tight text-white">{current.label}</h1>
-            <p className="text-[11px] text-cica-muted">{current.sub}</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="rounded-lg p-1.5 text-cica-silver hover:bg-cica-border/40 md:hidden"
+              title="Menú"
+              aria-label="Abrir menú"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5"><path d="M3 12h18M3 6h18M3 18h18" /></svg>
+            </button>
+            <div>
+              <h1 className="text-[15px] font-extrabold tracking-tight text-white">{current.label}</h1>
+              <p className="text-[11px] text-cica-muted">{current.sub}</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {ipLoc && (

@@ -197,6 +197,25 @@ model PagoTransaccion {
   @@map("pago_transaccion")
 }
 
+/// Ticket de soporte (lo puede crear el asistente "Cica" o el staff).
+model Ticket {
+  id          String   @id @default(uuid()) @db.Uuid
+  codigo      String   @unique // TCK-XXXX visible
+  asunto      String
+  descripcion String
+  categoria   String   @default("general") // tecnico|facturacion|comercial|general
+  contacto    String? // nombre/teléfono que dejó el cliente
+  estado      String   @default("abierto") // abierto|en_proceso|resuelto|cerrado
+  origen      String   @default("asistente") // asistente|panel|whatsapp
+  creadoPor   String?  @map("creado_por") // username de quien lo originó (cliente/staff)
+  clienteId   String?  @map("cliente_id") @db.Uuid
+  creadoEn    DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([estado])
+  @@map("ticket")
+}
+
 /// Configuración clave/valor de la plataforma (editable desde el panel admin).
 /// Ej.: "soporte_whatsapp" → { numero, mensaje, habilitado }. Reutilizable para
 /// futuras configuraciones (config_facturacion, etc.) sin nuevas migraciones.

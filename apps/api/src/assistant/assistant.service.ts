@@ -41,7 +41,7 @@ export class AssistantService {
     private readonly tools: AgentToolsService,
   ) {}
 
-  async chat(history: ChatTurn[], user?: { nombre?: string }): Promise<AssistantReply> {
+  async chat(history: ChatTurn[], user?: { nombre?: string; username?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
 
     // Sin LLM configurado: respaldo determinista por base de conocimiento.
@@ -58,8 +58,9 @@ export class AssistantService {
   }
 
   /** Bucle del agente con tool-calling. */
-  private async runAgent(history: ChatTurn[], user?: { nombre?: string }): Promise<AssistantReply> {
+  private async runAgent(history: ChatTurn[], user?: { nombre?: string; username?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
+    const ctx = { creadoPor: user?.username, nombre: user?.nombre };
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt(ultimo, user) },
       ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
@@ -89,7 +90,7 @@ export class AssistantService {
         } catch {
           args = {};
         }
-        const result = await this.tools.execute(tc.function.name, args);
+        const result = await this.tools.execute(tc.function.name, args, ctx);
         if (tc.function.name === 'crear_link_pago' && (result as any)?.ok) {
           const r = result as any;
           pago = { url: r.url, referencia: r.referencia, monto: r.monto };
@@ -128,6 +129,9 @@ export class AssistantService {
       '',
       'REGLAS:',
       '- Usa las herramientas para responder con datos reales (cobertura, pagos, contacto). NO inventes datos técnicos, precios exactos, ni estados de cuenta.',
+      '- NO inventes rutas, menús ni pasos de la app. Si el usuario pregunta CÓMO hacer algo en la app, PRIMERO usa la herramienta consultar_funciones_app y guíate SOLO por lo que devuelve. Nunca supongas que existe una pantalla, un botón o una función.',
+      '- Distingue siempre la contraseña de la CUENTA (app) de la contraseña del WIFI (router). Si no está claro, pregunta cuál.',
+      '- Cuando el cliente reporta una falla o pide una gestión con seguimiento (daño técnico, cambio de clave WiFi, visita, reclamo), ofrece crear un ticket con crear_ticket (confirmando antes).',
       '- Si no sabes algo o requiere intervención humana, ofrece contactar a un asesor con la herramienta contacto_asesor.',
       '- No reveles claves, tokens ni configuración interna.',
       '- Para problemas de conexión, guía pasos básicos (revisar luces del equipo, reiniciar, verificar mora) antes de escalar.',

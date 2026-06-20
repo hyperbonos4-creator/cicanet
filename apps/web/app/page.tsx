@@ -10,6 +10,7 @@ import OperacionPanel from "../components/panels/OperacionPanel";
 import ClientesPanel from "../components/panels/ClientesPanel";
 import InfraPanel from "../components/panels/InfraPanel";
 import SoportePanel from "../components/panels/SoportePanel";
+import TicketsPanel from "../components/panels/TicketsPanel";
 import CicaAssistant from "../components/CicaAssistant";
 import ClientesModule from "../components/clientes/ClientesModule";
 import {
@@ -27,6 +28,8 @@ import {
   infraBundle,
   clientesStats,
   evaluateConstruction,
+  listTickets,
+  ticketStats,
   type SessionUser,
   type CoverageResult,
   type IpLocation,
@@ -35,6 +38,7 @@ import {
   type InfraBundle,
   type ClienteStats,
   type ConstructionResult,
+  type TicketStats,
 } from "../lib/api";
 
 const CoverageMap = dynamic(() => import("../components/CoverageMap"), { ssr: false });
@@ -63,6 +67,7 @@ export default function Page() {
   const [zones, setZones] = useState<ZoneRecord[]>([]);
   const [infra, setInfra] = useState<InfraBundle | null>(null);
   const [cliStats, setCliStats] = useState<ClienteStats | null>(null);
+  const [tickStats, setTickStats] = useState<TicketStats | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [drawPoints, setDrawPoints] = useState<[number, number][]>([]);
   const [ipLoc, setIpLoc] = useState<IpLocation | null>(null);
@@ -87,6 +92,7 @@ export default function Page() {
     listZones().then(setZones).catch(() => {});
     infraBundle().then(setInfra).catch(() => {});
     clientesStats().then(setCliStats).catch(() => {});
+    ticketStats().then(setTickStats).catch(() => {});
 
     ipLocate()
       .then((loc) => { setIpLoc(loc); if (loc.fuente === "ip-api") setFocusPoint({ lng: loc.lng, lat: loc.lat, color: "#3E6FB0" }); })
@@ -165,7 +171,7 @@ export default function Page() {
   async function refreshInfra() {
     try { setInfra(await infraBundle()); } catch (e: any) { setError(e.message); }
   }
-  function refreshCliStats() { clientesStats().then(setCliStats).catch(() => {}); }
+  function refreshCliStats() { clientesStats().then(setCliStats).catch(() => {}); ticketStats().then(setTickStats).catch(() => {}); }
 
   // ---- Dibujo de zona ----
   function startDraw() { setSection("infra"); setDrawing(true); setDrawPoints([]); setFocusPoint(null); setCoverage(null); }
@@ -205,7 +211,7 @@ export default function Page() {
       {/* ===== Dashboard ===== */}
       {section === "dashboard" && (
         <div className="h-full overflow-y-auto p-6">
-          <Dashboard cli={cliStats} infra={infra} naps={naps} onGo={changeSection} />
+          <Dashboard cli={cliStats} infra={infra} naps={naps} onGo={changeSection} tick={tickStats} />
         </div>
       )}
 
@@ -223,10 +229,17 @@ export default function Page() {
         </div>
       )}
 
+      {/* ===== Tickets ===== */}
+      {section === "tickets" && (
+        <div className="h-full overflow-y-auto p-6">
+          <TicketsPanel />
+        </div>
+      )}
+
       {/* ===== Secciones con mapa ===== */}
       {isMapSection && (
-        <div className="flex h-full">
-          <aside className="w-[336px] shrink-0 overflow-y-auto border-r border-cica-border/70 bg-cica-navy/40 p-4">
+        <div className="flex h-full flex-col md:flex-row">
+          <aside className="max-h-[45%] w-full shrink-0 overflow-y-auto border-b border-cica-border/70 bg-cica-navy/40 p-4 md:max-h-none md:w-[336px] md:border-b-0 md:border-r">
             {section === "red" && (
               <div className="flex flex-col gap-3">
                 <ClientesPanel onCheckAddress={onCheckAddress} coverage={coverage} checking={checking} pinAddress={pinAddress} pin={pin} />
@@ -322,12 +335,13 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 /* ===================== Dashboard ===================== */
 
 function Dashboard({
-  cli, infra, naps, onGo,
+  cli, infra, naps, onGo, tick,
 }: {
   cli: ClienteStats | null;
   infra: InfraBundle | null;
   naps: NapRecord[];
   onGo: (s: Section) => void;
+  tick: TicketStats | null;
 }) {
   const puertosTotal = naps.reduce((s, n) => s + (n.puertos_total || 0), 0);
   const puertosUsados = naps.reduce((s, n) => s + (n.puertos_usados || 0), 0);
@@ -349,6 +363,7 @@ function Dashboard({
         <Card label="NAP / CTO" value={String((infra?.assets.features || []).filter((f: any) => f.properties.tipo === "NAP" || f.properties.tipo === "CTO").length)} sub="puntos de acceso" accent="text-status-ftth" onClick={() => onGo("infra")} />
         <Card label="Fibra tendida" value={`${km} km`} sub={`${infra?.stats.fibras ?? 0} tramos`} accent="text-cica-glow" onClick={() => onGo("infra")} />
         <Card label="Capacidad libre" value={librePct === null ? "—" : `${librePct}%`} sub="puertos disponibles" accent={librePct !== null && librePct < 20 ? "text-status-sin" : "text-cica-steelLight"} />
+        <Card label="Tickets abiertos" value={tick ? String(tick.porEstado.abierto ?? 0) : "—"} sub="pendientes" accent={(tick?.porEstado.abierto ?? 0) > 0 ? "text-status-sin" : "text-cica-muted"} onClick={() => onGo("tickets")} />
       </div>
 
       {cli && cli.total > 0 && (

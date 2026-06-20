@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { GeoService } from '../geo/geo.service';
 import { NetworkService } from '../network/network.service';
 import { PaymentsService } from '../payments/payments.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { SupportService } from '../support/support.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { APP_MAP } from './knowledge';
 import { config } from '../config';
 import type { ToolSchema } from './llm.provider';
 
@@ -22,6 +25,7 @@ export class AgentToolsService {
     private readonly payments: PaymentsService,
     private readonly whatsapp: WhatsappService,
     private readonly support: SupportService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /** Esquemas que se envían al modelo (formato OpenAI tools). */
@@ -88,11 +92,45 @@ export class AgentToolsService {
           parameters: { type: 'object', properties: {} },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'consultar_funciones_app',
+          description:
+            'Devuelve el mapa REAL de la app (pestañas y acciones). ÚSALA SIEMPRE antes de explicar cómo hacer algo en la app (cambiar contraseña, pagar, ver dispositivos, etc.) para no inventar pantallas ni botones.',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'crear_ticket',
+          description:
+            'Crea un ticket de soporte cuando el cliente reporta un problema o pide una gestión que requiere seguimiento (falla técnica, cambio de clave WiFi, visita, reclamo de factura). Confirma con el cliente antes de crearlo.',
+          parameters: {
+            type: 'object',
+            properties: {
+              asunto: { type: 'string', description: 'Resumen corto del problema o solicitud.' },
+              descripcion: { type: 'string', description: 'Detalle de lo que reporta el cliente.' },
+              categoria: {
+                type: 'string',
+                description: 'Una de: tecnico, facturacion, comercial, general.',
+              },
+              contacto: { type: 'string', description: 'Nombre o teléfono del cliente (opcional).' },
+            },
+            required: ['asunto', 'descripcion'],
+          },
+        },
+      },
     ];
   }
 
   /** Ejecuta una herramienta por nombre. Devuelve un objeto serializable. */
-  async execute(name: string, args: Record<string, any>): Promise<unknown> {
+  async execute(
+    name: string,
+    args: Record<string, any>,
+    ctx?: { creadoPor?: string; nombre?: string },
+  ): Promise<unknown> {
     try {
       switch (name) {
         case 'verificar_cobertura':
@@ -105,6 +143,10 @@ export class AgentToolsService {
           return await this.contactoAsesor();
         case 'info_planes':
           return this.infoPlanes();
+        case 'consultar_funciones_app':
+          return APP_MAP;
+        case 'crear_ticket':
+          return await this.crearTicket(args, ctx);
         default:
           return { error: `herramienta_desconocida: ${name}` };
       }
@@ -190,6 +232,36 @@ export class AgentToolsService {
       tecnologia: 'FTTH (fibra óptica hasta el hogar)',
       segmentos: ['Hogar', 'Empresarial'],
       nota: 'Las velocidades y precios exactos dependen del plan vigente en la zona del cliente. Un asesor confirma el plan ideal según el uso (streaming, teletrabajo, varios dispositivos).',
+    };
+  }
+
+  private async crearTicket(args: Record<string, any>, ctx?: { creadoPor?: string; nombre?: string }) {
+    const asunto = String(args?.asunto ?? '').trim();
+    const descripcion = String(args?.descripcion ?? '').trim();
+    if (asunto.length < 3 || descripcion.length < 3) {
+      return { ok: false, mensaje: 'Falta el asunto o la descripción del problema.' };
+    }
+    const cats = ['tecnico', 'facturacion', 'comercial', 'general'];
+    const categoria = cats.includes(String(args?.categoria)) ? String(args.categoria) : 'general';
+    const codigo = `TCK-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString('hex').toUpperCase()}`;
+    const contacto = args?.contacto ? String(args.contacto).slice(0, 120) : ctx?.nombre ?? null;
+    const ticket = await this.prisma.ticket.create({
+      data: {
+        codigo,
+        asunto: asunto.slice(0, 200),
+        descripcion: descripcion.slice(0, 2000),
+        categoria,
+        contacto,
+        origen: 'asistente',
+        creadoPor: ctx?.creadoPor ?? null,
+      },
+    });
+    this.logger.log(`Ticket creado ${ticket.codigo} (${categoria}) por ${ctx?.creadoPor ?? 'anónimo'}`);
+    return {
+      ok: true,
+      codigo: ticket.codigo,
+      categoria,
+      mensaje: `Ticket ${ticket.codigo} creado. Nuestro equipo le dará seguimiento.`,
     };
   }
 }

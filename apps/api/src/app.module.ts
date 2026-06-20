@@ -10,6 +10,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { SupportModule } from './support/support.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AssistantModule } from './assistant/assistant.module';
+import { TicketsModule } from './tickets/tickets.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -25,6 +26,7 @@ import { HealthController } from './health.controller';
     SupportModule,
     WhatsappModule,
     AssistantModule,
+    TicketsModule,
   ],
   controllers: [HealthController],
 })
