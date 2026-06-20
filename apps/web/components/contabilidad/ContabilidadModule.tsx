@@ -668,12 +668,13 @@ function AsientosTab({ canEdit }: { canEdit: boolean }) {
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<AsientoContable | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [tipo, setTipo] = useState("");
 
   async function refresh() {
     setLoading(true);
-    try { setAsientos(await listAsientos()); setErr(null); } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
+    try { setAsientos(await listAsientos(tipo ? { tipo } : {})); setErr(null); } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [tipo]);
 
   async function reversar(a: AsientoContable) {
     if (!confirm(`¿Reversar el comprobante ${a.numero}? Se creará un asiento inverso (no se borra el original).`)) return;
@@ -684,7 +685,20 @@ function AsientosTab({ canEdit }: { canEdit: boolean }) {
   if (err) return <Aviso texto={err} />;
   return (
     <div className="flex flex-col gap-2">
-      {asientos.length === 0 && <Aviso texto="Aún no hay comprobantes. Crea el primero en 'Nuevo asiento'." />}
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-cica-muted">Tipo:</span>
+        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={`${input} max-w-[200px]`}>
+          <option value="">Todos</option>
+          <option value="venta">Venta (FV)</option>
+          <option value="recaudo">Recaudo (RC)</option>
+          <option value="compra">Compra (CC)</option>
+          <option value="gasto">Egreso (CE)</option>
+          <option value="manual">Nota contable (NC)</option>
+          <option value="ajuste">Ajuste (NC)</option>
+          <option value="reversion">Reversión (RV)</option>
+        </select>
+      </div>
+      {asientos.length === 0 && <Aviso texto="No hay comprobantes con este filtro." />}
       {asientos.map((a) => (
         <div key={a.id} className="glass p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">

@@ -97,10 +97,12 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Verificado:** compras $1M → retefuente $0 (base<$1.3M), reteIVA $28.500; servicio
   $500k → retefuente $20.000, reteIVA $14.250, reteICA $4.830.
 
-### T2.3 — Tipos de comprobante + consecutivos por tipo
-- Recibo de Caja (RC-), Comprobante de Egreso (CE-), Nota de Contabilidad (NC-),
-  Comprobante de Ingreso. Numeración por tipo (hoy todo es `CMP-`).
-- **Aceptación:** cada tipo lleva su consecutivo independiente y se filtra en la bandeja.
+### T2.3 — Tipos de comprobante + consecutivos por tipo ✅ (2026-06-20)
+- Numeración independiente por tipo: **RC** (recibo de caja), **CE** (egreso),
+  **CC** (compra), **FV** (factura venta), **NC** (nota de contabilidad/ajuste),
+  **AP** (apertura), **CIE** (cierre), **RV** (reversión). ✅
+- **Web:** filtro por tipo en la bandeja de comprobantes. ✅
+- **Verificado:** recaudo→RC-000001, manual→NC-000001 con consecutivos separados.
 
 ### T2.4 — Exportables oficiales (Excel/PDF)
 - Estados financieros y libros (diario, mayor, auxiliares, balance) a **Excel y PDF**

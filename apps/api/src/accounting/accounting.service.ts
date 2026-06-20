@@ -33,6 +33,24 @@ export interface AsientoInput {
 }
 
 const TIPOS = ['manual', 'apertura', 'venta', 'recaudo', 'compra', 'gasto', 'ajuste', 'depreciacion', 'cierre', 'reversion'];
+
+/**
+ * Prefijo de consecutivo por tipo de comprobante (numeración independiente):
+ * RC=Recibo de Caja, CE=Comprobante de Egreso, CC=Comprobante de Compra,
+ * NC=Nota de Contabilidad, FV=Factura de Venta, AP=Apertura, CIE=Cierre, RV=Reversión.
+ */
+const PREFIJO_COMPROBANTE: Record<string, string> = {
+  manual: 'NC',
+  apertura: 'AP',
+  venta: 'FV',
+  recaudo: 'RC',
+  compra: 'CC',
+  gasto: 'CE',
+  ajuste: 'NC',
+  depreciacion: 'NC',
+  cierre: 'CIE',
+  reversion: 'RV',
+};
 const D = (n: number | Prisma.Decimal | null | undefined) => Number(n ?? 0);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -216,7 +234,7 @@ export class AccountingService implements OnModuleInit {
     if (contabilizar) await this.asegurarPeriodoAbierto(periodo);
     else await this.prisma.periodoContable.upsert({ where: { periodo }, update: {}, create: { periodo } });
 
-    const numero = await this.siguienteNumero();
+    const numero = await this.siguienteNumero(tipo);
     const asiento = await this.prisma.asientoContable.create({
       data: {
         numero,
@@ -239,9 +257,10 @@ export class AccountingService implements OnModuleInit {
     return asiento;
   }
 
-  private async siguienteNumero(): Promise<string> {
-    const count = await this.prisma.asientoContable.count();
-    return `CMP-${String(count + 1).padStart(6, '0')}`;
+  private async siguienteNumero(tipo = 'manual'): Promise<string> {
+    const prefijo = PREFIJO_COMPROBANTE[tipo] ?? 'CMP';
+    const count = await this.prisma.asientoContable.count({ where: { numero: { startsWith: `${prefijo}-` } } });
+    return `${prefijo}-${String(count + 1).padStart(6, '0')}`;
   }
 
   /** Contabiliza un asiento en borrador (valida periodo abierto). */
@@ -266,7 +285,7 @@ export class AccountingService implements OnModuleInit {
     if (original.estado !== 'contabilizado') throw new ConflictException('Solo se reversan asientos contabilizados.');
     await this.asegurarPeriodoAbierto(this.periodoDe(new Date()));
 
-    const numero = await this.siguienteNumero();
+    const numero = await this.siguienteNumero('reversion');
     const reverso = await this.prisma.asientoContable.create({
       data: {
         numero,
