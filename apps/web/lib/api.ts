@@ -1022,3 +1022,28 @@ export function dunningRun(aplicar: boolean): Promise<{ aplicado: boolean; mes: 
   return authFetch("/dunning/run", { method: "POST", body: JSON.stringify({ aplicar }) });
 }
 export function dunningHistorial(mes?: string): Promise<any[]> { return authFetch(`/dunning/historial${mes ? `?mes=${mes}` : ""}`); }
+
+// ---- Cuentas por pagar (módulo payables) ----
+export type LineaCompra = { cuenta: string; descripcion?: string; base: number; ivaPct?: number };
+export type FacturaCompra = {
+  id: string; numero: string; proveedorNombre: string; concepto: string;
+  fecha: string; fechaVencimiento: string; subtotal: string; ivaDescontable: string;
+  retefuente: string; reteIva: string; reteIca: string; totalAPagar: string; estado: string;
+};
+
+export function listCompras(estado?: string): Promise<FacturaCompra[]> {
+  return authFetch(`/payables${estado ? `?estado=${estado}` : ""}`);
+}
+export function comprasResumen(): Promise<{ totalPorPagar: number; vencido: number; facturasPendientes: number }> {
+  return authFetch("/payables/resumen");
+}
+export function crearCompra(input: {
+  proveedor: { documento: string; nombre: string };
+  numeroProveedor?: string; concepto: string; fechaVencimiento?: string;
+  lineas: LineaCompra[]; retefuente?: number; reteIva?: number; reteIca?: number;
+}): Promise<FacturaCompra> {
+  return authFetch("/payables", { method: "POST", body: JSON.stringify(input) });
+}
+export function pagarCompra(id: string, cuentaBanco?: string): Promise<FacturaCompra> {
+  return authFetch(`/payables/${encodeURIComponent(id)}/pagar`, { method: "POST", body: JSON.stringify({ cuentaBanco }) });
+}

@@ -20,6 +20,7 @@ import { CollectionsModule } from './collections/collections.module';
 import { BillingModule } from './billing/billing.module';
 import { BankingModule } from './banking/banking.module';
 import { DunningModule } from './dunning/dunning.module';
+import { PayablesModule } from './payables/payables.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -45,6 +46,7 @@ import { HealthController } from './health.controller';
     BillingModule,
     BankingModule,
     DunningModule,
+    PayablesModule,
   ],
   controllers: [HealthController],
 })

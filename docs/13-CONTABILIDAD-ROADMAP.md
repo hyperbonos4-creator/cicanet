@@ -78,13 +78,14 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 > Para que la contadora opere TODO el día a día sin salir de CICANET.
 
-### T2.1 — Cuentas por pagar (AP) + proveedores + gastos
-- **Modelo:** `FacturaCompra`, `Proveedor` (reusa `Tercero`), vencimientos.
-- Registro de gastos/caja menor, **documento soporte** a no obligados (vía `einvoice`).
-- **Retenciones practicadas** (retefuente/reteIVA/reteICA) automáticas al causar.
-- Asiento: Dr Gasto/Activo + Dr IVA descontable, Cr CxP, Cr Retenciones.
-- **Aceptación:** causar una compra con retención deja CxP, IVA descontable y
-  retención por pagar correctos.
+### T2.1 — Cuentas por pagar (AP) + proveedores + gastos ✅ (2026-06-20)
+- **Modelo:** `FacturaCompra` (proveedor=Tercero, líneas Json, IVA descontable, retenciones). ✅
+- **Backend** `apps/api/src/payables/`: causación + pago, ambos contabilizan
+  (Dr gasto/activo + Dr IVA desc.; Cr CxP + Cr retefuente/reteIVA/reteICA). ✅
+- Endpoints: `GET/POST /payables`, `/payables/resumen`, `POST /payables/:id/pagar`. ✅
+- **Web:** pestaña "Compras / CxP" con formulario (líneas + IVA + retenciones) y pago. ✅
+- **Verificado:** compra $1.000.000 + IVA 19% − retefuente 2.5% = $1.165.000 a pagar; pago contabilizado; balance cuadra.
+- **Pendiente (certs DIAN):** emisión de documento soporte electrónico vía `einvoice`.
 
 ### T2.2 — Motor de impuestos por reglas
 - **Modelo:** `ReglaImpuesto` (IVA 19/5/0, retenciones por concepto y base mínima).

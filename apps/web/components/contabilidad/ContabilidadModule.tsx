@@ -28,6 +28,10 @@ import {
   ignorarMovimiento,
   dunningPreview,
   dunningRun,
+  listCompras,
+  comprasResumen,
+  crearCompra,
+  pagarCompra,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -39,9 +43,11 @@ import {
   type CuentaBancaria,
   type MovimientoBancario,
   type DunningPreview as DunningPreviewT,
+  type FacturaCompra,
+  type LineaCompra,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "compras" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -51,6 +57,7 @@ const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "cartera", label: "Cartera" },
   { key: "cobranza", label: "Cobranza" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
+  { key: "compras", label: "Compras / CxP" },
   { key: "bancos", label: "Bancos" },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
@@ -85,6 +92,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "cartera" && <CarteraTab />}
       {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
       {tab === "facturacion" && <FacturacionTab />}
+      {tab === "compras" && <ComprasTab canEdit={canEdit} />}
       {tab === "bancos" && <BancosTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
@@ -116,6 +124,152 @@ function DashboardTab() {
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
       </div>
     </div>
+  );
+}
+
+/* ===================== Compras / Cuentas por pagar ===================== */
+function ComprasTab({ canEdit }: { canEdit: boolean }) {
+  const [compras, setCompras] = useState<FacturaCompra[]>([]);
+  const [resumen, setResumen] = useState<{ totalPorPagar: number; vencido: number; facturasPendientes: number } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try { setCompras(await listCompras()); setResumen(await comprasResumen()); setErr(null); } catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { refresh(); }, []);
+
+  async function pagar(c: FacturaCompra) {
+    if (!confirm(`¿Registrar el pago de ${c.numero} por ${money(Number(c.totalAPagar))}?`)) return;
+    setBusy(true);
+    try { await pagarCompra(c.id); await refresh(); } catch (e: any) { alert(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Kpi label="Por pagar" value={money(resumen?.totalPorPagar ?? 0)} accent="text-cica-gold" />
+        <Kpi label="Vencido" value={money(resumen?.vencido ?? 0)} accent={(resumen?.vencido ?? 0) > 0 ? "text-status-sin" : "text-cica-silver"} />
+        <Kpi label="Facturas pendientes" value={String(resumen?.facturasPendientes ?? 0)} accent="text-cica-steelLight" />
+      </div>
+
+      {canEdit && (
+        <div>
+          <button onClick={() => setShowForm(true)} className="rounded-xl bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black">+ Registrar compra/gasto</button>
+        </div>
+      )}
+      {err && <Aviso texto={err} />}
+
+      <div className="glass p-4">
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">N°</th><th className="text-left">Proveedor</th><th className="text-left">Concepto</th><th className="text-right">Total</th><th className="text-right">Estado</th></tr></thead>
+          <tbody>
+            {compras.map((c) => (
+              <tr key={c.id} className="border-t border-cica-border/30">
+                <td className="py-1 font-mono text-cica-gold">{c.numero}</td>
+                <td className="text-cica-silver">{c.proveedorNombre}</td>
+                <td className="text-cica-muted">{c.concepto}</td>
+                <td className="text-right font-semibold text-cica-silver">{money(Number(c.totalAPagar))}</td>
+                <td className="text-right">
+                  {c.estado === "pendiente" && canEdit
+                    ? <button onClick={() => pagar(c)} disabled={busy} className="rounded border border-cica-border px-2 py-0.5 text-[11px] text-cica-gold hover:bg-cica-gold/10">Pagar</button>
+                    : <span className={`text-[11px] ${c.estado === "pagada" ? "text-status-ftth" : "text-cica-muted"}`}>{c.estado}</span>}
+                </td>
+              </tr>
+            ))}
+            {compras.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-cica-muted">Sin compras registradas.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {showForm && <CompraForm onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); refresh(); }} />}
+    </div>
+  );
+}
+
+function CompraForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [docProv, setDocProv] = useState("");
+  const [nomProv, setNomProv] = useState("");
+  const [concepto, setConcepto] = useState("");
+  const [venc, setVenc] = useState(new Date().toISOString().slice(0, 10));
+  const [lineas, setLineas] = useState<LineaCompra[]>([{ cuenta: "", base: 0, ivaPct: 0 }]);
+  const [retefuente, setRetefuente] = useState(0);
+  const [reteIva, setReteIva] = useState(0);
+  const [reteIca, setReteIca] = useState(0);
+  const [cuentas, setCuentas] = useState<CuentaContable[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { listCuentas({ imputables: true }).then((cs) => setCuentas(cs.filter((c) => c.clase === 5 || c.clase === 6 || c.clase === 1))).catch(() => {}); }, []);
+
+  const subtotal = lineas.reduce((s, l) => s + (Number(l.base) || 0), 0);
+  const iva = lineas.reduce((s, l) => s + (Number(l.base) || 0) * ((Number(l.ivaPct) || 0) / 100), 0);
+  const total = subtotal + iva - retefuente - reteIva - reteIca;
+
+  function setL(i: number, patch: Partial<LineaCompra>) { setLineas((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l))); }
+
+  async function guardar() {
+    setErr(null); setSaving(true);
+    try {
+      await crearCompra({
+        proveedor: { documento: docProv.trim(), nombre: nomProv.trim() },
+        concepto, fechaVencimiento: venc,
+        lineas: lineas.filter((l) => l.cuenta && Number(l.base) > 0),
+        retefuente, reteIva, reteIca,
+      });
+      onSaved();
+    } catch (e: any) { setErr(e.message); } finally { setSaving(false); }
+  }
+
+  const valido = docProv && nomProv && concepto.length >= 3 && lineas.some((l) => l.cuenta && Number(l.base) > 0);
+
+  return (
+    <Modal title="Registrar compra / gasto" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        {err && <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{err}</div>}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="NIT/Doc proveedor"><input value={docProv} onChange={(e) => setDocProv(e.target.value)} className={input} /></Field>
+          <Field label="Nombre proveedor"><input value={nomProv} onChange={(e) => setNomProv(e.target.value)} className={input} /></Field>
+        </div>
+        <Field label="Concepto"><input value={concepto} onChange={(e) => setConcepto(e.target.value)} className={input} /></Field>
+        <Field label="Vence"><input type="date" value={venc} onChange={(e) => setVenc(e.target.value)} className={input} /></Field>
+
+        <div className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Líneas (gasto/activo)</div>
+        {lineas.map((l, i) => (
+          <div key={i} className="grid grid-cols-12 gap-2">
+            <select value={l.cuenta} onChange={(e) => setL(i, { cuenta: e.target.value })} className={`${input} col-span-6`}>
+              <option value="">— cuenta —</option>
+              {cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+            </select>
+            <input type="number" placeholder="base" value={l.base || ""} onChange={(e) => setL(i, { base: Number(e.target.value) })} className={`${input} col-span-3 text-right`} />
+            <select value={l.ivaPct ?? 0} onChange={(e) => setL(i, { ivaPct: Number(e.target.value) })} className={`${input} col-span-2`}>
+              <option value={0}>0%</option><option value={5}>5%</option><option value={19}>19%</option>
+            </select>
+            <button onClick={() => setLineas((ls) => ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls)} className="col-span-1 text-cica-muted hover:text-status-sin">✕</button>
+          </div>
+        ))}
+        <button onClick={() => setLineas((ls) => [...ls, { cuenta: "", base: 0, ivaPct: 0 }])} className="self-start rounded-lg border border-cica-border px-3 py-1 text-xs text-cica-silver">+ Línea</button>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Retefuente"><input type="number" value={retefuente || ""} onChange={(e) => setRetefuente(Number(e.target.value))} className={input} /></Field>
+          <Field label="ReteIVA"><input type="number" value={reteIva || ""} onChange={(e) => setReteIva(Number(e.target.value))} className={input} /></Field>
+          <Field label="ReteICA"><input type="number" value={reteIca || ""} onChange={(e) => setReteIca(Number(e.target.value))} className={input} /></Field>
+        </div>
+
+        <div className="rounded-lg bg-cica-border/20 p-3 text-xs">
+          <Row label="Subtotal" value={money(subtotal)} />
+          <Row label="IVA descontable" value={money(iva)} />
+          <Row label="(−) Retenciones" value={money(retefuente + reteIva + reteIca)} />
+          <Row label="Total a pagar" value={money(total)} bold accent="text-cica-gold" />
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-cica-muted">Cancelar</button>
+          <button onClick={guardar} disabled={!valido || saving} className="rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">{saving ? "Guardando…" : "Causar compra"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -796,3 +950,16 @@ function Row({ label, value, bold, accent }: { label: string; value: string; bol
 }
 function Cargando() { return <div className="grid place-items-center py-16"><div className="h-9 w-9 animate-spin rounded-full border-2 border-cica-border border-t-cica-gold" /></div>; }
 function Aviso({ texto }: { texto: string }) { return <div className="glass p-6 text-center text-sm text-cica-muted">{texto}</div>; }
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
+      <div className="glass max-h-[90vh] w-full max-w-lg overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-extrabold text-white">{title}</h3>
+          <button onClick={onClose} className="text-cica-muted hover:text-white">✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}

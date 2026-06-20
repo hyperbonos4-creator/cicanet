@@ -594,3 +594,41 @@ model DunningEnvio {
   @@index([periodoMes])
   @@map("dunning_envio")
 }
+
+/// Factura de compra / causación de gasto (cuentas por pagar). El proveedor es
+/// un Tercero. Soporta varias líneas de gasto/activo + IVA descontable y las
+/// retenciones que CICANET practica (retefuente/reteIVA/reteICA). La causación y
+/// el pago generan asientos en el ledger (la verdad contable es el asiento).
+model FacturaCompra {
+  id              String   @id @default(uuid()) @db.Uuid
+  numero          String   @unique // CXP-000001 (consecutivo interno)
+  /// Número de la factura del proveedor (referencia externa).
+  numeroProveedor String?  @map("numero_proveedor")
+  proveedorId     String   @map("proveedor_id") @db.Uuid
+  proveedorNombre String   @map("proveedor_nombre")
+  fecha           DateTime @db.Date
+  fechaVencimiento DateTime @db.Date @map("fecha_vencimiento")
+  concepto        String
+  /// Líneas: [{ cuenta, descripcion, base, ivaPct }].
+  lineas          Json     @db.JsonB
+  subtotal        Decimal  @default(0) @db.Decimal(16, 2)
+  ivaDescontable  Decimal  @default(0) @db.Decimal(16, 2) @map("iva_descontable")
+  retefuente      Decimal  @default(0) @db.Decimal(16, 2)
+  reteIva         Decimal  @default(0) @db.Decimal(16, 2) @map("rete_iva")
+  reteIca         Decimal  @default(0) @db.Decimal(16, 2) @map("rete_ica")
+  /// Neto a pagar = subtotal + IVA − retenciones.
+  totalAPagar     Decimal  @default(0) @db.Decimal(16, 2) @map("total_a_pagar")
+  /// pendiente | pagada | anulada
+  estado          String   @default("pendiente")
+  asientoId       String?  @map("asiento_id") @db.Uuid
+  asientoPagoId   String?  @map("asiento_pago_id") @db.Uuid
+  /// Si se emitió documento soporte electrónico (no obligado a facturar).
+  documentoSoporte Boolean @default(false) @map("documento_soporte")
+  creadoPor       String?  @map("creado_por")
+  creadoEn        DateTime @default(now()) @map("creado_en")
+  pagadaEn        DateTime? @map("pagada_en")
+
+  @@index([estado])
+  @@index([proveedorId])
+  @@map("factura_compra")
+}
