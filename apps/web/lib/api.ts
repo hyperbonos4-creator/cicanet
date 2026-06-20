@@ -1072,3 +1072,16 @@ export async function downloadFile(path: string, filename: string): Promise<void
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ---- Activos fijos y depreciación (módulo assets) ----
+export type ActivoFijo = { id: string; nombre: string; valorAdquisicion: string; valorResidual: string; vidaUtilMeses: number; depreciacionAcumulada: string; estado: string };
+export function listActivosFijos(): Promise<ActivoFijo[]> { return authFetch("/assets"); }
+export function crearActivoFijo(input: { nombre: string; valorAdquisicion: number; vidaUtilMeses: number; valorResidual?: number; fechaAdquisicion?: string }): Promise<ActivoFijo> {
+  return authFetch("/assets", { method: "POST", body: JSON.stringify(input) });
+}
+export function depreciacionPreview(periodo: string): Promise<{ periodo: string; activos: number; totalDepreciacion: number; items: any[] }> {
+  return authFetch(`/assets/depreciacion/preview?periodo=${periodo}`);
+}
+export function depreciacionRun(periodo: string, dryRun = false): Promise<{ periodo: string; procesados: number; totalDepreciacion: number }> {
+  return authFetch("/assets/depreciacion/run", { method: "POST", body: JSON.stringify({ periodo, dryRun }) });
+}

@@ -35,6 +35,10 @@ import {
   listReglasImpuesto,
   calcularImpuestos,
   downloadFile,
+  listActivosFijos,
+  crearActivoFijo,
+  depreciacionPreview,
+  depreciacionRun,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -48,9 +52,10 @@ import {
   type DunningPreview as DunningPreviewT,
   type FacturaCompra,
   type LineaCompra,
+  type ActivoFijo,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "compras" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "compras" | "activos" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -61,6 +66,7 @@ const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "cobranza", label: "Cobranza" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "compras", label: "Compras / CxP" },
+  { key: "activos", label: "Activos" },
   { key: "bancos", label: "Bancos" },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
@@ -96,6 +102,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
       {tab === "facturacion" && <FacturacionTab />}
       {tab === "compras" && <ComprasTab canEdit={canEdit} />}
+      {tab === "activos" && <ActivosTab isAdmin={isAdmin} />}
       {tab === "bancos" && <BancosTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
@@ -125,6 +132,82 @@ function DashboardTab() {
         <Kpi label="Cartera (CxC clientes)" value={money(d.cartera)} accent="text-cica-steelLight" />
         <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Activos fijos / Depreciación ===================== */
+function ActivosTab({ isAdmin }: { isAdmin: boolean }) {
+  const [activos, setActivos] = useState<ActivoFijo[]>([]);
+  const [nombre, setNombre] = useState("");
+  const [valor, setValor] = useState(0);
+  const [vida, setVida] = useState(60);
+  const ahora = new Date();
+  const [periodo, setPeriodo] = useState(`${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`);
+  const [prev, setPrev] = useState<{ activos: number; totalDepreciacion: number } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    try { setActivos(await listActivosFijos()); setPrev(await depreciacionPreview(periodo)); setErr(null); } catch (e: any) { setErr(e.message); }
+  }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [periodo]);
+
+  async function crear() {
+    if (!nombre || valor <= 0 || vida <= 0) return;
+    setBusy(true); setErr(null);
+    try { await crearActivoFijo({ nombre, valorAdquisicion: valor, vidaUtilMeses: vida }); setNombre(""); setValor(0); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function correr() {
+    if (!confirm(`¿Correr la depreciación de ${periodo}? Genera asientos por cada activo.`)) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await depreciacionRun(periodo); setMsg(`Depreciación ${periodo}: ${r.procesados} activo(s), total ${money(r.totalDepreciacion)}.`); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="glass p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Periodo"><input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={input} /></Field>
+          {prev && <div className="text-xs text-cica-muted">Por depreciar en {periodo}: <b className="text-cica-gold">{money(prev.totalDepreciacion)}</b> ({prev.activos} activo/s)</div>}
+          {isAdmin && <button onClick={correr} disabled={busy || !prev?.activos} className="ml-auto rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">Correr depreciación</button>}
+        </div>
+        {msg && <div className="mt-3 rounded-lg border border-status-ftth/40 bg-status-ftth/10 px-3 py-2 text-xs text-status-ftth">{msg}</div>}
+        {err && <div className="mt-3 rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{err}</div>}
+      </div>
+
+      {isAdmin && (
+        <div className="glass p-4">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Registrar activo fijo</div>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="OLT / Switch / Vehículo" className={input} /></Field>
+            <Field label="Valor"><input type="number" value={valor || ""} onChange={(e) => setValor(Number(e.target.value))} className={input} /></Field>
+            <Field label="Vida útil (meses)"><input type="number" value={vida} onChange={(e) => setVida(Number(e.target.value))} className={`${input} w-28`} /></Field>
+            <button onClick={crear} disabled={busy} className="rounded-lg border border-cica-border px-3 py-2 text-xs text-cica-silver hover:border-cica-gold/40">+ Activo</button>
+          </div>
+        </div>
+      )}
+
+      <div className="glass p-4">
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">Activo</th><th className="text-right">Valor</th><th className="text-right">Dep. acumulada</th><th className="text-right">Vida</th><th className="text-right">Estado</th></tr></thead>
+          <tbody>
+            {activos.map((a) => (
+              <tr key={a.id} className="border-t border-cica-border/30">
+                <td className="py-1 text-cica-silver">{a.nombre}</td>
+                <td className="text-right text-cica-silver">{money(Number(a.valorAdquisicion))}</td>
+                <td className="text-right text-cica-muted">{money(Number(a.depreciacionAcumulada))}</td>
+                <td className="text-right text-cica-muted">{a.vidaUtilMeses}m</td>
+                <td className="text-right"><span className={`text-[11px] ${a.estado === "depreciado" ? "text-cica-muted" : "text-status-ftth"}`}>{a.estado}</span></td>
+              </tr>
+            ))}
+            {activos.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-cica-muted">Sin activos fijos registrados.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );

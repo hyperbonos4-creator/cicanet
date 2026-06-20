@@ -74,7 +74,7 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 ---
 
-## FASE 2 — Backoffice contable completo 🟠
+## FASE 2 — Backoffice contable completo ✅ COMPLETA (2026-06-20)
 
 > Para que la contadora opere TODO el día a día sin salir de CICANET.
 
@@ -110,10 +110,12 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Web:** botones "Exportar (Excel)" y "Imprimir / PDF" (window.print) en Reportes. ✅
 - **Verificado:** balance.csv descarga con encabezados, BOM y datos cuadrados.
 
-### T2.5 — Asientos recurrentes y depreciación automática
-- Plantillas de asiento (nómina, depreciación mensual de equipos de red).
-- Job que genera la depreciación del periodo desde `FixedAsset`.
-- **Aceptación:** correr depreciación genera el asiento 516005/159205 esperado.
+### T2.5 — Asientos recurrentes y depreciación automática ✅ (2026-06-20)
+- **Modelo:** `ActivoFijo` + `DepreciacionRegistro` (idempotencia por activo+periodo). ✅
+- **Backend** `apps/api/src/assets/`: alta de activos, preview y corrida de
+  depreciación (línea recta) que genera el asiento Dr 516005 / Cr 159205. ✅
+- **Web:** pestaña "Activos" (registrar activo, ver depreciación acumulada, correr mes). ✅
+- **Verificado:** OLT $36.000.000 / 60 meses → $600.000/mes; corrida idempotente.
 
 ---
 
@@ -159,7 +161,7 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 ## Orden de ejecución (resumen)
 
 1. **F1: Cartera/Aging → Facturación recurrente → Conciliación → Dunning** ✅ COMPLETA
-2. **F2: CxP/gastos → Impuestos por reglas → Tipos de comprobante → Exportables → Depreciación** 🟠
+2. **F2: CxP/gastos → Impuestos por reglas → Tipos de comprobante → Exportables → Depreciación** ✅ COMPLETA
 3. **F3: Exógena → Nómina electrónica → NIIF** 🟡
 4. **F4: Cica contable → Analítica/presupuesto → Portal** 🟢
 

@@ -650,3 +650,38 @@ model ReglaImpuesto {
 
   @@map("regla_impuesto")
 }
+
+/// Activo fijo depreciable (OLT, switches, NAP, vehículos, equipos). La
+/// depreciación mensual genera un asiento (Dr gasto, Cr depreciación acumulada).
+model ActivoFijo {
+  id                  String   @id @default(uuid()) @db.Uuid
+  nombre              String
+  cuentaActivo        String   @default("152805") @map("cuenta_activo")
+  cuentaDepAcum       String   @default("159205") @map("cuenta_dep_acum")
+  cuentaGasto         String   @default("516005") @map("cuenta_gasto")
+  valorAdquisicion    Decimal  @db.Decimal(16, 2) @map("valor_adquisicion")
+  valorResidual       Decimal  @default(0) @db.Decimal(16, 2) @map("valor_residual")
+  fechaAdquisicion    DateTime @db.Date @map("fecha_adquisicion")
+  vidaUtilMeses       Int      @map("vida_util_meses")
+  depreciacionAcumulada Decimal @default(0) @db.Decimal(16, 2) @map("depreciacion_acumulada")
+  estado              String   @default("activo") // activo | depreciado | baja
+  creadoEn            DateTime @default(now()) @map("creado_en")
+
+  registros           DepreciacionRegistro[]
+
+  @@map("activo_fijo")
+}
+
+/// Registro de depreciación de un activo en un periodo (idempotencia mensual).
+model DepreciacionRegistro {
+  id           String   @id @default(uuid()) @db.Uuid
+  activoFijoId String   @map("activo_fijo_id") @db.Uuid
+  activoFijo   ActivoFijo @relation(fields: [activoFijoId], references: [id], onDelete: Cascade)
+  periodo      String   // "2026-06"
+  valor        Decimal  @db.Decimal(16, 2)
+  asientoId    String?  @map("asiento_id") @db.Uuid
+  creadoEn     DateTime @default(now()) @map("creado_en")
+
+  @@unique([activoFijoId, periodo])
+  @@map("depreciacion_registro")
+}
