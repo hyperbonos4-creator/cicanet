@@ -155,6 +155,10 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 ## FASE 4 — Inteligencia y experiencia 🟢
 
+> **Reencuadrada en la Parte II (v2):** estas tareas se absorben en la **Fase H**
+> (analítica vertical + Cica contable + portal), DESPUÉS de endurecer el core
+> (Fases A–D de la Parte II). Se conservan aquí como referencia.
+
 ### T4.1 — Cica contable (agente para staff)
 - Herramientas para admin/contador: "cartera vencida por barrio", "recaudo del día",
   "clientes con mora >60 días en Popular 2", "estado financiero del mes".
@@ -174,7 +178,10 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 1. **F1: Cartera/Aging → Facturación recurrente → Conciliación → Dunning** ✅ COMPLETA
 2. **F2: CxP/gastos → Impuestos por reglas → Tipos de comprobante → Exportables → Depreciación** ✅ COMPLETA
 3. **F3: Exógena → Nómina electrónica → NIIF** ✅ COMPLETA
-4. **F4: Cica contable → Analítica/presupuesto → Portal** 🟢
+4. **PARTE II (v2) — siguiente foco:** endurecer el core → A: cash application + estados +
+   workbench · B: motor de eventos + trazabilidad · C: tesorería · D: cierre robusto ·
+   E: centro DIAN · F: cartera avanzada · G: activos red/contable · H: analítica + Cica + portal.
+   **La Fase 4 original (Cica/analítica/portal) queda absorbida en la Fase H.**
 
 ## Principios transversales (se respetan en cada tarea)
 - Doble partida siempre cuadrada y atómica; asientos inmutables (reversión).
@@ -190,3 +197,145 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - Customer 360 + topología/NAP (cartera georreferenciada).
 - Máquina de estados de servicio (suspensión por mora).
 - `AuditLog` (trazabilidad contable).
+
+---
+---
+
+# PARTE II — v2: Endurecer el corazón financiero-operativo
+
+**Estado:** añadido 2026-06-20 tras revisión de arquitectura (producto + contable).
+
+## Contexto y veredicto
+
+Las Fases 1–3 dejaron a CICANET con un **ERP contable vertical para ISP** funcional:
+ledger PUC, cartera/aging, facturación recurrente, conciliación, dunning, CxP con
+retenciones, impuestos por reglas, tipos de comprobante, exportables, depreciación,
+exógena (1001–1009), nómina y NIIF. El moat NO es "tener contabilidad", es la
+**unificación operativa**: contabilidad + cartera + facturación recurrente + red/NAP
++ suspensión por mora + DIAN + WhatsApp de cobranza, en un solo sistema.
+
+**El siguiente salto NO es agregar más pestañas.** Es endurecer el corazón
+financiero-operativo y cerrar el acople entre módulos. Riesgo #1 actual: que
+Nómina/Activos/Exógena/DIAN crezcan más rápido que el **modelo contable y la
+trazabilidad fiscal** que los soporta.
+
+## Arquitectura objetivo: 5 subledgers + GL + motor de eventos
+
+Formalizar el sistema financiero en **subledgers** con responsabilidad clara, todos
+alimentando el **GL** por un **motor de eventos contables** (no contabilización a mano
+dispersa en cada módulo):
+
+1. **AR — Cuentas por cobrar:** factura de venta, saldo del cliente, recaudo, notas
+   crédito, aging, promesas de pago, suspensión por mora.
+2. **AP — Cuentas por pagar:** factura de proveedor, causación, pagos, retenciones,
+   documento soporte.
+3. **Cash / Tesorería:** cuentas bancarias y cajas, extractos, conciliación,
+   transferencias internas, recaudos no aplicados, comisiones (Wompi/GMF).
+4. **GL — General Ledger:** comprobantes, diario, mayor, balance, P&G, cierres,
+   reversos, ajustes.
+5. **Tax / DIAN:** FE, documento soporte, nómina electrónica, retenciones, IVA
+   generado/descontable, exógena, estados de envío/aceptación/rechazo.
+
+### Motor de eventos contables (posting engine)
+El dominio operativo emite **eventos de negocio**; Contabilidad los escucha y genera
+el comprobante (con trazabilidad de origen), en vez de incrustar la lógica contable
+dentro de cada módulo:
+
+```
+invoice.issued · invoice.voided · payment.received · payment.applied
+bank.movement.conciliated · purchase.invoice.recorded · purchase.invoice.paid
+service.suspended_for_debt · writeoff.created · credit.note.issued
+payroll.closed · depreciation.posted
+```
+
+### Trazabilidad sagrada (modelo de datos)
+Todo `AsientoContable` debe poder responder sin dolor: qué documento lo originó, qué
+módulo/usuario/job lo creó, si fue automático o manual, qué tercero/cliente/servicio/
+NAP/zona impactó, qué periodo tocó, qué asiento lo revirtió, si tiene relación DIAN,
+si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
+`referenciaTipo/referenciaId`; **v2 amplía** a `sourceModule`, `autoGenerado`,
+`napId/zonaId/servicioId`, `centroCosto` por línea).
+
+## Piezas duras que faltan (lo que vuelve "producción seria")
+
+1. **Cash application / Recibo de caja** (lo más crítico): `ReciboCaja` +
+   `AplicacionPago` con abono parcial, pago de múltiples facturas, anticipos/saldo a
+   favor, pagos no identificados (huérfanos), comisión/redondeo, reversión de aplicación.
+2. **Máquinas de estado documental:** factura venta (draft→posted→electronic_*→
+   partially_paid→paid→overdue→cancelled→reversed), factura compra, extracto bancario,
+   comprobante. Hoy hay `estado` simple; v2 formaliza transiciones válidas.
+3. **Tesorería:** cuentas/cajas como entidad de 1er nivel, traslados entre cuentas,
+   egresos manuales, caja menor, anticipos a/ de proveedores y clientes, legalización,
+   comisiones bancarias/GMF, recaudos no identificados, arqueo, flujo de caja proyectado.
+4. **Cierre robusto:** checklist de cierre, validaciones pre-cierre (borradores,
+   descuadres, terceros incompletos, cuentas sin mapeo DIAN, activos sin vida útil),
+   secuencia de cierre mensual con lock.
+5. **Workbench del contador (UX):** la pantalla inicial debe ser una **bandeja de
+   pendientes**, no KPIs ejecutivos.
+6. **Centro DIAN unificado:** una vista que agrupe FE, notas, documento soporte,
+   nómina electrónica, exógena, certificados/resolución, estados y reprocesos.
+7. **Cartera "de guerra":** acuerdos de pago, refinanciación, condonación parcial,
+   castigo de cartera, reconexión con abono mínimo, intereses de mora, reactivación.
+8. **Activo de red ≠ activo fijo contable:** separar `AssetRegistry` operativo
+   (seriales/comodato/stock) de `FixedAssetAccounting` (depreciación), con vínculo.
+
+## Roadmap v2 re-priorizado (por madurez funcional)
+
+> Principio: **endurecer el core antes de abrir frentes nuevos.**
+
+### FASE A — Cash application + estados documentales + bandeja del contador 🔴 (siguiente)
+- **A1. Recibo de caja / aplicación de pagos** (parcial, múltiple, anticipos, huérfanos,
+  reversión). Conecta recaudo Wompi/transferencia → factura(s) → asiento → cartera.
+- **A2. Máquinas de estado** en factura venta, factura compra, extracto, comprobante.
+- **A3. Workbench del contador:** home con bandejas accionables (pagos sin aplicar,
+  conciliaciones pendientes, facturas proveedor por pagar, morosos >30/60/90,
+  documentos DIAN rechazados, comprobantes descuadrados/borrador, nómina/exógena pendientes).
+
+### FASE B — Motor de eventos contables + trazabilidad ampliada 🔴
+- **B1. Posting engine** desacoplado por eventos (emisor único de asientos por evento).
+- **B2. Trazabilidad ampliada** en asiento/línea (sourceModule, napId/zonaId/servicioId,
+  centroCosto, autoGenerado, relación DIAN/banco/cartera) + drill-down KPI→asiento→soporte.
+
+### FASE C — Tesorería 🟠
+- Cuentas/cajas de 1er nivel, traslados, egresos, caja menor, anticipos y legalización,
+  comisiones/GMF, recaudos no identificados, arqueo, flujo de caja proyectado.
+
+### FASE D — Cierre mensual robusto 🟠
+- Checklist + validaciones pre-cierre + secuencia de cierre con lock e informe de cuadre.
+
+### FASE E — Centro DIAN unificado + estados 🟠
+- Vista única de FE/notas/documento soporte/nómina/exógena + certificados/resolución +
+  reprocesos/errores. Exógena con **motor de mapeo parametrizable** (cuenta→concepto DIAN)
+  y bandeja de validación (NIT inválidos, terceros sin municipio/DV, movimientos sin mapeo,
+  diferencias contra ledger) antes de exportar.
+
+### FASE F — Cartera avanzada (cobranza "de guerra") 🟡
+- Acuerdos/refinanciación/condonación/castigo, reconexión con abono mínimo, intereses de
+  mora, historial de gestión de cobro por cliente.
+
+### FASE G — Activos: separar red vs contable 🟡
+- `AssetRegistry` operativo (seriales/comodato/MAC/stock) ↔ `FixedAssetAccounting`
+  (depreciación, centro de costo, baja/venta/traslado/mejora), libro auxiliar de activos.
+
+### FASE H — Analítica vertical ISP + centros de costo 🟢
+- Centros de costo como entidad de 1er nivel (admin/soporte/instalación/backbone/nodo).
+- Reportes: ingreso por barrio, cartera vencida por NAP, mora por plan, recaudo por
+  canal, ARPU por zona, costo de red vs ingreso por nodo, churn por mora.
+- Cica contable (consultas en lenguaje natural sobre cartera/recaudo/estado financiero).
+- Portal del cliente (autofactura / estado de cuenta).
+
+## Sprint inmediato sugerido (lo más peligroso primero)
+1. **Cash application / recibo de caja** (A1) — sin esto, cartera y conciliación se enredan.
+2. **Máquinas de estado documental** (A2).
+3. **Workbench del contador** (A3).
+4. **Posting engine por eventos + trazabilidad** (B).
+
+## Evaluación honesta
+- Dirección arquitectónica: sólida. El orden (operación→cartera→conciliación→ledger→
+  reportes) es el correcto para un ISP.
+- Para "sentar a una contadora todos los días" en producción faltan, sobre todo:
+  **cash application**, **tesorería**, **máquinas de estado**, **posting engine**,
+  **cierre formal** y **UX de bandejas**. Eso es la Fase A–D de esta Parte II.
+- Posicionamiento de producto: no es "tenemos contabilidad" sino **"backoffice
+  financiero-operativo nativo para ISP"** (cartera, recaudo, facturación recurrente,
+  suspensión por mora, conciliación, DIAN y rentabilidad por nodo/zona).
