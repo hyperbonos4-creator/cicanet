@@ -26,6 +26,8 @@ import {
   bankingResumen,
   conciliarMovimiento,
   ignorarMovimiento,
+  dunningPreview,
+  dunningRun,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -36,9 +38,10 @@ import {
   type BillingPreview as BillingPreviewT,
   type CuentaBancaria,
   type MovimientoBancario,
+  type DunningPreview as DunningPreviewT,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "facturacion" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -46,6 +49,7 @@ const money = (n: number) =>
 const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "dashboard", label: "Resumen" },
   { key: "cartera", label: "Cartera" },
+  { key: "cobranza", label: "Cobranza" },
   { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "bancos", label: "Bancos" },
   { key: "asientos", label: "Comprobantes" },
@@ -79,6 +83,7 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
 
       {tab === "dashboard" && <DashboardTab />}
       {tab === "cartera" && <CarteraTab />}
+      {tab === "cobranza" && <CobranzaTab isAdmin={isAdmin} />}
       {tab === "facturacion" && <FacturacionTab />}
       {tab === "bancos" && <BancosTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
@@ -109,6 +114,69 @@ function DashboardTab() {
         <Kpi label="Cartera (CxC clientes)" value={money(d.cartera)} accent="text-cica-steelLight" />
         <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Cobranza (dunning) ===================== */
+function CobranzaTab({ isAdmin }: { isAdmin: boolean }) {
+  const [pv, setPv] = useState<DunningPreviewT | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() { try { setPv(await dunningPreview()); setErr(null); } catch (e: any) { setErr(e.message); } }
+  useEffect(() => { refresh(); }, []);
+
+  async function ejecutar(aplicar: boolean) {
+    if (aplicar && !confirm("¿Enviar los recordatorios de cobro por WhatsApp ahora?")) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await dunningRun(aplicar);
+      setMsg(aplicar ? `Enviados ${r.enviados}, fallidos ${r.fallidos}, omitidos ${r.omitidos}.` : `Simulación: ${r.detalle.length} mensajes listos para enviar.`);
+      refresh();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  if (err) return <Aviso texto={err} />;
+  if (!pv) return <Cargando />;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="glass p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-bold text-white">Cobranza automática por WhatsApp</div>
+            <div className="text-xs text-cica-muted">Mes {pv.mes} · {pv.aEnviar} mensaje(s) por enviar de {pv.total} cliente(s) con deuda</div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => ejecutar(false)} disabled={busy} className="rounded-lg border border-cica-border px-3 py-2 text-xs text-cica-silver hover:border-cica-gold/40">Simular</button>
+            {isAdmin && <button onClick={() => ejecutar(true)} disabled={busy || pv.aEnviar === 0} className="rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">Enviar recordatorios</button>}
+          </div>
+        </div>
+        {msg && <div className="mt-3 rounded-lg border border-status-ftth/40 bg-status-ftth/10 px-3 py-2 text-xs text-status-ftth">{msg}</div>}
+      </div>
+
+      <div className="glass p-4">
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Destinatarios</div>
+        <div className="flex flex-col gap-2">
+          {pv.objetivos.map((o) => (
+            <div key={o.clienteId} className="rounded-lg border border-cica-border/40 p-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-cica-silver">{o.nombre}</span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-cica-border/40 px-2 py-0.5 text-[10px] text-cica-muted">{o.bucket} · {o.dias}d</span>
+                  {o.yaEnviado && <span className="text-[10px] text-status-ftth">enviado ✓</span>}
+                  {!o.telefono && <span className="text-[10px] text-status-sin">sin teléfono</span>}
+                  {!o.habilitado && <span className="text-[10px] text-cica-muted">regla off</span>}
+                </div>
+              </div>
+              <div className="mt-1 text-[11px] italic text-cica-muted">{o.mensaje}</div>
+            </div>
+          ))}
+          {pv.objetivos.length === 0 && <p className="text-center text-xs text-cica-muted">No hay clientes con deuda para cobrar. ✓</p>}
+        </div>
       </div>
     </div>
   );

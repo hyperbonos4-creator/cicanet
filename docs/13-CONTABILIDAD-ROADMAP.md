@@ -26,7 +26,7 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 ---
 
-## FASE 1 — Recaudo y Cobranza de ISP (máxima prioridad) 🔴
+## FASE 1 — Recaudo y Cobranza de ISP (máxima prioridad) ✅ COMPLETA (2026-06-20)
 
 > Convierte el "libro contable" en un sistema de cartera y recaudo. Es lo que la
 > contadora siente el primer día y el moat frente a Siigo (cartera georreferenciada).
@@ -62,12 +62,15 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Verificado:** import idempotente (reimport=0), conciliación entrada y salida generan asientos correctos, resumen cuadra.
 - **Pendiente menor:** parser OFX (hoy CSV cubre el 80%).
 
-### T1.4 — Dunning (cobro automático por WhatsApp/email)
-- Reusar infra de WhatsApp + notificaciones existente.
-- Reglas por aging: recordatorio amable (3 días antes), aviso de vencido, aviso de
-  suspensión. Plantillas configurables. Idempotencia (no spamear).
-- `POST /collections/dunning/run`, registro de envíos.
-- **Aceptación:** un cliente en bucket 31-60 recibe el mensaje correcto una sola vez.
+### T1.4 — Dunning (cobro automático por WhatsApp/email) ✅ (2026-06-20)
+- **Backend** `apps/api/src/dunning/` + `WhatsappService.sendText()` (Evolution). ✅
+- Reglas por bucket (plantillas configurables en `Setting`), idempotencia por
+  `(cliente, bucket, mes)` — solo los **envíos exitosos** bloquean reenvío; los
+  fallidos se reintentan. Modelo `DunningEnvio`. ✅
+- Endpoints: `GET /dunning/preview`, `POST /dunning/run` (simular/aplicar), `/dunning/historial`. ✅
+- **Web:** pestaña "Cobranza" (simular, enviar, ver destinatarios y mensaje). ✅
+- **Verificado:** preview por bucket prioritario, run real registra fallido cuando
+  WhatsApp no está conectado y permite reintento; historial OK.
 
 ---
 
@@ -146,7 +149,7 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 ## Orden de ejecución (resumen)
 
-1. **F1: Cartera/Aging → Facturación recurrente → Conciliación → Dunning** 🔴
+1. **F1: Cartera/Aging → Facturación recurrente → Conciliación → Dunning** ✅ COMPLETA
 2. **F2: CxP/gastos → Impuestos por reglas → Tipos de comprobante → Exportables → Depreciación** 🟠
 3. **F3: Exógena → Nómina electrónica → NIIF** 🟡
 4. **F4: Cica contable → Analítica/presupuesto → Portal** 🟢

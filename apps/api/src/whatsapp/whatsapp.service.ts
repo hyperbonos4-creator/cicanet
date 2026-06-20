@@ -284,6 +284,28 @@ export class WhatsappService {
   }
 
   /** Llamada HTTP a Evolution con la apikey en header (fetch global de Node 20). */
+  // ---------------------------------------------------------------------------
+  //  Envío saliente (usado por dunning/cobranza)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Envía un mensaje de texto por WhatsApp vía Evolution. Best-effort: si la
+   * instancia no está conectada o falla, devuelve ok:false (no lanza). Normaliza
+   * el número a formato internacional Colombia (57) si llega a 10 dígitos.
+   */
+  async sendText(numero: string, mensaje: string): Promise<{ ok: boolean; numero: string; error?: string }> {
+    const limpio = digits(numero);
+    if (limpio.length < 10) return { ok: false, numero: limpio, error: 'numero_invalido' };
+    const e164 = limpio.length === 10 ? `57${limpio}` : limpio;
+    if (this.cachedStatus.state !== 'open') return { ok: false, numero: e164, error: 'whatsapp_no_conectado' };
+    try {
+      const res = await this.call(`/message/sendText/${this.inst()}`, 'POST', { number: e164, text: mensaje });
+      return { ok: res.ok, numero: e164, error: res.ok ? undefined : `evolution_${res.status}` };
+    } catch (e: any) {
+      return { ok: false, numero: e164, error: e.message };
+    }
+  }
+
   private async call(
     path: string,
     method: 'GET' | 'POST' | 'DELETE',

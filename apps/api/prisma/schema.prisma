@@ -575,3 +575,22 @@ model MovimientoBancario {
   @@index([cuentaBancariaId])
   @@map("movimiento_bancario")
 }
+
+/// Bitácora de envíos de cobranza (dunning). Garantiza idempotencia: un recordatorio
+/// por (cliente, bucket, mes). Evita spamear al cliente.
+model DunningEnvio {
+  id          String   @id @default(uuid()) @db.Uuid
+  clienteId   String   @map("cliente_id") @db.Uuid
+  bucket      String   // d1_30|d31_60|d61_90|d90mas
+  periodoMes  String   @map("periodo_mes") // "2026-06" (mes del envío)
+  canal       String   @default("whatsapp") // whatsapp|email
+  destino     String?
+  mensaje     String?
+  estado      String   @default("enviado") // enviado|fallido|simulado
+  error       String?
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  @@unique([clienteId, bucket, periodoMes])
+  @@index([periodoMes])
+  @@map("dunning_envio")
+}

@@ -1012,3 +1012,13 @@ export function conciliarMovimiento(movId: string, input: { contrapartida?: stri
 export function ignorarMovimiento(movId: string): Promise<{ ok: boolean }> {
   return authFetch(`/banking/movimientos/${movId}/ignorar`, { method: "POST" });
 }
+
+// ---- Cobranza automática (módulo dunning) ----
+export type DunningObjetivo = { clienteId: string; nombre: string; telefono: string | null; bucket: string; saldo: number; dias: number; mensaje: string; yaEnviado: boolean; habilitado: boolean };
+export type DunningPreview = { mes: string; total: number; aEnviar: number; objetivos: DunningObjetivo[] };
+
+export function dunningPreview(): Promise<DunningPreview> { return authFetch("/dunning/preview"); }
+export function dunningRun(aplicar: boolean): Promise<{ aplicado: boolean; mes: string; enviados: number; fallidos: number; omitidos: number; detalle: any[] }> {
+  return authFetch("/dunning/run", { method: "POST", body: JSON.stringify({ aplicar }) });
+}
+export function dunningHistorial(mes?: string): Promise<any[]> { return authFetch(`/dunning/historial${mes ? `?mes=${mes}` : ""}`); }
