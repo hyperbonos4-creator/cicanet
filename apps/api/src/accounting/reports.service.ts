@@ -167,6 +167,53 @@ export class ReportsService {
     return { cuenta: cuenta ? { codigo: cuenta.codigo, nombre: cuenta.nombre, naturaleza: cuenta.naturaleza } : null, movimientos: filas, saldoFinal: saldo };
   }
 
+  /** Estado de Situación Financiera (NIIF): activo/pasivo corriente y no corriente. */
+  async situacionFinancieraNiif(hasta: string) {
+    const sumas = await this.sumarPorCuenta({ hasta });
+    const cuentas = await this.prisma.cuentaContable.findMany({ where: { codigo: { in: sumas.map((s) => s.codigo) } } });
+    const byCodigo = new Map(cuentas.map((c) => [c.codigo, c]));
+
+    const grupos = {
+      activoCorriente: [] as { codigo: string; nombre: string; saldo: number }[],
+      activoNoCorriente: [] as { codigo: string; nombre: string; saldo: number }[],
+      pasivoCorriente: [] as { codigo: string; nombre: string; saldo: number }[],
+      pasivoNoCorriente: [] as { codigo: string; nombre: string; saldo: number }[],
+      patrimonio: [] as { codigo: string; nombre: string; saldo: number }[],
+    };
+    let ingresos = 0, costosGastos = 0;
+    const t = { activoCorriente: 0, activoNoCorriente: 0, pasivoCorriente: 0, pasivoNoCorriente: 0, patrimonio: 0 };
+
+    for (const s of sumas) {
+      const c = byCodigo.get(s.codigo);
+      if (!c) continue;
+      const grupo = s.codigo.slice(0, 2);
+      const neto = s.debito - s.credito;
+      if (c.clase === 1) {
+        const v = round2(neto);
+        if (['11', '12', '13', '14'].includes(grupo)) { grupos.activoCorriente.push({ codigo: c.codigo, nombre: c.nombre, saldo: v }); t.activoCorriente = round2(t.activoCorriente + v); }
+        else { grupos.activoNoCorriente.push({ codigo: c.codigo, nombre: c.nombre, saldo: v }); t.activoNoCorriente = round2(t.activoNoCorriente + v); }
+      } else if (c.clase === 2) {
+        const v = round2(-neto);
+        if (['21', '22', '23', '24', '25', '28'].includes(grupo)) { grupos.pasivoCorriente.push({ codigo: c.codigo, nombre: c.nombre, saldo: v }); t.pasivoCorriente = round2(t.pasivoCorriente + v); }
+        else { grupos.pasivoNoCorriente.push({ codigo: c.codigo, nombre: c.nombre, saldo: v }); t.pasivoNoCorriente = round2(t.pasivoNoCorriente + v); }
+      } else if (c.clase === 3) {
+        const v = round2(-neto);
+        grupos.patrimonio.push({ codigo: c.codigo, nombre: c.nombre, saldo: v }); t.patrimonio = round2(t.patrimonio + v);
+      } else if (c.clase === 4) ingresos += round2(-neto);
+      else if (c.clase === 5 || c.clase === 6 || c.clase === 7) costosGastos += round2(neto);
+    }
+    const resultadoEjercicio = round2(ingresos - costosGastos);
+    const totalActivo = round2(t.activoCorriente + t.activoNoCorriente);
+    const totalPasivo = round2(t.pasivoCorriente + t.pasivoNoCorriente);
+    const totalPatrimonio = round2(t.patrimonio + resultadoEjercicio);
+    return {
+      hasta,
+      grupos,
+      totales: { ...t, resultadoEjercicio, totalActivo, totalPasivo, totalPatrimonio, pasivoMasPatrimonio: round2(totalPasivo + totalPatrimonio) },
+      cuadra: totalActivo === round2(totalPasivo + totalPatrimonio),
+    };
+  }
+
   // ---- Exportables CSV (compatibles con Excel) ----
 
   private csvEscape(v: unknown): string {

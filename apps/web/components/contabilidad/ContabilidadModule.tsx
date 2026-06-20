@@ -12,6 +12,7 @@ import {
   balanceComprobacion,
   estadoResultados,
   balanceGeneral,
+  situacionNiif,
   listPeriodos,
   cerrarPeriodo,
   getAging,
@@ -1109,12 +1110,12 @@ function CuentasTab() {
 
 /* ===================== Reportes ===================== */
 function ReportesTab() {
-  const [rep, setRep] = useState<"balance" | "resultados" | "general">("balance");
+  const [rep, setRep] = useState<"balance" | "resultados" | "general" | "niif">("balance");
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     setData(null); setErr(null);
-    const fn = rep === "balance" ? balanceComprobacion() : rep === "resultados" ? estadoResultados() : balanceGeneral();
+    const fn = rep === "balance" ? balanceComprobacion() : rep === "resultados" ? estadoResultados() : rep === "general" ? balanceGeneral() : situacionNiif();
     fn.then(setData).catch((e) => setErr(e.message));
   }, [rep]);
 
@@ -1122,7 +1123,7 @@ function ReportesTab() {
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-2">
-          {([["balance", "Balance de comprobación"], ["resultados", "Estado de resultados"], ["general", "Balance general"]] as const).map(([k, l]) => (
+          {([["balance", "Balance de comprobación"], ["resultados", "Estado de resultados"], ["general", "Balance general"], ["niif", "Situación financiera (NIIF)"]] as const).map(([k, l]) => (
             <button key={k} onClick={() => setRep(k)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${rep === k ? "bg-cica-gold/20 text-cica-gold" : "bg-cica-border/30 text-cica-muted hover:text-cica-silver"}`}>{l}</button>
           ))}
         </div>
@@ -1172,6 +1173,23 @@ function ReportesTab() {
           <Row label="Resultado del ejercicio" value={money(data.resultadoEjercicio)} />
           <Row label="= Pasivo + Patrimonio" value={money(data.pasivoMasPatrimonio)} bold accent={data.cuadra ? "text-status-ftth" : "text-status-sin"} />
           <div className={`mt-2 text-xs font-semibold ${data.cuadra ? "text-status-ftth" : "text-status-sin"}`}>{data.cuadra ? "✓ La ecuación contable cuadra" : "⚠ No cuadra"}</div>
+        </div>
+      )}
+      {data && rep === "niif" && (
+        <div className="glass p-4 text-sm">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Estado de Situación Financiera (NIIF) · {data.hasta}</div>
+          <Row label="Activo corriente" value={money(data.totales.activoCorriente)} />
+          <Row label="Activo no corriente" value={money(data.totales.activoNoCorriente)} />
+          <Row label="= TOTAL ACTIVO" value={money(data.totales.totalActivo)} bold accent="text-cica-gold" />
+          <div className="h-2" />
+          <Row label="Pasivo corriente" value={money(data.totales.pasivoCorriente)} />
+          <Row label="Pasivo no corriente" value={money(data.totales.pasivoNoCorriente)} />
+          <Row label="= TOTAL PASIVO" value={money(data.totales.totalPasivo)} bold />
+          <div className="h-2" />
+          <Row label="Patrimonio (incl. resultado)" value={money(data.totales.totalPatrimonio)} />
+          <Row label="= PASIVO + PATRIMONIO" value={money(data.totales.pasivoMasPatrimonio)} bold accent={data.cuadra ? "text-status-ftth" : "text-status-sin"} />
+          <div className={`mt-2 text-xs font-semibold ${data.cuadra ? "text-status-ftth" : "text-status-sin"}`}>{data.cuadra ? "✓ Cuadra (Activo = Pasivo + Patrimonio)" : "⚠ No cuadra"}</div>
+          <p className="mt-2 text-[10px] text-cica-muted">Clasificación corriente/no corriente derivada del PUC (aproximación NIIF para revisión de la contadora).</p>
         </div>
       )}
     </div>

@@ -119,7 +119,7 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 ---
 
-## FASE 3 — Cumplimiento fiscal y nómina (el "Siigo killer") 🟡
+## FASE 3 — Cumplimiento fiscal y nómina (el "Siigo killer") ✅ COMPLETA (2026-06-20)
 
 > Lo que amarra a la contadora a Helisa/Siigo en cierre anual. Trabajo fiscal pesado.
 
@@ -143,8 +143,13 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 - **Verificado:** empleado $2.000.000 → devengado $2.200.000, neto $2.040.000, idempotente.
 - **Pendiente (certs DIAN):** emisión del documento de nómina electrónica vía `einvoice` (módulo `nomina` de facho).
 
-### T3.3 — NIIF / notas y cumplimiento
-- Etiquetas NIIF en el PUC, notas a los estados financieros, conciliación fiscal básica.
+### T3.3 — NIIF / presentación ✅ (2026-06-20)
+- **Estado de Situación Financiera (NIIF):** activo/pasivo **corriente y no corriente**
+  + patrimonio, clasificados desde el PUC; `GET /accounting/reportes/situacion-niif`. ✅
+- **Web:** cuarto reporte "Situación financiera (NIIF)" en la pestaña Reportes. ✅
+- **Verificado:** la ecuación Activo = Pasivo + Patrimonio cuadra.
+- **Nota:** clasificación corriente/no corriente derivada del PUC (aproximación para
+  revisión de la contadora); las notas y políticas NIIF son criterio profesional.
 
 ---
 
@@ -168,7 +173,7 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 1. **F1: Cartera/Aging → Facturación recurrente → Conciliación → Dunning** ✅ COMPLETA
 2. **F2: CxP/gastos → Impuestos por reglas → Tipos de comprobante → Exportables → Depreciación** ✅ COMPLETA
-3. **F3: Exógena → Nómina electrónica → NIIF** 🟡
+3. **F3: Exógena → Nómina electrónica → NIIF** ✅ COMPLETA
 4. **F4: Cica contable → Analítica/presupuesto → Portal** 🟢
 
 ## Principios transversales (se respetan en cada tarea)

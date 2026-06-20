@@ -925,6 +925,9 @@ export function estadoResultados(periodo?: string): Promise<{ periodo: string; i
 export function balanceGeneral(hasta?: string): Promise<{ hasta: string; activo: number; pasivo: number; patrimonio: number; resultadoEjercicio: number; pasivoMasPatrimonio: number; cuadra: boolean; grupos: any }> {
   return authFetch(`/accounting/reportes/balance-general${hasta ? `?hasta=${hasta}` : ""}`);
 }
+export function situacionNiif(hasta?: string): Promise<{ hasta: string; grupos: any; totales: any; cuadra: boolean }> {
+  return authFetch(`/accounting/reportes/situacion-niif${hasta ? `?hasta=${hasta}` : ""}`);
+}
 export function libroMayor(cuenta: string, periodo?: string): Promise<{ cuenta: any; movimientos: any[]; saldoFinal: number }> {
   return authFetch(`/accounting/reportes/mayor?cuenta=${encodeURIComponent(cuenta)}${periodo ? `&periodo=${periodo}` : ""}`);
 }

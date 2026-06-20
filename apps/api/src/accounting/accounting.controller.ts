@@ -118,6 +118,11 @@ export class AccountingController {
     return this.reports.balanceGeneral(hasta || this.accounting.periodoDe(new Date()));
   }
 
+  @Get('reportes/situacion-niif')
+  situacionNiif(@Query('hasta') hasta?: string) {
+    return this.reports.situacionFinancieraNiif(hasta || this.accounting.periodoDe(new Date()));
+  }
+
   @Get('reportes/mayor')
   mayor(@Query('cuenta') cuenta: string, @Query('periodo') periodo?: string) {
     return this.reports.libroMayor(cuenta, periodo);
