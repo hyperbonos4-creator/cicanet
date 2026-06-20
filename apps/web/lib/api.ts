@@ -21,7 +21,7 @@ export type SessionUser = {
   username: string;
   nombre: string;
   email: string;
-  role: "admin" | "operador" | "tecnico";
+  role: "admin" | "operador" | "tecnico" | "contador";
 };
 
 // ---- almacenamiento ----
@@ -415,6 +415,26 @@ export function evaluateConstruction(lng: number, lat: number): Promise<Construc
   });
 }
 
+// ---- Motor de asignación de NAP (sugerencia al dar de alta) ----
+export type NapSuggestion = {
+  id: string;
+  nombre: string;
+  lng: number;
+  lat: number;
+  distancia: number;
+  distanciaMax: number;
+  puertosTotal: number | null;
+  puertosUsados: number | null;
+  puertosLibres: number;
+  semaforo: "verde" | "amarillo" | "rojo" | null;
+  viable: boolean;
+  causa: "sin_puertos" | "fuera_de_alcance" | null;
+};
+
+export function suggestNaps(lng: number, lat: number): Promise<NapSuggestion[]> {
+  return authFetch(`/infra/suggest-naps?lng=${lng}&lat=${lat}`);
+}
+
 // ---- Suscriptores (clientes del ISP) ----
 export type TipoDocumento = "CC" | "CE" | "NIT" | "PAS";
 export type TipoClienteISP = "residencial" | "empresarial";
@@ -552,6 +572,18 @@ export type Cliente360 = {
 
 export function getCliente360(id: string): Promise<Cliente360> {
   return authFetch(`/clientes/${encodeURIComponent(id)}/360`);
+}
+
+// ---- Timeline unificado del suscriptor ----
+export type TimelineEvent = {
+  fecha: string;
+  tipo: "cliente" | "servicio" | "instalacion" | "factura" | "pago" | "ticket" | "orden";
+  titulo: string;
+  detalle?: string;
+};
+
+export function getCliente360Timeline(id: string): Promise<TimelineEvent[]> {
+  return authFetch(`/clientes/${encodeURIComponent(id)}/timeline`);
 }
 
 // ---- Cobro: genera el link de pago Wompi de una factura ----
@@ -785,4 +817,114 @@ export function deleteOrden(id: string): Promise<{ id: string }> {
 export type Tecnico = { id: string; username: string; nombre: string; email: string; role: string };
 export function listTecnicos(): Promise<Tecnico[]> {
   return authFetch("/ordenes/tecnicos");
+}
+
+// ---- Contabilidad (módulo accounting: ledger doble partida PUC) ----
+export type CuentaContable = {
+  codigo: string;
+  nombre: string;
+  clase: number;
+  naturaleza: "debito" | "credito";
+  nivel: string;
+  padreCodigo: string | null;
+  imputable: boolean;
+  exigeTercero: boolean;
+  exigeCentro: boolean;
+  activa: boolean;
+};
+
+export type TerceroContable = {
+  id: string;
+  documento: string;
+  nombre: string;
+  tipo: string;
+  email: string | null;
+};
+
+export type MovimientoContable = {
+  id: string;
+  cuentaCodigo: string;
+  descripcion: string | null;
+  debito: string;
+  credito: string;
+  terceroId: string | null;
+  cuenta?: CuentaContable;
+  tercero?: TerceroContable | null;
+};
+
+export type AsientoContable = {
+  id: string;
+  numero: string;
+  fecha: string;
+  periodo: string;
+  tipo: string;
+  descripcion: string;
+  estado: "borrador" | "contabilizado" | "anulado";
+  debitoTotal: string;
+  creditoTotal: string;
+  reversaDeId: string | null;
+  creadoPor: string | null;
+  movimientos?: MovimientoContable[];
+};
+
+export type LineaAsiento = {
+  cuenta: string;
+  debito?: number;
+  credito?: number;
+  descripcion?: string;
+  terceroId?: string;
+  centroCosto?: string;
+};
+
+export type PeriodoContable = { periodo: string; estado: "abierto" | "cerrado"; cerradoPor: string | null };
+
+export function listCuentas(opts: { q?: string; imputables?: boolean; clase?: number } = {}): Promise<CuentaContable[]> {
+  const qs = new URLSearchParams();
+  if (opts.q) qs.set("q", opts.q);
+  if (opts.imputables) qs.set("imputables", "true");
+  if (opts.clase) qs.set("clase", String(opts.clase));
+  return authFetch(`/accounting/cuentas${qs.toString() ? `?${qs}` : ""}`);
+}
+export function crearCuenta(input: { codigo: string; nombre: string; imputable?: boolean; exigeTercero?: boolean }): Promise<CuentaContable> {
+  return authFetch("/accounting/cuentas", { method: "POST", body: JSON.stringify(input) });
+}
+export function listTercerosContables(q?: string): Promise<TerceroContable[]> {
+  return authFetch(`/accounting/terceros${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+}
+export function crearTerceroContable(input: { documento: string; nombre: string; tipo?: string }): Promise<TerceroContable> {
+  return authFetch("/accounting/terceros", { method: "POST", body: JSON.stringify(input) });
+}
+export function listAsientos(opts: { periodo?: string; tipo?: string; estado?: string } = {}): Promise<AsientoContable[]> {
+  const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v) as [string, string][]).toString();
+  return authFetch(`/accounting/asientos${qs ? `?${qs}` : ""}`);
+}
+export function getAsiento(id: string): Promise<AsientoContable> {
+  return authFetch(`/accounting/asientos/${encodeURIComponent(id)}`);
+}
+export function crearAsiento(input: { fecha?: string; tipo?: string; descripcion: string; lineas: LineaAsiento[]; contabilizar?: boolean }): Promise<AsientoContable> {
+  return authFetch("/accounting/asientos", { method: "POST", body: JSON.stringify(input) });
+}
+export function reversarAsiento(id: string): Promise<AsientoContable> {
+  return authFetch(`/accounting/asientos/${encodeURIComponent(id)}/reversar`, { method: "POST" });
+}
+export function listPeriodos(): Promise<PeriodoContable[]> {
+  return authFetch("/accounting/periodos");
+}
+export function cerrarPeriodo(periodo: string): Promise<PeriodoContable> {
+  return authFetch(`/accounting/periodos/${encodeURIComponent(periodo)}/cerrar`, { method: "POST" });
+}
+export function accountingDashboard(periodo?: string): Promise<{ periodo: string; ingresos: number; gastos: number; utilidadNeta: number; cartera: number; bancosCaja: number; asientosDelPeriodo: number }> {
+  return authFetch(`/accounting/reportes/dashboard${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function balanceComprobacion(periodo?: string): Promise<{ periodo: string; filas: any[]; totales: any; cuadra: boolean }> {
+  return authFetch(`/accounting/reportes/balance${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function estadoResultados(periodo?: string): Promise<{ periodo: string; ingresos: number; costos: number; gastos: number; utilidadBruta: number; utilidadNeta: number; detalle: any[] }> {
+  return authFetch(`/accounting/reportes/resultados${periodo ? `?periodo=${periodo}` : ""}`);
+}
+export function balanceGeneral(hasta?: string): Promise<{ hasta: string; activo: number; pasivo: number; patrimonio: number; resultadoEjercicio: number; pasivoMasPatrimonio: number; cuadra: boolean; grupos: any }> {
+  return authFetch(`/accounting/reportes/balance-general${hasta ? `?hasta=${hasta}` : ""}`);
+}
+export function libroMayor(cuenta: string, periodo?: string): Promise<{ cuenta: any; movimientos: any[]; saldoFinal: number }> {
+  return authFetch(`/accounting/reportes/mayor?cuenta=${encodeURIComponent(cuenta)}${periodo ? `&periodo=${periodo}` : ""}`);
 }

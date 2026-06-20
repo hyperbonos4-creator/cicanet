@@ -10,6 +10,7 @@ import OperacionPanel from "../components/panels/OperacionPanel";
 import ClientesPanel from "../components/panels/ClientesPanel";
 import InfraPanel from "../components/panels/InfraPanel";
 import OrdenesPanel from "../components/panels/OrdenesPanel";
+import ContabilidadModule from "../components/contabilidad/ContabilidadModule";
 import SoportePanel from "../components/panels/SoportePanel";
 import TicketsPanel from "../components/panels/TicketsPanel";
 import CicaAssistant from "../components/CicaAssistant";
@@ -81,6 +82,8 @@ export default function Page() {
     const u = getUser();
     if (!u || !getToken()) { router.replace("/login"); return; }
     setUser(u);
+    // La contadora entra directo a su workspace (no ve el dashboard operativo).
+    if (u.role === "contador") setSection("contabilidad");
 
     fetchBundle()
       .then((b) => {
@@ -249,6 +252,13 @@ export default function Page() {
       {section === "ordenes" && (
         <div className="h-full overflow-y-auto p-6">
           <OrdenesPanel canEdit={!!canEdit} />
+        </div>
+      )}
+
+      {/* ===== Contabilidad ===== */}
+      {section === "contabilidad" && (
+        <div className="h-full overflow-y-auto p-6">
+          <ContabilidadModule canEdit={user?.role === "admin" || user?.role === "contador"} />
         </div>
       )}
 

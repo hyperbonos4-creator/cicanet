@@ -4,42 +4,47 @@ import { useState } from "react";
 import Image from "next/image";
 import type { SessionUser, IpLocation } from "../lib/api";
 
-export type Section = "dashboard" | "clientes" | "red" | "infra" | "ordenes" | "soporte" | "tickets";
+export type Section = "dashboard" | "clientes" | "red" | "infra" | "ordenes" | "soporte" | "tickets" | "contabilidad";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrador",
   operador: "Operador NOC",
   tecnico: "Técnico",
+  contador: "Contabilidad",
 };
 
-const NAV: { key: Section; label: string; sub: string; icon: JSX.Element }[] = [
+const NAV: { key: Section; label: string; sub: string; roles: string[]; icon: JSX.Element }[] = [
   {
-    key: "dashboard", label: "Dashboard", sub: "Resumen operativo",
+    key: "dashboard", label: "Dashboard", sub: "Resumen operativo", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></svg>),
   },
   {
-    key: "clientes", label: "Clientes", sub: "Suscriptores",
+    key: "clientes", label: "Clientes", sub: "Suscriptores", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><circle cx="12" cy="8" r="3.2" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></svg>),
   },
   {
-    key: "red", label: "Red & Mapa", sub: "Operación · cobertura",
+    key: "red", label: "Red & Mapa", sub: "Operación · cobertura", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M9 3 4 6v15l5-3 6 3 5-3V3l-5 3-6-3Z" /><path d="M9 3v15M15 6v15" /></svg>),
   },
   {
-    key: "infra", label: "Infraestructura", sub: "Activos · topología",
+    key: "infra", label: "Infraestructura", sub: "Activos · topología", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M12 21V9M7 21V13M17 21V13M5 9l7-5 7 5" /><circle cx="12" cy="6.5" r="1" /></svg>),
   },
   {
-    key: "ordenes", label: "Órdenes", sub: "Instalaciones · técnicos",
+    key: "ordenes", label: "Órdenes", sub: "Instalaciones · técnicos", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>),
   },
   {
-    key: "soporte", label: "Soporte", sub: "Canal de WhatsApp",
+    key: "soporte", label: "Soporte", sub: "Canal de WhatsApp", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5Z" /></svg>),
   },
   {
-    key: "tickets", label: "Tickets", sub: "Solicitudes de soporte",
+    key: "tickets", label: "Tickets", sub: "Solicitudes de soporte", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="M9 12h6M9 16h4" /></svg>),
+  },
+  {
+    key: "contabilidad", label: "Contabilidad", sub: "Libros · cartera · reportes", roles: ["admin", "contador"],
+    icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M4 3h16v18H4zM8 7h8M8 11h8M8 15h5" /><path d="M16 19v2M8 19v2" /></svg>),
   },
 ];
 
@@ -56,6 +61,8 @@ export default function AppShell({
 }) {
   const current = NAV.find((n) => n.key === section) ?? NAV[0];
   const [menuOpen, setMenuOpen] = useState(false);
+  const role = user?.role ?? "admin";
+  const visibleNav = NAV.filter((n) => n.roles.includes(role));
 
   function go(s: Section) {
     onSection(s);
@@ -87,7 +94,7 @@ export default function AppShell({
         </div>
 
         <div className="flex flex-1 flex-col gap-1 px-3 py-2">
-          {NAV.map((n) => {
+          {visibleNav.map((n) => {
             const active = section === n.key;
             return (
               <button
