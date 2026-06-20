@@ -135,6 +135,8 @@ export class AssistantService {
       '',
       'BASE DE CONOCIMIENTO (úsala como verdad):',
       kb,
+      '',
+      '/no_think',
     ]
       .filter(Boolean)
       .join('\n');

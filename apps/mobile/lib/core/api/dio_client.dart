@@ -30,8 +30,9 @@ class DioClient {
     _dio = Dio(
       BaseOptions(
         baseUrl: baseUrl ?? _defaultBaseUrl,
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
+        connectTimeout: const Duration(seconds: 15),
+        // Generoso: el asistente IA (Qwen3 local) puede tardar en responder.
+        receiveTimeout: const Duration(seconds: 120),
         headers: {'Content-Type': 'application/json'},
       ),
     );
