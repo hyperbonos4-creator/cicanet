@@ -64,33 +64,44 @@ Credenciales de prueba (semilla del backend): `admin` / `cicanet2026`.
   **portal/endpoints del cliente** (PLAN-MAESTRO P5/P6) y de facturación (P1).
 - ⏳ Push (FCM) y pago Wompi embebido: siguientes incrementos.
 
-## iOS (.ipa) sin Mac
+## Compilar Android (.apk) + iOS (.ipa) con un solo comando
 
-Igual que en URBAN, el `.ipa` se compila en un **Mac de GitHub Actions** (gratis)
-y se descarga para instalarlo con **Sideloadly** en Windows. No necesitas Mac.
+El `.ipa` de iOS **solo** se puede compilar en macOS (regla de Apple), así que
+ambos binarios se compilan en la **nube de GitHub Actions** (Linux para el `.apk`,
+un Mac para el `.ipa`, gratis y en paralelo). No necesitas Mac ni Android SDK
+local. El script hace push, dispara el build, muestra el avance y baja **los dos
+al Escritorio**.
 
-**Requisito (una vez):** el repo debe estar en GitHub.
-```bash
-# desde la raíz del monorepo
-git add . && git commit -m "CICANET: app movil + workflow iOS"
-gh repo create cicanet --private --source=. --push
-```
+**Requisitos (una vez):**
+- El repo con remoto `origin` en GitHub (ya está).
+- Un token de GitHub (PAT) con permisos **Contents** (push) y **Actions**
+  (leer ejecuciones + descargar artefactos). Genéralo en GitHub → Settings →
+  Developer settings → Personal access tokens.
 
-**Compilar y bajar el .ipa al Escritorio:**
+**Ejecutar (manual):**
 ```powershell
-# opcion A: script (requiere GitHub CLI 'gh' autenticado)
 cd apps/mobile/scripts
-./build-ipa.ps1 -ApiUrl "https://TU-URL-PUBLICA/api"   # iPhone real (ngrok/dominio)
 
-# opcion B: manual
-#   GitHub -> Actions -> "iOS Build (IPA sin firma)" -> Run workflow
-#   (opcional: pega la URL publica del API) -> descarga el artefacto.
+# API por defecto (localhost — para el emulador):
+.\build-mobile.ps1
+
+# Apuntando la app a tu backend público (para celular/iPhone reales):
+.\build-mobile.ps1 -ApiUrl "https://TU-URL-PUBLICA/api"
 ```
+El token se pasa con `-Token`, por la variable de entorno `GH_TOKEN`, o el
+script lo pide al arrancar. Resultado: `cicanet_mobile.apk` y `cicanet_mobile.ipa`
+en el Escritorio.
 
-**Instalar en el iPhone:** Sideloadly (https://sideloadly.io) + Apple ID gratuito.
-Luego Ajustes -> General -> VPN y gestion de dispositivos -> confiar en el perfil.
-La firma gratuita caduca a los **7 dias** (se vuelve a sideloadear).
+**Instalar:**
+- **Android (.apk):** cópialo al celular e instálalo (activa "orígenes
+  desconocidos"). Va firmado con la clave de depuración (instalable directo).
+- **iOS (.ipa, sin firma):** Sideloadly (https://sideloadly.io) + Apple ID
+  gratuito. Luego Ajustes → General → VPN y gestión de dispositivos → confiar.
+  La firma gratuita caduca a los **7 días** (se re-sideloadea).
 
-> ⚠️ En el iPhone real `localhost` no apunta a tu PC: compila el `.ipa` con la
-> **URL publica https** del backend (`-ApiUrl`). iOS (ATS) bloquea http.
+> ⚠️ En un celular/iPhone REAL `localhost` no apunta a tu PC: compila con la
+> **URL pública https** del backend (`-ApiUrl`). iOS (ATS) bloquea http.
+
+> También puedes lanzarlo a mano: GitHub → Actions → "Mobile Build (APK + IPA)"
+> → Run workflow (campo opcional para la URL del API) → descarga los artefactos.
 

@@ -1,0 +1,152 @@
+name: Mobile Build (APK + IPA)
+
+# Compila la app Flutter de CICANET para ANDROID (.apk) e iOS (.ipa sin firma)
+# en la nube de GitHub (Linux + Mac gratis) y publica ambos como artefactos
+# descargables. El script apps/mobile/scripts/build-mobile.ps1 dispara este
+# workflow (haciendo push), espera a que termine y baja los 2 al Escritorio.
+#
+# El .apk se firma con la clave de depuracion (instalable directo en Android).
+# El .ipa va SIN FIRMAR: se instala en iPhone con Sideloadly/AltStore + Apple ID
+# gratuito (la firma gratis caduca a los 7 dias). TestFlight/App Store requieren
+# el Apple Developer Program (99 USD/ano).
+#
+# URL del API: se toma (en orden) de la entrada manual del workflow, de la linea
+# 'api_base_url=' del archivo apps/mobile/.build-trigger, o por defecto localhost.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'URL publica del API (https). Ej: https://xxxx.ngrok-free.app/api . Vacio = http://localhost:4000/api'
+        required: false
+        default: ''
+  push:
+    branches: ['**']
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile-build.yml'
+
+concurrency:
+  group: mobile-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ----------------------------------------------------------------- ANDROID
+  build-apk:
+    name: flutter build apk (release) -> .apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Resolver URL del API
+        id: api
+        working-directory: apps/mobile
+        run: |
+          API_URL="${{ github.event.inputs.api_base_url }}"
+          if [ -z "$API_URL" ] && [ -f .build-trigger ]; then
+            API_URL=$(grep -E '^api_base_url=' .build-trigger | head -1 | cut -d= -f2- || true)
+          fi
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          if [ -n "$API_URL" ]; then echo "API=$API_URL"; else echo "API=(localhost por defecto)"; fi
+
+      - name: Pub get
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Build APK (release)
+        working-directory: apps/mobile
+        run: |
+          API_URL="${{ steps.api.outputs.url }}"
+          if [ -n "$API_URL" ]; then
+            RT_URL="${API_URL%/api}/realtime"
+            echo "Compilando APK con API_BASE_URL=$API_URL"
+            flutter build apk --release \
+              --dart-define=API_BASE_URL="$API_URL" \
+              --dart-define=REALTIME_BASE_URL="$RT_URL"
+          else
+            echo "Compilando APK con API por defecto (http://localhost:4000/api)"
+            flutter build apk --release
+          fi
+          mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/cicanet_mobile.apk
+          ls -lh build/app/outputs/flutter-apk/cicanet_mobile.apk
+
+      - name: Subir artefacto .apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: cicanet-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/cicanet_mobile.apk
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------- iOS
+  build-ipa:
+    name: flutter build ios (sin firma) -> .ipa
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seleccionar el Xcode mas nuevo
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Resolver URL del API
+        id: api
+        working-directory: apps/mobile
+        run: |
+          API_URL="${{ github.event.inputs.api_base_url }}"
+          if [ -z "$API_URL" ] && [ -f .build-trigger ]; then
+            API_URL=$(grep -E '^api_base_url=' .build-trigger | head -1 | cut -d= -f2- || true)
+          fi
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Pub get
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Build iOS (release, sin firma)
+        working-directory: apps/mobile
+        run: |
+          API_URL="${{ steps.api.outputs.url }}"
+          if [ -n "$API_URL" ]; then
+            RT_URL="${API_URL%/api}/realtime"
+            echo "Compilando iOS con API_BASE_URL=$API_URL"
+            flutter build ios --release --no-codesign \
+              --dart-define=API_BASE_URL="$API_URL" \
+              --dart-define=REALTIME_BASE_URL="$RT_URL"
+          else
+            echo "Compilando iOS con API por defecto (http://localhost:4000/api)"
+            flutter build ios --release --no-codesign
+          fi
+
+      - name: Empaquetar .ipa (sin firma)
+        working-directory: apps/mobile/build/ios/iphoneos
+        run: |
+          mkdir -p Payload
+          cp -R Runner.app Payload/Runner.app
+          zip -r cicanet_mobile-unsigned.ipa Payload >/dev/null
+          ls -lh cicanet_mobile-unsigned.ipa
+
+      - name: Subir artefacto .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: cicanet-ipa
+          path: apps/mobile/build/ios/iphoneos/cicanet_mobile-unsigned.ipa
+          if-no-files-found: error
