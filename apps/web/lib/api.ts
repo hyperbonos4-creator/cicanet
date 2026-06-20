@@ -1323,3 +1323,23 @@ export function atenderHandoff(id: string): Promise<{ ok: boolean; numero: strin
 export function cerrarHandoff(id: string): Promise<SolicitudAsesor> {
   return authFetch(`/whatsapp/handoffs/${encodeURIComponent(id)}/cerrar`, { method: "POST" });
 }
+
+// ---- Usuarios del staff (control de acceso, solo admin) ----
+export type Usuario = {
+  id: string; username: string; nombre: string; email: string; role: string;
+  idEmpleado: string | null; telefono: string | null; cargo: string | null; estado: string;
+};
+export function listUsuarios(): Promise<Usuario[]> { return authFetch("/users"); }
+export function rolesUsuario(): Promise<string[]> { return authFetch("/users/roles"); }
+export function crearUsuario(input: { username: string; nombre: string; password: string; role: string; email?: string; idEmpleado?: string; telefono?: string; cargo?: string }): Promise<Usuario> {
+  return authFetch("/users", { method: "POST", body: JSON.stringify(input) });
+}
+export function actualizarUsuario(id: string, patch: { nombre?: string; email?: string; role?: string; telefono?: string; cargo?: string; estado?: string; idEmpleado?: string }): Promise<Usuario> {
+  return authFetch(`/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+export function resetPasswordUsuario(id: string, password: string): Promise<{ ok: boolean }> {
+  return authFetch(`/users/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify({ password }) });
+}
+export function setEstadoUsuario(id: string, estado: string): Promise<Usuario> {
+  return authFetch(`/users/${encodeURIComponent(id)}/estado`, { method: "POST", body: JSON.stringify({ estado }) });
+}

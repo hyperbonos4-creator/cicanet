@@ -946,3 +946,29 @@ model SolicitudAsesor {
   @@index([estado])
   @@map("solicitud_asesor")
 }
+
+/// Usuario del STAFF (admin, operador, tecnico, contador). Distinto del Cliente
+/// (que inicia sesion con su documento). Persiste el control de acceso del equipo
+/// y el ID de empleado. Las contrasenas se guardan hasheadas (bcrypt); nunca en claro.
+model Usuario {
+  id            String   @id @default(uuid()) @db.Uuid
+  username      String   @unique
+  nombre        String
+  email         String?
+  /// admin | operador | tecnico | contador
+  role          String   @default("tecnico")
+  passwordHash  String   @map("password_hash")
+  /// ID de empleado visible (EMP-0001). Unico cuando esta presente.
+  idEmpleado    String?  @unique @map("id_empleado")
+  telefono      String?
+  cargo         String?
+  /// activo | inactivo (un usuario inactivo no puede iniciar sesion).
+  estado        String   @default("activo")
+  creadoPor     String?  @map("creado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([role])
+  @@index([estado])
+  @@map("usuario")
+}

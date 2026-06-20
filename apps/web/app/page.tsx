@@ -13,6 +13,7 @@ import OrdenesPanel from "../components/panels/OrdenesPanel";
 import ContabilidadModule from "../components/contabilidad/ContabilidadModule";
 import SoportePanel from "../components/panels/SoportePanel";
 import TicketsPanel from "../components/panels/TicketsPanel";
+import UsuariosPanel from "../components/panels/UsuariosPanel";
 import CicaAssistant from "../components/CicaAssistant";
 import ClientesModule from "../components/clientes/ClientesModule";
 import {
@@ -259,6 +260,13 @@ export default function Page() {
       {section === "contabilidad" && (
         <div className="h-full overflow-y-auto p-6">
           <ContabilidadModule canEdit={user?.role === "admin" || user?.role === "contador"} isAdmin={user?.role === "admin"} />
+        </div>
+      )}
+
+      {/* ===== Usuarios (solo admin) ===== */}
+      {section === "usuarios" && (
+        <div className="h-full overflow-y-auto p-6">
+          <UsuariosPanel currentUserId={user?.id} />
         </div>
       )}
 
