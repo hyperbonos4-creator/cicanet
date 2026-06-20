@@ -72,12 +72,42 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = AuthState(status: AuthStatus.authenticated, user: user);
       return true;
     } on DioException catch (e) {
-      final msg = (e.response?.data is Map) ? (e.response?.data['message']?.toString()) : null;
-      state = state.copyWith(loading: false, status: AuthStatus.unauthenticated, error: msg ?? 'Usuario o contraseña incorrectos');
+      state = state.copyWith(loading: false, status: AuthStatus.unauthenticated, error: _describeError(e));
       return false;
     } catch (_) {
       state = state.copyWith(loading: false, status: AuthStatus.unauthenticated, error: 'No se pudo conectar con el servidor');
       return false;
+    }
+  }
+
+  /// Traduce un error de Dio a un mensaje útil para el usuario.
+  ///
+  /// Clave: solo un 401/403 con respuesta del backend significa
+  /// "credenciales incorrectas". Si NO hubo respuesta (timeout, DNS,
+  /// conexión rechazada, TLS) es un problema de RED, no de la clave; mostrarlo
+  /// como tal evita el diagnóstico engañoso.
+  String _describeError(DioException e) {
+    final res = e.response;
+    if (res != null) {
+      final status = res.statusCode;
+      final msg = (res.data is Map) ? (res.data['message']?.toString()) : null;
+      if (status == 401 || status == 403) {
+        return msg ?? 'Usuario o contraseña incorrectos';
+      }
+      return msg ?? 'El servidor respondió con un error ($status).';
+    }
+    // Sin respuesta del servidor => problema de conexión, no de credenciales.
+    final url = e.requestOptions.uri.toString();
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'No hubo respuesta del servidor (timeout).\n$url';
+      case DioExceptionType.connectionError:
+      case DioExceptionType.badCertificate:
+        return 'No se pudo conectar con el servidor.\nVerifica tu conexión y la URL:\n$url';
+      default:
+        return 'No se pudo conectar con el servidor.\n$url';
     }
   }
 
