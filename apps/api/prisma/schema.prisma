@@ -498,3 +498,35 @@ model MovimientoContable {
   @@index([terceroId])
   @@map("movimiento_contable")
 }
+
+/// Documento electrónico DIAN emitido (factura/nota) vía el microservicio einvoice.
+/// Es el registro fiscal; la contabilidad NO se reconstruye del XML: el asiento
+/// se genera en el ledger y se enlaza aquí (asientoId).
+model DianDocumento {
+  id            String   @id @default(uuid()) @db.Uuid
+  tipo          String   @default("factura") // factura|nota_credito|nota_debito|documento_soporte
+  consecutivo   String   // prefijo+numero (ej. FE-1001)
+  cufe          String?  // CUFE/CUDE devuelto por la DIAN
+  estado        String   @default("pendiente") // pendiente|enviada|aceptada|rechazada|error
+  ambiente      String   @default("habilitacion") // habilitacion|produccion
+  /// Cliente del CRM al que se le facturó (opcional).
+  clienteId     String?  @map("cliente_id") @db.Uuid
+  /// Factura interna de CICANET asociada (opcional).
+  facturaId     String?  @map("factura_id") @db.Uuid
+  /// Asiento contable que registró el ingreso (enlace al ledger).
+  asientoId     String?  @map("asiento_id") @db.Uuid
+  subtotal      Decimal  @default(0) @db.Decimal(16, 2)
+  iva           Decimal  @default(0) @db.Decimal(16, 2)
+  total         Decimal  @default(0) @db.Decimal(16, 2)
+  /// Errores/mensajes devueltos por la DIAN.
+  mensajes      Json?    @db.JsonB
+  /// XML firmado (base64) y datos crudos de la respuesta DIAN.
+  xmlBase64     String?  @map("xml_base64")
+  emitidoPor    String?  @map("emitido_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([clienteId])
+  @@index([estado])
+  @@map("dian_documento")
+}

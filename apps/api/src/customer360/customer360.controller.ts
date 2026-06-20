@@ -13,4 +13,9 @@ export class Customer360Controller {
   get(@Param('id') id: string) {
     return this.c360.get(id);
   }
+
+  @Get(':id/timeline')
+  timeline(@Param('id') id: string) {
+    return this.c360.timeline(id);
+  }
 }

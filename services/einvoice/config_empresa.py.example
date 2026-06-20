@@ -1,0 +1,158 @@
+"""
+Archivo de Configuración de Empresa - EJEMPLO
+===============================================
+
+IMPORTANTE: 
+1. Copia este archivo a 'config_empresa.py'
+2. Edita los valores con los datos reales de tu empresa
+3. NUNCA subas 'config_empresa.py' a un repositorio público
+
+Este archivo contiene TODOS los datos de tu empresa necesarios para la facturación electrónica.
+"""
+
+# ============================================================================
+# DATOS DE LA EMPRESA
+# ============================================================================
+
+EMPRESA = {
+    # NIT sin dígito de verificación
+    'nit': '900123456',
+    
+    # Dígito de verificación del NIT
+    'dv': '7',
+    
+    # Nombre o Razón Social completa
+    'nombre': 'EMPRESA EJEMPLO S.A.S.',
+    
+    # Nombre comercial (opcional)
+    'nombre_comercial': 'Ejemplo Store',
+    
+    # Tipo de persona: 1=Jurídica, 2=Natural
+    'tipo_persona': 1,
+    
+    # Código del régimen fiscal
+    # 48 = Responsable de IVA
+    # 49 = No responsable de IVA
+    'regimen_fiscal': ['48'],
+    
+    # Código de responsabilidad tributaria
+    # O-13 = Gran Contribuyente
+    # O-15 = Autorretenedor
+    # O-23 = Agente de retención IVA
+    # O-47 = Régimen Simple de Tributación
+    # R-99-PN = No aplica
+    'responsabilidad_tributaria': ['O-13', 'O-15'],
+}
+
+# ============================================================================
+# DIRECCIÓN DE LA EMPRESA
+# ============================================================================
+
+DIRECCION = {
+    # Dirección completa
+    'direccion': 'CRA 7 # 71-52 OFICINA 501',
+    
+    # Código del departamento (ISO 3166-2:CO)
+    'codigo_departamento': '11',
+    
+    # Nombre del departamento
+    'nombre_departamento': 'Cundinamarca',
+    
+    # Código del municipio (DIVIPOLA)
+    'codigo_municipio': '11001',
+    
+    # Nombre del municipio/ciudad
+    'nombre_municipio': 'Bogotá, D.C.',
+    
+    # Código del país (ISO 3166-1 alpha-2)
+    'codigo_pais': 'CO',
+    
+    # Nombre del país
+    'nombre_pais': 'Colombia',
+}
+
+# ============================================================================
+# CONTACTO
+# ============================================================================
+
+CONTACTO = {
+    # Teléfono principal
+    'telefono': '6013211234',
+    
+    # Email para notificaciones de la DIAN
+    'email': 'facturacion@ejemplo.com',
+    
+    # Email adicional (opcional)
+    'email_adicional': 'contabilidad@ejemplo.com',
+    
+    # Sitio web (opcional)
+    'web': 'https://www.ejemplo.com',
+}
+
+# ============================================================================
+# FACTURACIÓN
+# ============================================================================
+
+FACTURACION = {
+    # Prefijo de facturación autorizado por la DIAN
+    'prefijo': 'SETP',
+    
+    # Número inicial autorizado
+    'consecutivo_inicial': 990000001,
+    
+    # Número final autorizado
+    'consecutivo_final': 995000000,
+    
+    # Fecha de inicio de vigencia (YYYY-MM-DD)
+    'fecha_inicio': '2021-01-01',
+    
+    # Fecha de fin de vigencia (YYYY-MM-DD)
+    'fecha_fin': '2025-12-31',
+    
+    # Número de resolución de la DIAN
+    'numero_resolucion': '18760000001',
+    
+    # Fecha de la resolución (YYYY-MM-DD)
+    'fecha_resolucion': '2019-01-19',
+}
+
+# ============================================================================
+# NOTAS CRÉDITO (si aplica)
+# ============================================================================
+
+NOTA_CREDITO = {
+    'prefijo': 'SETNC',
+    'consecutivo_inicial': 990000001,
+    'consecutivo_final': 995000000,
+    'fecha_inicio': '2021-01-01',
+    'fecha_fin': '2025-12-31',
+    'numero_resolucion': '18760000001',
+    'fecha_resolucion': '2019-01-19',
+}
+
+# ============================================================================
+# NOTAS DÉBITO (si aplica)
+# ============================================================================
+
+NOTA_DEBITO = {
+    'prefijo': 'SETND',
+    'consecutivo_inicial': 990000001,
+    'consecutivo_final': 995000000,
+    'fecha_inicio': '2021-01-01',
+    'fecha_fin': '2025-12-31',
+    'numero_resolucion': '18760000001',
+    'fecha_resolucion': '2019-01-19',
+}
+
+# ============================================================================
+# EXPORTAR CONFIGURACIÓN
+# ============================================================================
+
+CONFIG_EMPRESA = {
+    'empresa': EMPRESA,
+    'direccion': DIRECCION,
+    'contacto': CONTACTO,
+    'facturacion': FACTURACION,
+    'nota_credito': NOTA_CREDITO,
+    'nota_debito': NOTA_DEBITO,
+}

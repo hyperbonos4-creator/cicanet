@@ -112,6 +112,7 @@ export default function CoverageMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const [basemap, setBasemap] = useState<Basemap>("dark");
+  const [catastro, setCatastro] = useState(false);
   const markersRef = useRef<Marker[]>([]);
   const labelsRef = useRef<Marker[]>([]);
   const checkMarkerRef = useRef<Marker | null>(null);
@@ -184,7 +185,8 @@ export default function CoverageMap({
         type: "raster",
         source: "sat-hd",
         layout: { visibility: "none" },
-        paint: { "raster-opacity": 1 },
+        // Realce sutil para que la ladera (Bello/Zamora/Santa Rita) no se vea apagada.
+        paint: { "raster-opacity": 1, "raster-contrast": 0.12, "raster-saturation": 0.12, "raster-brightness-min": 0.04 },
       });
       // 3) Ortofoto oficial Medellín 2024 (CC) vía proxy cacheado del backend.
       //    Va encima de Esri; si una tesela no llega, se ve Esri debajo.
@@ -204,6 +206,27 @@ export default function CoverageMap({
         layout: { visibility: "none" },
         paint: { "raster-opacity": 1 },
       });
+
+      // === Overlay de catastro AMVA (predios/manzanas) por municipio ===
+      // Va sobre la imagen y debajo de las capas operativas (NAPs/clientes).
+      // minzoom 13: solo carga al acercar (es dato detallado). Servido y cacheado
+      // por el backend (/api/tiles/catastro), independiente del AMVA.
+      for (const muni of ["medellin", "bello"]) {
+        map.addSource(`catastro-${muni}`, {
+          type: "raster",
+          tiles: [`${API_URL}/tiles/catastro/${muni}?bbox={bbox-epsg-3857}`],
+          tileSize: 512,
+          minzoom: 13,
+          maxzoom: 22,
+        });
+        map.addLayer({
+          id: `catastro-${muni}`,
+          type: "raster",
+          source: `catastro-${muni}`,
+          layout: { visibility: "none" },
+          paint: { "raster-opacity": 0.8 },
+        });
+      }
 
       // --- Comuna 1: los 12 barrios reales (contexto) ---
       map.addSource("comuna1", { type: "geojson", data: data.comuna1 as any });
@@ -620,14 +643,25 @@ export default function CoverageMap({
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     };
     show("carto", basemap === "dark");
-    // Esri visible como respaldo en cualquier modo de imagen.
-    show("sat-base", sat);
-    show("sat-hd", basemap === "satelite");
+    // Esri solo en su modo; Mapbox HD (brillante, global) es la base en Satélite
+    // y TAMBIÉN bajo la Ortofoto → Bello (Zamora/Santa Rita) se ve nítido y la
+    // ortofoto 2024 de Medellín queda encima solo donde existe.
+    show("sat-base", basemap === "esri");
+    show("sat-hd", basemap === "satelite" || basemap === "ortofoto");
     show("ortofoto", basemap === "ortofoto");
     if (map.getLayer("coverage-fill")) {
       map.setPaintProperty("coverage-fill", "fill-opacity", sat ? 0.08 : 0.18);
     }
   }, [basemap]);
+
+  // Overlay de catastro AMVA (predios/manzanas) on/off, sobre cualquier base.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    for (const id of ["catastro-medellin", "catastro-bello"]) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", catastro ? "visible" : "none");
+    }
+  }, [catastro]);
 
   const BASEMAPS: { id: Basemap; label: string; show: boolean }[] = [
     { id: "dark", label: "◑ Mapa", show: true },
@@ -651,6 +685,15 @@ export default function CoverageMap({
             {b.label}
           </button>
         ))}
+        <button
+          onClick={() => setCatastro((v) => !v)}
+          title="Predios y manzanas (catastro AMVA)"
+          className={`border-l border-white/10 px-3 py-1.5 transition-colors ${
+            catastro ? "bg-status-ftth text-black" : "text-cica-silver hover:bg-white/10"
+          }`}
+        >
+          🧩 Catastro
+        </button>
       </div>
     </div>
   );

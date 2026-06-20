@@ -1,0 +1,282 @@
+""""""
+
+Configuración API - EJEMPLOArchivo de Configuración API - EJEMPLO
+
+===================================================================
+
+
+
+IMPORTANTE: IMPORTANTE: 
+
+1. Copia este archivo a 'api_config.py'1. Copia este archivo a 'api_config.py'
+
+2. Edita los valores según tu instalación2. Edita los valores según tus necesidades
+
+3. NUNCA subas 'api_config.py' a un repositorio público3. NUNCA subas 'api_config.py' a un repositorio público si contiene claves
+
+"""
+
+Este archivo contiene la configuración del servidor API REST.
+
+# ============================================================================"""
+
+# SERVIDOR API
+
+# ============================================================================# ============================================================================
+
+# CONFIGURACIÓN DEL SERVIDOR
+
+API_CONFIG = {# ============================================================================
+
+    # Host del servidor (0.0.0.0 = todas las interfaces, localhost = solo local)
+
+    'host': '0.0.0.0',API_CONFIG = {
+
+        # Host donde escuchará el servidor
+
+    # Puerto del servidor    # '0.0.0.0' = Todas las interfaces (accesible desde red)
+
+    'port': 8001,    # 'localhost' o '127.0.0.1' = Solo local
+
+        'host': 'localhost',
+
+    # Activar modo debug    
+
+    'debug': True,    # Puerto del servidor
+
+        'port': 8001,
+
+    # Clave secreta para sesiones (genera una única para producción)    
+
+    'secret_key': 'cambia-esta-clave-secreta-por-una-aleatoria',    # Modo debug
+
+}    'debug': True,
+
+    
+
+# ============================================================================    # Permitir CORS (Cross-Origin Resource Sharing)
+
+# CORS (Cross-Origin Resource Sharing)    'cors_enabled': True,
+
+# ============================================================================    
+
+    # Orígenes permitidos para CORS
+
+CORS = {    'cors_origins': ['*'],  # ['http://localhost:3000', 'https://miapp.com']
+
+    # Permitir CORS}
+
+    'enabled': True,
+
+    # ============================================================================
+
+    # Orígenes permitidos (* = todos, o lista específica)# AUTENTICACIÓN
+
+    'origins': ['*'],# ============================================================================
+
+    
+
+    # Métodos HTTP permitidosAUTENTICACION = {
+
+    'methods': ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],    # Requerir autenticación
+
+        'requerida': False,
+
+    # Headers permitidos    
+
+    'headers': ['Content-Type', 'Authorization'],    # Tipo de autenticación: 'basic', 'bearer', 'api_key'
+
+}    'tipo': 'api_key',
+
+    
+
+# ============================================================================    # API Key (generada aleatoriamente)
+
+# SEGURIDAD    'api_key': 'tu-api-key-secreta-aqui-123456789',
+
+# ============================================================================    
+
+    # Header donde se espera la API key
+
+SECURITY = {    'header': 'X-API-Key',
+
+    # Requerir autenticación    
+
+    'require_auth': False,    # Usuario y contraseña para Basic Auth
+
+        'usuario': 'admin',
+
+    # Clave API (si require_auth = True)    'password': 'password-seguro',
+
+    'api_key': 'tu-api-key-segura',}
+
+    
+
+    # Límite de peticiones por minuto (rate limiting)# ============================================================================
+
+    'rate_limit': 60,# LÍMITES Y SEGURIDAD
+
+    # ============================================================================
+
+    # Activar HTTPS
+
+    'use_https': False,LIMITES = {
+
+        # Tamaño máximo de peticiones (bytes)
+
+    # Rutas al certificado SSL (si use_https = True)    'max_request_size': 10 * 1024 * 1024,  # 10 MB
+
+    'ssl_cert': './ssl/cert.pem',    
+
+    'ssl_key': './ssl/key.pem',    # Rate limiting (peticiones por minuto)
+
+}    'rate_limit': 100,
+
+    
+
+# ============================================================================    # Timeout para operaciones (segundos)
+
+# MULTI-TENANT (Múltiples Empresas)    'timeout': 300,
+
+# ============================================================================    
+
+    # Máximo de facturas en lote
+
+MULTI_TENANT = {    'max_batch_size': 50,
+
+    # Activar modo multi-tenant}
+
+    'enabled': False,
+
+    # ============================================================================
+
+    # Base de datos de configuraciones# RUTAS DE ARCHIVOS
+
+    'config_db': './configs/empresas.json',# ============================================================================
+
+    
+
+    # Directorio de certificados por empresaRUTAS = {
+
+    'certs_dir': './certificados/',    # Directorio temporal para archivos
+
+}    'temp': './temp',
+
+    
+
+# ============================================================================    # Directorio para logs
+
+# EXPORTAR CONFIGURACIÓN    'logs': './logs',
+
+# ============================================================================    
+
+    # Directorio para XMLs generados
+
+CONFIG_API = {    'xml_output': './facturas_xml',
+
+    'server': API_CONFIG,    
+
+    'cors': CORS,    # Directorio para respuestas de la DIAN
+
+    'security': SECURITY,    'respuestas_dian': './respuestas_dian',
+
+    'multi_tenant': MULTI_TENANT,    
+
+}    # Directorio para backups
+
+    'backups': './backups',
+}
+
+# ============================================================================
+# BASE DE DATOS (Opcional)
+# ============================================================================
+
+DATABASE = {
+    # Usar base de datos
+    'enabled': False,
+    
+    # Tipo: 'sqlite', 'postgresql', 'mysql'
+    'type': 'sqlite',
+    
+    # Para SQLite
+    'sqlite_path': './facturas.db',
+    
+    # Para PostgreSQL/MySQL
+    'host': 'localhost',
+    'port': 5432,
+    'database': 'facturacion',
+    'usuario': 'usuario_db',
+    'password': 'password_db',
+}
+
+# ============================================================================
+# CACHE
+# ============================================================================
+
+CACHE = {
+    # Activar caché
+    'enabled': True,
+    
+    # Tiempo de vida del caché (segundos)
+    'ttl': 3600,
+    
+    # Tipo de caché: 'memory', 'redis'
+    'type': 'memory',
+    
+    # Para Redis
+    'redis_host': 'localhost',
+    'redis_port': 6379,
+    'redis_db': 0,
+}
+
+# ============================================================================
+# NOTIFICACIONES
+# ============================================================================
+
+NOTIFICACIONES = {
+    # Enviar emails
+    'email_enabled': False,
+    
+    # Servidor SMTP
+    'smtp_host': 'smtp.gmail.com',
+    'smtp_port': 587,
+    'smtp_user': 'tu-email@gmail.com',
+    'smtp_password': 'tu-password',
+    
+    # Email de notificaciones
+    'email_from': 'facturacion@ejemplo.com',
+    'email_to': ['admin@ejemplo.com'],
+    
+    # Notificar en estos eventos
+    'eventos': ['error', 'rechazo', 'autorizacion'],
+}
+
+# ============================================================================
+# MONITOREO
+# ============================================================================
+
+MONITOREO = {
+    # Activar métricas
+    'enabled': False,
+    
+    # Endpoint de métricas
+    'endpoint': '/metrics',
+    
+    # Exportar a Prometheus
+    'prometheus_enabled': False,
+}
+
+# ============================================================================
+# EXPORTAR CONFIGURACIÓN
+# ============================================================================
+
+CONFIG_API = {
+    'servidor': API_CONFIG,
+    'autenticacion': AUTENTICACION,
+    'limites': LIMITES,
+    'rutas': RUTAS,
+    'database': DATABASE,
+    'cache': CACHE,
+    'notificaciones': NOTIFICACIONES,
+    'monitoreo': MONITOREO,
+}

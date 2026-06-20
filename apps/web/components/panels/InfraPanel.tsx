@@ -530,6 +530,7 @@ function EvidenciaSection({
   const [err, setErr] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<AssetPhoto | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -543,6 +544,7 @@ function EvidenciaSection({
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (camRef.current) camRef.current.value = "";
     }
   }
 
@@ -603,12 +605,28 @@ function EvidenciaSection({
             {PHOTO_CATS.map((c) => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}
           </select>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onPick} className="hidden" />
+          <input
+            ref={camRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onPick}
+            className="hidden"
+          />
+          <button
+            onClick={() => camRef.current?.click()}
+            disabled={busy}
+            title="Tomar foto con la cámara (móvil)"
+            className="btn-cica px-3 py-1.5 text-[10px] disabled:opacity-50"
+          >
+            {busy ? "…" : "📸"}
+          </button>
           <button
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="btn-cica px-3 py-1.5 text-[10px] disabled:opacity-50"
+            className="rounded-lg border border-cica-border bg-cica-navy/70 px-3 py-1.5 text-[10px] font-semibold text-cica-silver hover:border-cica-gold/40 disabled:opacity-50"
           >
-            {busy ? "Subiendo…" : "+ Foto"}
+            {busy ? "Subiendo…" : "Archivo"}
           </button>
         </div>
       )}

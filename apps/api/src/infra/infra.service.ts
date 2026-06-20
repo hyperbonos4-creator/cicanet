@@ -5,10 +5,11 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { config } from '../config';
+import { PrismaService } from '../prisma/prisma.service';
 import { GeoService } from '../geo/geo.service';
 import {
   PHOTO_CATEGORIES,
@@ -43,9 +44,11 @@ const PREFIX: Record<string, string> = {
 };
 
 /**
- * Gemelo Digital de la Red — almacenamiento en memoria + persistencia JSON.
- * La red se TRAZA agregando objetos reales por dirección (geocodificados con
- * el proveedor configurado, Mapbox). Evoluciona hacia PostGIS (spec, tarea 14).
+ * Gemelo Digital de la Red — persistencia en PostgreSQL (Prisma) con un cache
+ * en memoria hidratado al arrancar. La BD es la FUENTE DE VERDAD (integridad,
+ * transacciones, junto al CRM); el cache mantiene las lecturas síncronas para
+ * no cambiar la interfaz pública (controller, Customer360, UI). Migra una sola
+ * vez los antiguos `infra-*.json` a la BD si la tabla está vacía.
  */
 @Injectable()
 export class InfraService implements OnModuleInit {
@@ -55,24 +58,77 @@ export class InfraService implements OnModuleInit {
   private sites: Site[] = [];
 
   private readonly dir = resolve(process.cwd(), config.geo.dataDir);
-  private readonly assetsFile = resolve(this.dir, 'infra-assets.json');
-  private readonly fiberFile = resolve(this.dir, 'infra-fiber.json');
-  private readonly sitesFile = resolve(this.dir, 'infra-sites.json');
-  /** Carpeta donde viven las fotos de evidencia; se sirve estáticamente en /uploads. */
   private readonly uploadsDir = resolve(this.dir, 'uploads');
 
-  constructor(private readonly geo: GeoService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly geo: GeoService,
+  ) {}
 
-  onModuleInit() {
-    this.assets = this.load(this.assetsFile);
-    this.fiber = this.load(this.fiberFile);
-    this.sites = this.load(this.sitesFile);
+  async onModuleInit() {
+    await this.migrateJsonIfNeeded();
+    await this.hydrate();
     this.logger.log(
-      `Infra cargada: ${this.assets.length} activos · ${this.fiber.length} fibras · ${this.sites.length} sitios`,
+      `Infra (PostgreSQL): ${this.assets.length} activos · ${this.fiber.length} fibras · ${this.sites.length} sitios`,
     );
   }
 
-  // ---- lectura ----
+  /** Carga el cache desde la BD. */
+  private async hydrate() {
+    const [assets, fiber, sites] = await Promise.all([
+      this.prisma.activo.findMany({ orderBy: { creadoEn: 'asc' } }),
+      this.prisma.segmentoFibra.findMany({ orderBy: { creadoEn: 'asc' } }),
+      this.prisma.sitio.findMany({ orderBy: { creadoEn: 'asc' } }),
+    ]);
+    this.assets = assets.map(rowToAsset);
+    this.fiber = fiber.map(rowToFiber);
+    this.sites = sites.map(rowToSite);
+  }
+
+  /**
+   * Importa los antiguos JSON a la BD una sola vez (si la tabla `activo` está
+   * vacía y existe `infra-assets.json`). Tras importar, renombra los archivos a
+   * `.imported` para no reimportar y dejar respaldo.
+   */
+  private async migrateJsonIfNeeded() {
+    try {
+      const count = await this.prisma.activo.count();
+      if (count > 0) return;
+
+      const assetsFile = resolve(this.dir, 'infra-assets.json');
+      const fiberFile = resolve(this.dir, 'infra-fiber.json');
+      const sitesFile = resolve(this.dir, 'infra-sites.json');
+
+      const jAssets = readJson<Asset>(assetsFile);
+      const jFiber = readJson<FiberSegment>(fiberFile);
+      const jSites = readJson<Site>(sitesFile);
+      if (!jAssets.length && !jFiber.length && !jSites.length) return;
+
+      for (const a of jAssets) {
+        await this.prisma.activo.create({ data: assetToRow(a) }).catch(() => undefined);
+      }
+      for (const f of jFiber) {
+        await this.prisma.segmentoFibra.create({ data: fiberToRow(f) }).catch(() => undefined);
+      }
+      for (const s of jSites) {
+        await this.prisma.sitio.create({ data: siteToRow(s) }).catch(() => undefined);
+      }
+      this.logger.log(
+        `Migrados a PostgreSQL: ${jAssets.length} activos · ${jFiber.length} fibras · ${jSites.length} sitios (desde JSON).`,
+      );
+      for (const f of [assetsFile, fiberFile, sitesFile]) {
+        try {
+          if (existsSync(f)) renameSync(f, f + '.imported');
+        } catch {
+          /* respaldo best-effort */
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`Migración JSON→BD omitida: ${e.message}`);
+    }
+  }
+
+  // ---- lectura (desde cache) ----
   listAssets() {
     return this.assets;
   }
@@ -117,8 +173,6 @@ export class InfraService implements OnModuleInit {
   /**
    * Modo construcción / simulador de venta: evalúa un punto contra las NAP
    * reales. Devuelve la NAP más cercana, viabilidad, costo y tiempo estimados.
-   * La Distancia_Tendido se aproxima por distancia geodésica (línea recta);
-   * el cálculo por rutas reales requiere un motor de ruteo (futuro).
    */
   evaluateConstruction(lng: number, lat: number) {
     const DEFAULT_DISTANCIA_MAX = 300; // metros (longitud típica de acometida FTTH)
@@ -140,14 +194,12 @@ export class InfraService implements OnModuleInit {
       });
 
     const evalr = evalConstruction(candidates);
-    const nap = evalr.nap
-      ? candidates.find((c) => c.id === evalr.nap!.id) || null
-      : null;
+    const nap = evalr.nap ? candidates.find((c) => c.id === evalr.nap!.id) || null : null;
 
     return {
       punto: { lng, lat },
-      resultado: evalr.resultado, // 'instalable' | 'no_instalable'
-      causa: evalr.causa, // 'sin_puertos' | 'fuera_de_alcance' | null
+      resultado: evalr.resultado,
+      causa: evalr.causa,
       distanciaTendido: evalr.distanciaTendido,
       puertosLibres: evalr.puertosLibres,
       costoEstimado: evalr.costoEstimado,
@@ -158,9 +210,44 @@ export class InfraService implements OnModuleInit {
     };
   }
 
-  /** Bundle GeoJSON para pintar SOLO la red real en el mapa. */
-  getBundle() {
-    const nodes = this.topoNodes();
+  /**
+   * Motor de asignación: rankea las NAP candidatas para un punto (alta de
+   * cliente). Viables primero (puertos libres ≥ 1 Y dentro del alcance de
+   * tendido), luego por distancia. Cada candidata trae su causa de inviabilidad.
+   */
+  suggestNaps(lng: number, lat: number, limit = 6) {
+    const DEFAULT_DISTANCIA_MAX = 300;
+    const naps = this.assets
+      .filter((a) => a.tipo === 'NAP')
+      .map((a) => {
+        const cap = this.capacityOf(a);
+        const distancia = Math.round(haversine(lat, lng, a.lat, a.lng));
+        const distanciaMax = Number(a.atributos?.distanciaMax) || DEFAULT_DISTANCIA_MAX;
+        const libres = cap?.libres ?? 0;
+        const dentroAlcance = distancia <= distanciaMax;
+        const viable = libres >= 1 && dentroAlcance;
+        const causa = !dentroAlcance ? 'fuera_de_alcance' : libres < 1 ? 'sin_puertos' : null;
+        return {
+          id: a.id,
+          nombre: a.nombre,
+          lng: a.lng,
+          lat: a.lat,
+          distancia,
+          distanciaMax,
+          puertosTotal: cap?.total ?? null,
+          puertosUsados: cap?.usados ?? null,
+          puertosLibres: libres,
+          semaforo: cap?.semaforo ?? null,
+          viable,
+          causa,
+        };
+      });
+    naps.sort((a, b) => Number(b.viable) - Number(a.viable) || a.distancia - b.distancia);
+    return naps.slice(0, limit);
+  }
+
+  /** Bundle GeoJSON para pintar la red real en el mapa. */
+  getBundle() {    const nodes = this.topoNodes();
     const byId = new Map(this.assets.map((a) => [a.id, a]));
 
     return {
@@ -179,9 +266,7 @@ export class InfraService implements OnModuleInit {
               padreId: a.padreId || null,
               padreNombre: a.padreId ? byId.get(a.padreId)?.nombre || null : null,
               clientesDependientes: dependentClients(nodes, a.id).length,
-              // Evidencia fotográfica georreferenciada (vista de calle propia).
               fotosCount: a.fotos?.length ?? 0,
-              // Capacidad y semáforo (R9) para NAP/CTO.
               puertosTotal: cap?.total ?? null,
               puertosUsados: cap?.usados ?? null,
               puertosLibres: cap?.libres ?? null,
@@ -263,18 +348,17 @@ export class InfraService implements OnModuleInit {
       creadoPor: input.creadoPor,
       creadoEn: new Date().toISOString(),
     };
+    await this.prisma.activo.create({ data: assetToRow(asset) });
     this.assets.push(asset);
-    this.persist(this.assetsFile, this.assets);
     this.logger.log(`Activo creado ${id} (${asset.tipo}) @ [${lng}, ${lat}]`);
     return asset;
   }
 
-  deleteAsset(id: string) {
+  async deleteAsset(id: string) {
     const i = this.assets.findIndex((a) => a.id === id);
     if (i === -1) throw new NotFoundException('Activo no encontrado.');
+    await this.prisma.activo.delete({ where: { id } });
     this.assets.splice(i, 1);
-    this.persist(this.assetsFile, this.assets);
-    // Borra también la evidencia fotográfica del activo (no deja huérfanos en disco).
     try {
       const folder = resolve(this.uploadsDir, id);
       if (existsSync(folder)) rmSync(folder, { recursive: true, force: true });
@@ -286,27 +370,18 @@ export class InfraService implements OnModuleInit {
 
   // ---- evidencia fotográfica (vista de calle propia, georreferenciada) ----
 
-  /**
-   * Adjunta una foto de evidencia a un activo. La imagen se guarda en disco
-   * (DATA_DIR/uploads/<activo>/<archivo>) y se sirve estáticamente en /uploads.
-   * Esta es la "vista de calle" real de CICANET: cobertura 100 % porque la
-   * generan los técnicos al instalar, incluso en callejones donde no llega
-   * Street View ni Mapillary.
-   */
-  addPhoto(
+  async addPhoto(
     assetId: string,
     file: { buffer: Buffer; mimetype: string; size: number },
     categoria: string,
     autor?: string,
-  ): { asset: Asset; foto: PhotoRef } {
+  ): Promise<{ asset: Asset; foto: PhotoRef }> {
     const asset = this.assets.find((a) => a.id === assetId);
     if (!asset) throw new NotFoundException('Activo no encontrado.');
     if (!file?.buffer?.length) throw new BadRequestException('No se recibió ninguna imagen.');
 
     const ext = EXT_BY_MIME[file.mimetype];
-    if (!ext) {
-      throw new BadRequestException('Formato no soportado. Usa JPG, PNG o WebP.');
-    }
+    if (!ext) throw new BadRequestException('Formato no soportado. Usa JPG, PNG o WebP.');
     const cat: PhotoCategory = (PHOTO_CATEGORIES as string[]).includes(categoria)
       ? (categoria as PhotoCategory)
       : 'vista_general';
@@ -326,21 +401,19 @@ export class InfraService implements OnModuleInit {
       autor,
     };
     asset.fotos = [...(asset.fotos || []), foto];
-    this.persist(this.assetsFile, this.assets);
-    this.logger.log(`Evidencia añadida a ${assetId}: ${categoria} (${Math.round(file.size / 1024)} KB)`);
+    await this.prisma.activo.update({ where: { id: assetId }, data: { fotos: asset.fotos as any } });
+    this.logger.log(`Evidencia añadida a ${assetId}: ${cat} (${Math.round(file.size / 1024)} KB)`);
     return { asset, foto };
   }
 
-  /** Elimina una foto de evidencia del activo (registro + archivo en disco). */
-  removePhoto(assetId: string, photoId: string): { id: string } {
+  async removePhoto(assetId: string, photoId: string): Promise<{ id: string }> {
     const asset = this.assets.find((a) => a.id === assetId);
     if (!asset) throw new NotFoundException('Activo no encontrado.');
     const foto = asset.fotos?.find((f) => f.id === photoId);
     if (!foto) throw new NotFoundException('Foto no encontrada.');
     asset.fotos = (asset.fotos || []).filter((f) => f.id !== photoId);
-    this.persist(this.assetsFile, this.assets);
+    await this.prisma.activo.update({ where: { id: assetId }, data: { fotos: asset.fotos as any } });
     try {
-      // El archivo en disco es uploadsDir/<assetId>/<nombre> (el url es público).
       const filename = foto.url.split('/').pop() || '';
       const abs = resolve(this.uploadsDir, assetId, filename);
       if (filename && existsSync(abs)) rmSync(abs, { force: true });
@@ -390,24 +463,24 @@ export class InfraService implements OnModuleInit {
       creadoPor: input.creadoPor,
       creadoEn: new Date().toISOString(),
     };
+    await this.prisma.segmentoFibra.create({ data: fiberToRow(seg) });
     this.fiber.push(seg);
-    this.persist(this.fiberFile, this.fiber);
     this.logger.log(`Fibra creada ${id} (${seg.longitud} m)`);
     return seg;
   }
 
-  deleteFiber(id: string) {
+  async deleteFiber(id: string) {
     const i = this.fiber.findIndex((f) => f.id === id);
     if (i === -1) throw new NotFoundException('Fibra no encontrada.');
+    await this.prisma.segmentoFibra.delete({ where: { id } });
     this.fiber.splice(i, 1);
-    this.persist(this.fiberFile, this.fiber);
     return { id };
   }
 
   // ---- topología (relaciones de dependencia) ----
 
   /** Conecta un activo a su padre (de qué depende). Rechaza ciclos. */
-  setParent(id: string, parentId: string | null) {
+  async setParent(id: string, parentId: string | null) {
     const a = this.assets.find((x) => x.id === id);
     if (!a) throw new NotFoundException('Activo no encontrado.');
     if (parentId) {
@@ -417,8 +490,8 @@ export class InfraService implements OnModuleInit {
         throw new BadRequestException('Esa relación crearía un ciclo en la topología.');
       }
     }
+    await this.prisma.activo.update({ where: { id }, data: { padreId: parentId } });
     a.padreId = parentId;
-    this.persist(this.assetsFile, this.assets);
     return a;
   }
 
@@ -471,7 +544,6 @@ export class InfraService implements OnModuleInit {
       padre: padre ? { id: padre.id, nombre: padre.nombre, tipo: padre.tipo } : null,
       ancestros: this.ancestors(id).map((p) => ({ id: p.id, nombre: p.nombre, tipo: p.tipo })),
       descendientes: descendientes.map((d) => ({ id: d.id, nombre: d.nombre, tipo: d.tipo })),
-      // Capacidad (semáforo R9) e impacto (clientes/NAPs/ingresos R14), del dominio probado.
       capacidad: this.capacityOf(a),
       impacto: this.impactOf(id),
       clientesDependientes: this.impactOf(id).clientesDependientes,
@@ -523,25 +595,143 @@ export class InfraService implements OnModuleInit {
     }
     return `${prefix}-${String(max + 1).padStart(3, '0')}`;
   }
+}
 
-  private load<T>(file: string): T[] {
-    try {
-      if (!existsSync(file)) return [];
-      const raw = JSON.parse(readFileSync(file, 'utf8'));
-      return Array.isArray(raw) ? raw : [];
-    } catch (e: any) {
-      this.logger.warn(`No se pudo leer ${file}: ${e.message}`);
-      return [];
-    }
-  }
+// ===========================================================================
+//  Mapeo fila(Prisma) ↔ dominio
+// ===========================================================================
 
-  private persist(file: string, data: unknown) {
-    try {
-      if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true });
-      writeFileSync(file, JSON.stringify(data, null, 2));
-    } catch (e: any) {
-      this.logger.error(`No se pudo persistir ${file}: ${e.message}`);
-    }
+function rowToAsset(r: any): Asset {
+  return {
+    id: r.id,
+    tipo: r.tipo,
+    nombre: r.nombre,
+    marca: r.marca ?? undefined,
+    modelo: r.modelo ?? undefined,
+    serie: r.serie ?? undefined,
+    direccion: r.direccion ?? undefined,
+    barrio: r.barrio ?? undefined,
+    comuna: r.comuna ?? undefined,
+    ciudad: r.ciudad ?? undefined,
+    lng: r.lng,
+    lat: r.lat,
+    estado: r.estado,
+    propio: r.propio,
+    regimen: r.regimen ?? undefined,
+    padreId: r.padreId ?? null,
+    sitioId: r.sitioId ?? null,
+    planMensual: r.planMensual ?? undefined,
+    atributos: (r.atributos as Record<string, any>) ?? {},
+    fotos: (r.fotos as PhotoRef[]) ?? undefined,
+    documentos: (r.documentos as any) ?? undefined,
+    historial: (r.historial as any) ?? undefined,
+    creadoPor: r.creadoPor ?? undefined,
+    creadoEn: (r.creadoEn instanceof Date ? r.creadoEn.toISOString() : r.creadoEn) ?? new Date().toISOString(),
+  };
+}
+
+function assetToRow(a: Asset): any {
+  return {
+    id: a.id,
+    tipo: a.tipo,
+    nombre: a.nombre,
+    marca: a.marca ?? null,
+    modelo: a.modelo ?? null,
+    serie: a.serie ?? null,
+    direccion: a.direccion ?? null,
+    barrio: a.barrio ?? null,
+    comuna: a.comuna ?? null,
+    ciudad: a.ciudad ?? null,
+    lng: a.lng,
+    lat: a.lat,
+    estado: a.estado || 'Activo',
+    propio: a.propio !== false,
+    regimen: a.regimen ?? null,
+    padreId: a.padreId ?? null,
+    sitioId: a.sitioId ?? null,
+    planMensual: a.planMensual ?? null,
+    atributos: (a.atributos ?? {}) as any,
+    fotos: (a.fotos ?? []) as any,
+    documentos: (a.documentos ?? []) as any,
+    historial: (a.historial ?? []) as any,
+    creadoPor: a.creadoPor ?? null,
+    ...(a.creadoEn ? { creadoEn: new Date(a.creadoEn) } : {}),
+  };
+}
+
+function rowToFiber(r: any): FiberSegment {
+  const trazado = (r.trazado as number[][]) ?? [
+    [r.origenLng, r.origenLat],
+    [r.destinoLng, r.destinoLat],
+  ];
+  return {
+    id: r.id,
+    nombre: r.nombre ?? undefined,
+    tipoFibra: r.tipoFibra ?? undefined,
+    hilos: r.hilos ?? undefined,
+    origenId: r.origenId ?? null,
+    destinoId: r.destinoId ?? null,
+    origenDireccion: r.origenDireccion ?? undefined,
+    destinoDireccion: r.destinoDireccion ?? undefined,
+    origen: { lng: r.origenLng, lat: r.origenLat },
+    destino: { lng: r.destinoLng, lat: r.destinoLat },
+    trazado,
+    longitud: r.longitud,
+    creadoPor: r.creadoPor ?? undefined,
+    creadoEn: (r.creadoEn instanceof Date ? r.creadoEn.toISOString() : r.creadoEn) ?? new Date().toISOString(),
+  };
+}
+
+function fiberToRow(f: FiberSegment): any {
+  return {
+    id: f.id,
+    nombre: f.nombre ?? null,
+    tipoFibra: f.tipoFibra ?? null,
+    hilos: f.hilos ?? null,
+    origenId: f.origenId ?? null,
+    destinoId: f.destinoId ?? null,
+    origenDireccion: f.origenDireccion ?? null,
+    destinoDireccion: f.destinoDireccion ?? null,
+    origenLng: f.origen.lng,
+    origenLat: f.origen.lat,
+    destinoLng: f.destino.lng,
+    destinoLat: f.destino.lat,
+    trazado: (f.trazado ?? []) as any,
+    longitud: f.longitud,
+    creadoPor: f.creadoPor ?? null,
+    ...(f.creadoEn ? { creadoEn: new Date(f.creadoEn) } : {}),
+  };
+}
+
+function rowToSite(r: any): Site {
+  return {
+    id: r.id,
+    nombre: r.nombre,
+    lng: r.lng,
+    lat: r.lat,
+    activosIds: (r.activosIds as string[]) ?? undefined,
+    creadoEn: (r.creadoEn instanceof Date ? r.creadoEn.toISOString() : r.creadoEn) ?? new Date().toISOString(),
+  };
+}
+
+function siteToRow(s: Site): any {
+  return {
+    id: s.id,
+    nombre: s.nombre,
+    lng: s.lng,
+    lat: s.lat,
+    activosIds: (s.activosIds ?? []) as any,
+    ...(s.creadoEn ? { creadoEn: new Date(s.creadoEn) } : {}),
+  };
+}
+
+function readJson<T>(file: string): T[] {
+  try {
+    if (!existsSync(file)) return [];
+    const raw = JSON.parse(readFileSync(file, 'utf8'));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
   }
 }
 

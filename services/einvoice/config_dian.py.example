@@ -1,0 +1,149 @@
+"""
+Archivo de Configuración DIAN - EJEMPLO
+========================================
+
+IMPORTANTE: 
+1. Copia este archivo a 'config_dian.py'
+2. Edita los valores con tus credenciales reales de la DIAN
+3. NUNCA subas 'config_dian.py' a un repositorio público
+
+Este archivo contiene credenciales sensibles para conectarse a los servicios de la DIAN.
+"""
+
+# ============================================================================
+# CONFIGURACIÓN DEL AMBIENTE
+# ============================================================================
+
+DIAN_CONFIG = {
+    # Ambiente de operación
+    # 1 = Producción (facturas reales)
+    # 2 = Habilitación (pruebas previas a producción)
+    'ambiente': 2,
+    
+    # Software ID asignado por la DIAN
+    # Obtenido al registrar tu software en el portal DIAN
+    'software_id': '0e45g32d-4gh6-4dd2-a2f2-2c4gc28c78ge',
+    
+    # PIN del Software asignado por la DIAN
+    'software_pin': '12345',
+    
+    # Clave técnica (TestSetId) para habilitación
+    # Solo necesario en ambiente de habilitación
+    'test_set_id': 'tu-test-set-id-aqui',
+}
+
+# ============================================================================
+# CERTIFICADO DIGITAL
+# ============================================================================
+
+CERTIFICADO = {
+    # Ruta al archivo del certificado .pfx o .p12
+    'ruta_pfx': './certificado_empresa.pfx',
+    
+    # Contraseña del certificado PFX
+    'password': 'password-del-certificado',
+    
+    # Rutas a los archivos PEM (si ya están extraídos)
+    # Si no existen, se generarán automáticamente desde el PFX
+    'ruta_certificado_pem': './certificado.pem',
+    'ruta_clave_pem': './clave.pem',
+}
+
+# ============================================================================
+# ENDPOINTS DIAN
+# ============================================================================
+
+# URLs de los servicios web de la DIAN
+# No modificar a menos que la DIAN cambie las URLs
+
+ENDPOINTS = {
+    # Ambiente de Habilitación (Pruebas)
+    'habilitacion': {
+        'envio': 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc',
+        'consulta': 'https://vpfe-hab.dian.gov.co/WcfDianCustomerServices.svc',
+    },
+    
+    # Ambiente de Producción
+    'produccion': {
+        'envio': 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc',
+        'consulta': 'https://vpfe.dian.gov.co/WcfDianCustomerServices.svc',
+    },
+}
+
+# ============================================================================
+# CONFIGURACIÓN DE REINTENTOS
+# ============================================================================
+
+REINTENTOS = {
+    # Número máximo de intentos en caso de fallo
+    'max_intentos': 3,
+    
+    # Tiempo de espera entre intentos (segundos)
+    'delay': 5,
+    
+    # Timeout para las peticiones HTTP (segundos)
+    'timeout': 60,
+}
+
+# ============================================================================
+# CONFIGURACIÓN DE LOGS
+# ============================================================================
+
+LOGS = {
+    # Activar logs detallados
+    'debug': True,
+    
+    # Guardar XMLs enviados
+    'guardar_xml': True,
+    
+    # Guardar respuestas de la DIAN
+    'guardar_respuestas': True,
+    
+    # Directorio para logs
+    'directorio': './logs',
+}
+
+# ============================================================================
+# PROXY (Opcional)
+# ============================================================================
+
+# Si tu empresa usa proxy para salir a internet, configúralo aquí
+PROXY = {
+    'usar_proxy': False,
+    'http': 'http://proxy.empresa.com:8080',
+    'https': 'http://proxy.empresa.com:8080',
+    'usuario': 'usuario_proxy',
+    'password': 'password_proxy',
+}
+
+# ============================================================================
+# VALIDACIÓN
+# ============================================================================
+
+VALIDACION = {
+    # Validar XML contra XSD antes de enviar
+    'validar_xsd': True,
+    
+    # Validar reglas de negocio (Schematron)
+    'validar_schematron': False,
+    
+    # Modo estricto (rechazar cualquier warning)
+    'modo_estricto': False,
+}
+
+# ============================================================================
+# EXPORTAR CONFIGURACIÓN
+# ============================================================================
+
+CONFIG_DIAN = {
+    'ambiente': DIAN_CONFIG['ambiente'],
+    'software_id': DIAN_CONFIG['software_id'],
+    'software_pin': DIAN_CONFIG['software_pin'],
+    'test_set_id': DIAN_CONFIG.get('test_set_id', ''),
+    'certificado': CERTIFICADO,
+    'endpoints': ENDPOINTS,
+    'reintentos': REINTENTOS,
+    'logs': LOGS,
+    'proxy': PROXY,
+    'validacion': VALIDACION,
+}

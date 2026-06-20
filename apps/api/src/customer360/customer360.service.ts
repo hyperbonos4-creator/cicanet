@@ -12,6 +12,13 @@ export interface Alerta {
   mensaje: string;
 }
 
+export interface TimelineEvent {
+  fecha: string;
+  tipo: 'cliente' | 'servicio' | 'instalacion' | 'factura' | 'pago' | 'ticket' | 'orden';
+  titulo: string;
+  detalle?: string;
+}
+
 /**
  * Customer 360: agrega TODO lo del suscriptor en una sola respuesta —
  * identidad, servicio (comercial+técnico), facturación, tickets, y la RUTA de
@@ -60,7 +67,7 @@ export class Customer360Service {
     const ticketsAbiertos = tickets.filter((t) => t.estado === 'abierto' || t.estado === 'en_proceso').length;
 
     // --- Red / topología ---
-    const red = this.resolverRed(servicio.napId, {
+    const red = this.resolverRed(servicio.activoNapId || servicio.napId, {
       onuSerial: servicio.onuSerial,
       puerto: servicio.puerto,
       ip: servicio.ip,
@@ -186,6 +193,69 @@ export class Customer360Service {
     };
   }
 
+  /**
+   * Línea de tiempo unificada del suscriptor: fusiona en un solo flujo
+   * cronológico los eventos de cliente, servicio, facturación, pagos, tickets y
+   * órdenes de trabajo. Es un read-model (solo agrega; no muta nada).
+   */
+  async timeline(codigo: string): Promise<TimelineEvent[]> {
+    const cliente = await this.prisma.cliente.findUnique({
+      where: { codigo },
+      include: { servicios: { include: { facturas: { include: { pagos: true } } } } },
+    });
+    if (!cliente) throw new NotFoundException('Cliente no encontrado.');
+
+    const ev: TimelineEvent[] = [];
+    const push = (
+      fecha: Date | null,
+      tipo: TimelineEvent['tipo'],
+      titulo: string,
+      detalle?: string,
+    ) => {
+      if (fecha) ev.push({ fecha: fecha.toISOString(), tipo, titulo, detalle });
+    };
+
+    push(cliente.creadoEn, 'cliente', 'Cliente creado', cliente.codigo);
+
+    for (const s of cliente.servicios) {
+      push(s.creadoEn, 'servicio', 'Servicio registrado', s.planNombre);
+      if (s.fechaInstalacion) {
+        const napTxt = s.napId ? ` · NAP ${s.napId}` : '';
+        push(s.fechaInstalacion, 'instalacion', 'Instalación realizada', `${s.tecnologia}${napTxt}`);
+      }
+      for (const f of s.facturas) {
+        push(
+          f.fechaEmision,
+          'factura',
+          `Factura ${f.periodo}`,
+          `${formatCOP(Number(f.total))} · ${f.estado}`,
+        );
+        for (const p of f.pagos) {
+          if (p.estado === 'aprobado') {
+            push(p.pagadoEn ?? p.creadoEn, 'pago', 'Pago aprobado', `${formatCOP(Number(p.monto))} · ${p.metodo}`);
+          }
+        }
+      }
+    }
+
+    const tickets = await this.prisma.ticket.findMany({
+      where: { OR: [{ clienteId: cliente.id }, { creadoPor: cliente.documento }] },
+    });
+    for (const t of tickets) {
+      push(t.creadoEn, 'ticket', `Ticket ${t.codigo}`, `${t.asunto} · ${t.estado}`);
+    }
+
+    const ordenes = await this.prisma.ordenTrabajo.findMany({
+      where: { clienteId: cliente.id },
+    });
+    for (const o of ordenes) {
+      push(o.creadoEn, 'orden', `OT ${o.codigo} (${o.tipo})`, o.titulo);
+      if (o.completadaEn) push(o.completadaEn, 'orden', `OT ${o.codigo} completada`, o.titulo);
+    }
+
+    return ev.sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  }
+
   /** Resuelve la NAP del servicio en el inventario y arma la ruta hasta el POP. */
   private resolverRed(
     napId: string | null,
@@ -226,6 +296,7 @@ export class Customer360Service {
         direccion: (asset as any).direccion ?? null,
         capacidad: detalle.capacidad,
         impacto: detalle.impacto,
+        fotos: (detalle as any).fotos ?? [],
       },
       cadena,
     };

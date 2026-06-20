@@ -125,12 +125,33 @@ export const config = {
     // Límites de seguridad/coste.
     maxTokens: parseInt(process.env.ASSISTANT_MAX_TOKENS || '700', 10),
     temperature: parseFloat(process.env.ASSISTANT_TEMPERATURE || '0.3'),
+    // Tiempo máximo por llamada al modelo (ms). Los modelos locales (Ollama)
+    // son lentos: si una llamada se cuelga, se aborta para no bloquear la petición.
+    callTimeoutMs: parseInt(process.env.ASSISTANT_CALL_TIMEOUT_MS || '45000', 10),
+    // Presupuesto total del agente (ms). Pasado este punto deja de iterar con
+    // herramientas y da una respuesta acotada: la petición SIEMPRE termina a
+    // tiempo y el frontend nunca cae en "Tuve un problema para responder".
+    budgetMs: parseInt(process.env.ASSISTANT_BUDGET_MS || '55000', 10),
+    // Tope de caracteres del resultado de cada herramienta que se reinyecta al
+    // modelo. Evita que leer archivos grandes infle el contexto y dispare la
+    // latencia de cada ronda sucesiva (causa raíz de respuestas de >90s).
+    maxToolResultChars: parseInt(process.env.ASSISTANT_MAX_TOOL_RESULT_CHARS || '4000', 10),
   },
 
   // Raíz del código que el copiloto (rol admin) puede inspeccionar en solo
   // lectura. En Docker se monta el monorepo en /workspace:ro. Fuera de Docker
   // cae al cwd del proceso. El ProjectExplorerService bloquea secretos por código.
   codeRoot: process.env.CODE_ROOT || process.cwd(),
+
+  // Microservicio de facturación electrónica DIAN (interno, no expuesto).
+  einvoice: {
+    enabled: (process.env.EINVOICE_ENABLED || 'true').toLowerCase() === 'true',
+    url: (process.env.EINVOICE_URL || 'http://einvoice:8000').replace(/\/$/, ''),
+    apiKey: process.env.EINVOICE_API_KEY || 'cicanet-einvoice-dev-key',
+    // NIT de CICANET (emisor) y ambiente DIAN.
+    nit: process.env.EINVOICE_NIT || '',
+    ambiente: (process.env.EINVOICE_AMBIENTE || 'habilitacion').toLowerCase(),
+  },
 };
 
 /** URLs base de la API de Wompi según el entorno. */

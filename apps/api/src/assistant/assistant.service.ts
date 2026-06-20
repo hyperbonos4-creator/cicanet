@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LlmProvider, type ChatMessage } from './llm.provider';
 import { AgentToolsService } from './agent-tools.service';
+import { config } from '../config';
 import {
   EMPRESA,
   FAQ,
@@ -25,6 +26,10 @@ export interface AssistantReply {
 }
 
 const MAX_TOOL_ROUNDS = 6;
+/** Margen reservado del presupuesto para redactar la respuesta final. */
+const FINAL_RESERVE_MS = 15000;
+/** Tiempo mínimo que debe quedar para iniciar una ronda de herramientas. */
+const MIN_ROUND_MS = 9000;
 
 /**
  * Agente operativo de soporte de CICANET. No es un FAQ-bot: razona, consulta
@@ -69,9 +74,30 @@ export class AssistantService {
 
     let pago: AssistantReply['pago'] = null;
     const schemas = this.tools.schemas(rol);
+    const { budgetMs, callTimeoutMs } = config.assistant;
+
+    // Presupuesto de tiempo: el agente SIEMPRE responde antes de agotarlo, para
+    // que la petición HTTP no se cuelgue (modelos locales lentos) y el frontend
+    // nunca muestre "Tuve un problema para responder".
+    const deadline = Date.now() + budgetMs;
+    const restante = () => deadline - Date.now();
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const msg = await this.llm.chat(messages, schemas);
+      // Solo entrar a otra ronda con herramientas si queda margen para ejecutarla
+      // (MIN_ROUND_MS) Y para redactar el cierre (FINAL_RESERVE_MS). Si no, salir
+      // a la respuesta final con lo que ya se haya recopilado.
+      if (restante() <= FINAL_RESERVE_MS + MIN_ROUND_MS) break;
+
+      let msg: Awaited<ReturnType<LlmProvider['chat']>>;
+      try {
+        // La ronda nunca consume el margen reservado para el cierre.
+        const t = Math.min(callTimeoutMs, restante() - FINAL_RESERVE_MS);
+        msg = await this.llm.chat(messages, schemas, { timeoutMs: t });
+      } catch (e: any) {
+        // Timeout/fallo en una ronda: no abortamos, redactamos con lo que haya.
+        this.logger.warn(`Ronda ${round} del agente falló (${e.message}); cierro con lo recopilado.`);
+        break;
+      }
 
       if (!msg.tool_calls || msg.tool_calls.length === 0) {
         return {
@@ -99,19 +125,39 @@ export class AssistantService {
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: JSON.stringify(result),
+          // Recortar el resultado: reinyectar archivos enteros en cada ronda
+          // infla el contexto y dispara la latencia acumulada del modelo.
+          content: this.clip(JSON.stringify(result)),
         });
       }
     }
 
-    // Si agotó las rondas, una última respuesta sin herramientas.
-    const final = await this.llm.chat(messages);
+    // Respuesta final sin herramientas, acotada al tiempo que quede. Si el modelo
+    // no alcanza a cerrar, devolvemos un mensaje honesto en vez de un error duro.
+    try {
+      const tFinal = Math.min(callTimeoutMs, Math.max(MIN_ROUND_MS, restante()));
+      const final = await this.llm.chat(messages, undefined, { timeoutMs: tFinal });
+      const reply = (final.content || '').trim();
+      if (reply) {
+        return { reply, ai: true, acciones: this.accionesPara(ultimo), pago };
+      }
+    } catch (e: any) {
+      this.logger.warn(`Cierre del agente falló (${e.message}); respuesta acotada.`);
+    }
     return {
-      reply: (final.content || '').trim() || 'Te ayudo con tu servicio CICANET.',
+      reply:
+        'Estoy procesando bastante información para responderte bien y me tardé más de lo normal. ' +
+        '¿Puedes precisar un poco la pregunta? También puedo conectarte con un asesor.',
       ai: true,
       acciones: this.accionesPara(ultimo),
       pago,
     };
+  }
+
+  /** Recorta un resultado de herramienta al tope configurado de caracteres. */
+  private clip(s: string): string {
+    const max = config.assistant.maxToolResultChars;
+    return s.length > max ? `${s.slice(0, max)}… [resultado recortado]` : s;
   }
 
   /** System prompt anclado en la realidad de CICANET + FAQ recuperada (RAG-lite). */

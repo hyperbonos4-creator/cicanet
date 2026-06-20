@@ -1,0 +1,15 @@
+# Dependencias para el Sistema de Configuración Web
+# Módulo de Facturación Electrónica DIAN
+
+# Framework Web
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Validación de Datos
+pydantic>=2.5.0
+
+# Criptografía (para manejo de certificados)
+cryptography>=41.0.0
+
+# Utilidades
+python-multipart>=0.0.6  # Para upload de archivos

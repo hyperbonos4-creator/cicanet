@@ -202,6 +202,7 @@ export class ClientesService {
           clienteId: cliente.id,
           puntoId: punto.id,
           ...this.servicioData(input),
+          activoNapId: await this.resolveActivoNapId(input.napId, tx),
           estado: (input.estadoServicio as string) || 'instalacion_pendiente',
         },
         include: { cliente: true, punto: true },
@@ -260,6 +261,8 @@ export class ClientesService {
 
       const servicioData = this.servicioData(input, true);
       if (input.estadoServicio) servicioData.estado = input.estadoServicio;
+      // Mantén el FK a la NAP sincronizado cuando cambia napId.
+      if (input.napId !== undefined) servicioData.activoNapId = await this.resolveActivoNapId(input.napId, tx);
 
       return tx.servicio.update({
         where: { id: current.id },
@@ -423,6 +426,24 @@ export class ClientesService {
       throw new BadRequestException('El estrato debe estar entre 1 y 6.');
     if (c.diaCorte != null && (c.diaCorte < 1 || c.diaCorte > 31))
       throw new BadRequestException('El día de corte debe estar entre 1 y 31.');
+  }
+
+  /**
+   * Resuelve el FK a la NAP (Activo) desde el `napId` que envía el formulario,
+   * que puede ser el id del activo (NAP-001) o su nombre. Devuelve null si no
+   * hay napId o no existe el activo (no rompe el alta: el FK queda vacío).
+   */
+  private async resolveActivoNapId(
+    napId: string | undefined | null,
+    tx: Prisma.TransactionClient,
+  ): Promise<string | null> {
+    const ref = (napId ?? '').trim();
+    if (!ref) return null;
+    const activo = await tx.activo.findFirst({
+      where: { OR: [{ id: ref }, { nombre: ref }] },
+      select: { id: true },
+    });
+    return activo?.id ?? null;
   }
 
   /** Calcula el siguiente código CLI-NNNN a partir del máximo actual. */

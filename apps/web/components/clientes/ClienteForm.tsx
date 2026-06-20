@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { Cliente, ClienteInput } from "../../lib/api";
+import type { Cliente, ClienteInput, NapSuggestion } from "../../lib/api";
+import { geocode, suggestNaps } from "../../lib/api";
 import { inputCls } from "./ClientesModule";
 
 const num = (v: string): number | undefined => (v.trim() === "" ? undefined : Number(v));
@@ -142,8 +143,15 @@ export default function ClienteForm({
           <Field label="Tecnología">
             <Select value={f.tecnologia} onChange={set("tecnologia")} options={[["FTTH", "FTTH (fibra)"], ["Inalambrico", "Inalámbrico"], ["HFC", "HFC (coaxial)"]]} />
           </Field>
-          <Field label="NAP / CTO asignada">
+          <Field label="NAP / CTO asignada" wide>
             <Select value={f.napId || ""} onChange={set("napId")} options={[["", "— sin asignar"], ...napOptions.map((n) => [n.id, n.nombre] as [string, string])]} />
+            <NapSuggestor
+              direccion={f.direccion || ""}
+              barrio={f.barrio || ""}
+              ciudad={f.ciudad || ""}
+              napId={f.napId || ""}
+              onPick={(id, puerto) => { set("napId")(id); if (puerto != null) set("puerto")(puerto); }}
+            />
           </Field>
           <Field label="Puerto"><input type="number" className={inputCls} value={f.puerto ?? ""} onChange={(e) => set("puerto")(num(e.target.value))} /></Field>
           <Field label="Serial ONU"><input className={inputCls} value={f.onuSerial || ""} onChange={(e) => set("onuSerial")(e.target.value)} /></Field>
@@ -210,5 +218,78 @@ function Select({ value, onChange, options }: { value: any; onChange: (v: string
     <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} className={inputCls}>
       {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
+  );
+}
+
+/* =================== Motor de asignación de NAP =================== */
+
+const SEMA_COLOR: Record<string, string> = { verde: "#22E0A1", amarillo: "#FFB02E", rojo: "#FF4D6D" };
+const CAUSA_TXT: Record<string, string> = { sin_puertos: "sin puertos", fuera_de_alcance: "fuera de alcance" };
+
+function NapSuggestor({
+  direccion, barrio, ciudad, napId, onPick,
+}: {
+  direccion: string; barrio: string; ciudad: string; napId: string;
+  onPick: (id: string, puerto?: number) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sugs, setSugs] = useState<NapSuggestion[] | null>(null);
+
+  async function sugerir() {
+    if (direccion.trim().length < 3) { setErr("Escribe primero la dirección de instalación."); return; }
+    setBusy(true); setErr(null); setSugs(null);
+    try {
+      const q = [direccion, barrio, ciudad].filter(Boolean).join(", ");
+      const cands = await geocode(q);
+      if (!cands.length) { setErr("No se pudo ubicar la dirección para sugerir NAP."); return; }
+      const c = cands[0];
+      const naps = await suggestNaps(c.lng, c.lat);
+      setSugs(naps);
+      if (!naps.length) setErr("No hay NAPs en el inventario todavía.");
+    } catch (e: any) { setErr(e.message || "No se pudo sugerir NAP"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={sugerir}
+        disabled={busy}
+        className="rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-2.5 py-1 text-[10px] font-semibold text-cica-gold transition-colors hover:bg-cica-gold/20 disabled:opacity-50"
+      >
+        {busy ? "Buscando…" : "🎯 Sugerir NAP por dirección"}
+      </button>
+      {err && <div className="mt-1 text-[10px] text-status-sin">{err}</div>}
+      {sugs && sugs.length > 0 && (
+        <div className="mt-1.5 flex flex-col gap-1">
+          {sugs.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => onPick(n.id)}
+              className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors ${
+                napId === n.id ? "border-cica-gold bg-cica-gold/10" : "border-cica-border/60 bg-cica-navy/40 hover:border-cica-gold/40"
+              } ${!n.viable ? "opacity-60" : ""}`}
+            >
+              <span className="flex items-center gap-1.5 truncate">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: n.semaforo ? SEMA_COLOR[n.semaforo] : "#8B96AC" }} />
+                <span className="truncate text-[11px] font-semibold text-cica-silver">{n.nombre}</span>
+                <span className="text-[10px] text-cica-muted">· {n.distancia} m</span>
+              </span>
+              <span className="shrink-0 text-[10px]">
+                {n.viable ? (
+                  <span className="text-status-ftth">{n.puertosLibres} libre(s) ✓</span>
+                ) : (
+                  <span className="text-status-sin">{n.causa ? CAUSA_TXT[n.causa] : "no viable"}</span>
+                )}
+              </span>
+            </button>
+          ))}
+          <div className="text-[9px] text-cica-muted">Distancia en línea recta (aprox.). Verdes = viables; toca una para asignarla.</div>
+        </div>
+      )}
+    </div>
   );
 }

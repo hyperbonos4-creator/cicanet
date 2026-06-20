@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCliente360, updateCliente, createTicket, paymentsCheckout, type Cliente360 } from "../../lib/api";
+import {
+  getCliente360, updateCliente, createTicket, paymentsCheckout,
+  streetViewMeta, streetViewImageUrl, mediaUrl, getCliente360Timeline,
+  type Cliente360, type StreetViewMeta, type AssetPhoto, type TimelineEvent,
+} from "../../lib/api";
 import { money } from "./ClientesModule";
 
-type Tab = "resumen" | "servicio" | "topologia" | "facturacion" | "tickets" | "equipos";
+type Tab = "resumen" | "servicio" | "topologia" | "facturacion" | "tickets" | "equipos" | "campo" | "historial";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "resumen", label: "Resumen" },
@@ -13,6 +17,8 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "facturacion", label: "Facturación" },
   { key: "tickets", label: "Tickets" },
   { key: "equipos", label: "Equipos" },
+  { key: "campo", label: "Campo" },
+  { key: "historial", label: "Historial" },
 ];
 
 const NIVEL_TONE: Record<string, string> = {
@@ -332,6 +338,18 @@ export default function Customer360({
               <div className="mt-2 text-[10px] text-cica-muted">El monitoreo de señal óptica (RX/TX) requiere integración SNMP/OLT — próximamente.</div>
             </Card>
           )}
+
+          {tab === "campo" && (
+            <CampoView
+              lat={ubicacion.lat}
+              lng={ubicacion.lng}
+              direccion={ubicacion.direccion}
+              napNombre={red.nap?.nombre ?? null}
+              fotos={red.nap?.fotos ?? []}
+            />
+          )}
+
+          {tab === "historial" && <HistorialView id={cliente.id} />}
         </section>
       </div>
     </div>
@@ -355,8 +373,184 @@ function nodeIcon(tipo: string): string {
   }
 }
 
-function Info({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="flex justify-between gap-2"><span className="text-cica-muted">{label}</span><span className="text-right text-cica-silver">{value}</span></div>;
+/* =================== Historial: línea de tiempo unificada =================== */
+
+const TL_META: Record<string, { icon: string; tone: string }> = {
+  cliente: { icon: "👤", tone: "text-cica-steelLight" },
+  servicio: { icon: "📡", tone: "text-cica-gold" },
+  instalacion: { icon: "🔧", tone: "text-status-ftth" },
+  factura: { icon: "🧾", tone: "text-cica-silver" },
+  pago: { icon: "💵", tone: "text-status-ftth" },
+  ticket: { icon: "🎫", tone: "text-status-parcial" },
+  orden: { icon: "📋", tone: "text-cica-steelLight" },
+};
+
+function HistorialView({ id }: { id: string }) {
+  const [eventos, setEventos] = useState<TimelineEvent[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setEventos(null); setErr(null);
+    getCliente360Timeline(id).then((e) => alive && setEventos(e)).catch((e) => alive && setErr(e.message));
+    return () => { alive = false; };
+  }, [id]);
+
+  return (
+    <Card title="Línea de tiempo del suscriptor">
+      {err && <div className="text-xs text-status-sin">{err}</div>}
+      {!eventos && !err && <div className="py-4 text-center text-[11px] text-cica-muted">Cargando historial…</div>}
+      {eventos && eventos.length === 0 && <div className="text-xs text-cica-muted">Sin eventos registrados.</div>}
+      {eventos && eventos.length > 0 && (
+        <div className="flex flex-col">
+          {eventos.map((e, i) => {
+            const m = TL_META[e.tipo] || { icon: "•", tone: "text-cica-muted" };
+            return (
+              <div key={i} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border border-cica-border/60 bg-cica-navy/60 text-xs ${m.tone}`}>{m.icon}</span>
+                  {i < eventos.length - 1 && <span className="my-0.5 w-px flex-1 bg-cica-border/50" />}
+                </div>
+                <div className="pb-3 pt-0.5">
+                  <div className="text-[10px] text-cica-muted">{new Date(e.fecha).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}</div>
+                  <div className="text-xs font-semibold text-cica-silver">{e.titulo}</div>
+                  {e.detalle && <div className="text-[11px] text-cica-muted">{e.detalle}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* =================== Vista de campo: Street View + evidencia de la NAP =================== */
+const CAT_LABEL: Record<string, string> = {
+  vista_general: "Vista general", frontal: "Frontal", placa_serial: "Placa / serial", instalacion: "Instalación",
+};
+
+function CampoView({
+  lat, lng, direccion, napNombre, fotos,
+}: {
+  lat: number | null; lng: number | null; direccion: string; napNombre: string | null; fotos: AssetPhoto[];
+}) {
+  const [meta, setMeta] = useState<StreetViewMeta | null>(null);
+  const [svOpen, setSvOpen] = useState(false);
+  const [heading, setHeading] = useState(0);
+  const [pitch, setPitch] = useState(0);
+  const [fov, setFov] = useState(90);
+  const [lightbox, setLightbox] = useState<AssetPhoto | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setMeta(null);
+    if (lat != null && lng != null) {
+      streetViewMeta(lat, lng).then((m) => alive && setMeta(m)).catch(() => alive && setMeta({ disponible: false } as any));
+    }
+    return () => { alive = false; };
+  }, [lat, lng]);
+
+  const svLat = meta?.lat ?? lat ?? 0;
+  const svLng = meta?.lng ?? lng ?? 0;
+  const gmaps = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${svLat},${svLng}`;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Card title="Vista de calle (dirección del cliente)">
+        {lat == null || lng == null ? (
+          <div className="text-xs text-cica-muted">El cliente no tiene coordenadas registradas.</div>
+        ) : meta && meta.disponible ? (
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setSvOpen(true)}
+              className="flex items-center justify-center gap-2 rounded-lg border border-cica-glow/40 bg-cica-glow/10 px-3 py-2 text-xs font-bold text-cica-glow transition-colors hover:bg-cica-glow/20"
+            >
+              🛣️ Ver Street View {meta.fecha ? <span className="font-normal text-cica-muted">· {meta.fecha}</span> : null}
+            </button>
+            <div className="text-[10px] text-cica-muted">{direccion}</div>
+          </div>
+        ) : (
+          <div className="text-xs text-cica-muted">
+            Sin panorámica de Google en este punto.
+            {meta && !meta.disponible && (
+              <a href={gmaps} target="_blank" rel="noreferrer" className="ml-1 text-cica-gold hover:underline">Abrir en Google Maps ↗</a>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card title={`Evidencia del sitio${napNombre ? ` · ${napNombre}` : ""}`}>
+        {fotos.length === 0 ? (
+          <div className="text-xs text-cica-muted">
+            Sin fotos de la NAP de este cliente. Sube evidencia desde Infraestructura → ficha de la NAP
+            (desde el móvil se abre la cámara).
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+            {fotos.map((f) => (
+              <button key={f.id} onClick={() => setLightbox(f)} className="group relative aspect-square overflow-hidden rounded-md border border-cica-border/60">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={mediaUrl(f.url)} alt={CAT_LABEL[f.categoria] || f.categoria} loading="lazy" className="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-110" />
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1 pb-0.5 pt-3 text-[8px] font-semibold text-white">{CAT_LABEL[f.categoria] || f.categoria}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Modal Street View */}
+      {svOpen && lat != null && lng != null && (
+        <div onClick={() => setSvOpen(false)} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 p-6 backdrop-blur-sm">
+          <div className="relative w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-extrabold text-white">🛣️ {direccion}</span>
+              <button onClick={() => setSvOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black shadow-lg">✕</button>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-white/10 bg-black">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={streetViewImageUrl({ lat: svLat, lng: svLng, heading, pitch, fov })} alt="Street View" className="w-full select-none" draggable={false} />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <SvBtn onClick={() => setHeading((h) => (h - 45 + 360) % 360)}>⟲ Izq.</SvBtn>
+              <SvBtn onClick={() => setPitch((p) => Math.min(90, p + 15))}>▲ Arriba</SvBtn>
+              <SvBtn onClick={() => setPitch((p) => Math.max(-90, p - 15))}>▼ Abajo</SvBtn>
+              <SvBtn onClick={() => setHeading((h) => (h + 45) % 360)}>Der. ⟳</SvBtn>
+              <SvBtn onClick={() => setFov((f) => Math.max(20, f - 15))}>＋ Zoom</SvBtn>
+              <SvBtn onClick={() => setFov((f) => Math.min(120, f + 15))}>－ Zoom</SvBtn>
+              <a href={gmaps} target="_blank" rel="noreferrer" className="rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-3 py-1.5 text-[11px] font-semibold text-cica-gold hover:bg-cica-gold/20">Abrir en Google Maps ↗</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox evidencia */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 p-6 backdrop-blur-sm">
+          <div className="relative max-h-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={mediaUrl(lightbox.url)} alt={CAT_LABEL[lightbox.categoria]} className="max-h-[80vh] rounded-lg object-contain" />
+            <div className="mt-2 flex items-center justify-between text-[11px] text-cica-silver">
+              <span className="font-semibold text-white">{CAT_LABEL[lightbox.categoria] || lightbox.categoria}</span>
+              <span className="text-cica-muted">{new Date(lightbox.subidoEn).toLocaleString("es-CO")}{lightbox.autor ? ` · ${lightbox.autor}` : ""}</span>
+            </div>
+            <button onClick={() => setLightbox(null)} className="absolute -right-3 -top-3 flex h-8 w-8 items-center justify-center rounded-full bg-white text-black shadow-lg">✕</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SvBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className="rounded-lg border border-cica-border bg-cica-navy/70 px-3 py-1.5 text-[11px] font-semibold text-cica-silver transition-colors hover:border-cica-glow/50 hover:text-white">
+      {children}
+    </button>
+  );
+}
+
+function Info({ label, value }: { label: string; value: React.ReactNode }) {  return <div className="flex justify-between gap-2"><span className="text-cica-muted">{label}</span><span className="text-right text-cica-silver">{value}</span></div>;
 }
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return <div className="glass p-4"><div className="mb-3 text-[10px] font-bold uppercase tracking-wide text-cica-muted">{title}</div><div className="flex flex-col gap-1.5">{children}</div></div>;

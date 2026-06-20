@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# DOCKERFILE PARA SERVICIO DE FACTURACIÓN ELECTRÓNICA DIAN
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FROM python:3.11-slim
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libxml2-dev \
+    libxmlsec1-dev \
+    libxmlsec1-openssl \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Crear directorio de trabajo
+WORKDIR /app
+
+# Copiar archivos de la aplicación
+COPY . /app/
+
+# Instalar dependencias Python
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-api.txt
+
+# Crear directorio para certificados
+RUN mkdir -p /app/certificados
+
+# Exponer puerto
+EXPOSE 8000
+
+# Variables de entorno por defecto
+ENV PYTHONUNBUFFERED=1
+ENV CERT_PASSWORD=""
+
+# Comando de inicio con timeout de 300 segundos para requests largos a DIAN
+CMD ["gunicorn", "api_server:app", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000", "--timeout", "300", "--keep-alive", "120"]

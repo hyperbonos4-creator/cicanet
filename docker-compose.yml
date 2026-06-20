@@ -135,6 +135,11 @@ services:
       # LECTURA. Se monta el monorepo completo en /workspace:ro (ver volumes).
       # El servicio bloquea por código .env, secretos y node_modules/.git.
       CODE_ROOT: ${CODE_ROOT:-/workspace}
+      # Microservicio de facturación electrónica DIAN (red interna).
+      EINVOICE_URL: ${EINVOICE_URL:-http://einvoice:8000}
+      EINVOICE_API_KEY: ${EINVOICE_API_KEY:-cicanet-einvoice-dev-key}
+      EINVOICE_NIT: ${EINVOICE_NIT:-}
+      EINVOICE_AMBIENTE: ${EINVOICE_AMBIENTE:-habilitacion}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -232,6 +237,30 @@ services:
       - evolution_redis:/data
     networks: [cicanet-net]
 
+  # ---- Facturación electrónica DIAN (microservicio interno, NO expuesto) ----
+  # Industrializado desde "zeroset". Firma XAdES + UBL 2.1 + envío SOAP a la DIAN.
+  # Solo accesible por el backend en la red interna; exige EINVOICE_API_KEY.
+  # Los certificados de CICANET se cargan por su API y persisten en el volumen.
+  einvoice:
+    build:
+      context: ./services/einvoice
+      dockerfile: Dockerfile.api
+    container_name: cicanet-einvoice
+    restart: unless-stopped
+    environment:
+      # Clave compartida con el backend (header X-API-Key). Fail-closed si falta.
+      EINVOICE_API_KEY: ${EINVOICE_API_KEY:-cicanet-einvoice-dev-key}
+      # Contraseña del certificado .pfx de CICANET (se inyecta por env/secret).
+      CERT_PASSWORD: ${EINVOICE_CERT_PASSWORD:-}
+      # Orígenes CORS permitidos (solo el backend interno).
+      EINVOICE_CORS_ORIGINS: ${EINVOICE_CORS_ORIGINS:-http://api:4000,http://localhost:4000}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      # Certificados y documentos emitidos persistentes (por NIT).
+      - einvoice_certs:/app/certificados
+    # Sin `ports`: NO se publica a internet. El backend lo alcanza por red interna.
+    networks: [cicanet-net]
+
 volumes:
   pg_data:
   redis_data:
@@ -239,6 +268,7 @@ volumes:
   evolution_instances:
   evolution_pgdata:
   evolution_redis:
+  einvoice_certs:
 
 networks:
   cicanet-net:

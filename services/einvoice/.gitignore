@@ -1,0 +1,22 @@
+# NUNCA versionar secretos ni certificados de facturación electrónica.
+api_config.py
+config_dian.py
+config_empresa.py
+*.pfx
+*.pem
+*.key
+*.p12
+*.jks
+# Certificados y documentos emitidos por NIT (viven en el volumen Docker).
+certificados/*/
+!certificados/.gitkeep
+# Cachés y temporales.
+__pycache__/
+*.pyc
+*.log
+debug_company_nit.txt
+test_execution.txt
+facturas_xml/
+respuestas_dian/
+temp/
+logs/

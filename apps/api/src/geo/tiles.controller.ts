@@ -1,8 +1,18 @@
 import { Controller, Get, Logger, Param, Query, Res } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import * as https from 'node:https';
 import { resolve } from 'node:path';
 import type { Response } from 'express';
 import { config } from '../config';
+
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+  Referer: 'https://portalidem.metropol.gov.co/',
+  Accept: 'image/avif,image/webp,image/png,image/*,*/*;q=0.8',
+  'Accept-Language': 'es-CO,es;q=0.9',
+};
 
 /**
  * Proxy de teselas (tiles) de imagen satelital.
@@ -20,6 +30,7 @@ export class TilesController {
   private readonly logger = new Logger('TilesController');
   /** Caché en disco de la ortofoto de Medellín (independencia del servidor municipal). */
   private readonly medellinCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'medellin');
+  private readonly catastroCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'catastro');
 
   /**
    * Ortofoto oficial de Medellín 2024 (GeoMedellín, Creative Commons) con CACHÉ.
@@ -90,6 +101,68 @@ export class TilesController {
       res.end(buf);
     } catch (e: any) {
       this.logger.warn(`Ortofoto Medellín ${z}/${y}/${x} falló: ${e.message}`);
+      res.status(204).end();
+    }
+  }
+
+  /**
+   * Overlay de catastro AMVA (predios/manzanas/construcciones) por municipio,
+   * con CACHÉ por bbox. La 1ª vez pide el `export` al servidor del AMVA (con
+   * cabeceras de navegador) y lo guarda; luego se sirve del disco. Independiente
+   * del servidor del AMVA tras la primera carga de cada vista.
+   * MapLibre pide `/tiles/catastro/:muni?bbox={bbox-epsg-3857}`.
+   */
+  @Get('catastro/:muni')
+  async catastro(
+    @Param('muni') muni: string,
+    @Query('bbox') bbox: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const base = config.geo.catastro[muni];
+    // bbox = "minx,miny,maxx,maxy" en EPSG:3857 (4 números, admite signo/decimal).
+    if (!base || !bbox || !/^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3}$/.test(bbox)) {
+      res.status(400).end();
+      return;
+    }
+
+    const key = createHash('sha1').update(bbox).digest('hex');
+    const dir = resolve(this.catastroCacheDir, muni);
+    const file = resolve(dir, `${key}.png`);
+
+    if (existsSync(file)) {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+      res.setHeader('X-Tile-Cache', 'HIT');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(readFileSync(file));
+      return;
+    }
+
+    const url =
+      `${base}?bbox=${encodeURIComponent(bbox)}` +
+      `&bboxSR=3857&imageSR=3857&size=512,512&format=png32&transparent=true&dpi=96&f=image`;
+    try {
+      // El servidor del AMVA presenta una cadena TLS incompleta que Alpine
+      // rechaza; relajamos la verificación SOLO para esta fuente pública de
+      // solo lectura (no se envían credenciales ni datos).
+      const r = await getInsecureImage(url, BROWSER_HEADERS);
+      if (!r.ok || !r.buf) {
+        res.status(204).end();
+        return;
+      }
+      try {
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(file, r.buf);
+      } catch (e: any) {
+        this.logger.warn(`No se pudo cachear catastro ${muni}: ${e.message}`);
+      }
+      res.setHeader('Content-Type', r.contentType || 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+      res.setHeader('X-Tile-Cache', 'MISS');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(r.buf);
+    } catch (e: any) {
+      this.logger.warn(`Catastro ${muni} falló: ${e.message}`);
       res.status(204).end();
     }
   }
@@ -188,4 +261,36 @@ function clampNum(v: string, min: number, max: number, def: number): number {
   const n = parseFloat(v);
   if (!Number.isFinite(n)) return def;
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Descarga una imagen por HTTPS con verificación TLS relajada. Necesario solo
+ * para el servidor del AMVA, que presenta una cadena de certificados incompleta
+ * (válida en Windows, rechazada por el almacén CA de Alpine). Es una fuente
+ * pública de solo lectura; no se transmiten credenciales ni datos sensibles.
+ */
+function getInsecureImage(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ ok: boolean; status: number; contentType?: string; buf?: Buffer }> {
+  return new Promise((resolve) => {
+    const req = https.get(url, { headers, rejectUnauthorized: false, timeout: 15000 }, (r) => {
+      const chunks: Buffer[] = [];
+      r.on('data', (c) => chunks.push(c as Buffer));
+      r.on('end', () => {
+        const status = r.statusCode || 0;
+        resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          contentType: r.headers['content-type'],
+          buf: Buffer.concat(chunks),
+        });
+      });
+    });
+    req.on('error', () => resolve({ ok: false, status: 0 }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ ok: false, status: 0 });
+    });
+  });
 }

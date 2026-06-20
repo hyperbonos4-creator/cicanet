@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -82,6 +83,12 @@ export class InfraController {
   @Post('construction/evaluate')
   evaluateConstruction(@Body() dto: EvaluateConstructionDto) {
     return this.infra.evaluateConstruction(dto.lng, dto.lat);
+  }
+
+  /** Motor de asignación: NAP candidatas (rankeadas por viabilidad) para un punto. */
+  @Get('suggest-naps')
+  suggestNaps(@Query('lng') lng: string, @Query('lat') lat: string) {
+    return this.infra.suggestNaps(parseFloat(lng), parseFloat(lat));
   }
 
   @Get('assets')

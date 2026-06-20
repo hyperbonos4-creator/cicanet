@@ -58,9 +58,16 @@ export class LlmProvider {
   /**
    * Un turno de chat. Devuelve el mensaje del asistente (texto y/o tool_calls).
    * Lanza si no está configurado o si el proveedor falla.
+   *
+   * `opts.timeoutMs` aborta la llamada si el proveedor (p. ej. un modelo local
+   * lento de Ollama) no responde a tiempo, para no bloquear la petición HTTP.
    */
-  async chat(messages: ChatMessage[], tools?: ToolSchema[]): Promise<AssistantMessage> {
-    const { baseUrl, apiKey, model, maxTokens, temperature } = config.assistant;
+  async chat(
+    messages: ChatMessage[],
+    tools?: ToolSchema[],
+    opts?: { timeoutMs?: number },
+  ): Promise<AssistantMessage> {
+    const { baseUrl, apiKey, model, maxTokens, temperature, callTimeoutMs } = config.assistant;
     if (!apiKey) throw new Error('assistant_not_configured');
 
     const body: Record<string, unknown> = {
@@ -75,14 +82,30 @@ export class LlmProvider {
       body.tool_choice = 'auto';
     }
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+    const timeoutMs = Math.max(1000, opts?.timeoutMs ?? callTimeoutMs);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        this.logger.warn(`LLM timeout tras ${timeoutMs}ms`);
+        throw new Error('assistant_timeout');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
