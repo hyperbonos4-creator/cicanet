@@ -131,11 +131,17 @@ services:
       ASSISTANT_MODEL: ${ASSISTANT_MODEL:-qwen3-coder:30b}
       ASSISTANT_MAX_TOKENS: ${ASSISTANT_MAX_TOKENS:-700}
       ASSISTANT_TEMPERATURE: ${ASSISTANT_TEMPERATURE:-0.3}
+      # Raíz del código que el copiloto (rol admin) puede inspeccionar en SOLO
+      # LECTURA. Se monta el monorepo completo en /workspace:ro (ver volumes).
+      # El servicio bloquea por código .env, secretos y node_modules/.git.
+      CODE_ROOT: ${CODE_ROOT:-/workspace}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./apps/api:/app
       - /app/node_modules
+      # Monorepo completo en solo-lectura para el copiloto de código (admin).
+      - ./:/workspace:ro
     ports:
       - "4000:4000"
     healthcheck:

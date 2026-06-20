@@ -29,13 +29,13 @@ export class AssistantController {
   @Post('chat')
   chat(@Body() dto: ChatDto, @Req() req: Request) {
     const user = (req as any).user;
-    return this.assistant.chat(dto.messages, { nombre: user?.nombre, username: user?.username, clienteId: user?.clienteId });
+    return this.assistant.chat(dto.messages, { nombre: user?.nombre, username: user?.username, clienteId: user?.clienteId, role: user?.role });
   }
 
   /** Atajo de un solo mensaje (sin historial). */
   @Post('ask')
   ask(@Body() dto: QuickAskDto, @Req() req: Request) {
     const user = (req as any).user;
-    return this.assistant.chat([{ role: 'user', content: dto.message }], { nombre: user?.nombre, username: user?.username, clienteId: user?.clienteId });
+    return this.assistant.chat([{ role: 'user', content: dto.message }], { nombre: user?.nombre, username: user?.username, clienteId: user?.clienteId, role: user?.role });
   }
 }

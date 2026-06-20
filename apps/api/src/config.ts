@@ -27,6 +27,16 @@ export const config = {
     medellinTilesUrl:
       process.env.GEOMEDELLIN_TILES_URL ||
       'https://www.medellin.gov.co/servidormapas/rest/services/ServiciosCiudad/IMAGEN_WEBM/MapServer/tile/{z}/{y}/{x}',
+    // Catastro vectorial del AMVA (predios/manzanas/construcciones) por municipio.
+    // Servicios dinámicos ArcGIS (export). El backend los cachea por bbox.
+    catastro: {
+      bello:
+        process.env.CATASTRO_BELLO_URL ||
+        'https://portalidem.metropol.gov.co/server/rest/services/Bello_Catastro/MapServer/export',
+      medellin:
+        process.env.CATASTRO_MEDELLIN_URL ||
+        'https://portalidem.metropol.gov.co/server/rest/services/DISTRITO_MEDELLIN_CATASTRO/MapServer/export',
+    } as Record<string, string>,
     // Identificación requerida por la política de uso de Nominatim.
     userAgent:
       process.env.GEO_USER_AGENT ||
@@ -116,6 +126,11 @@ export const config = {
     maxTokens: parseInt(process.env.ASSISTANT_MAX_TOKENS || '700', 10),
     temperature: parseFloat(process.env.ASSISTANT_TEMPERATURE || '0.3'),
   },
+
+  // Raíz del código que el copiloto (rol admin) puede inspeccionar en solo
+  // lectura. En Docker se monta el monorepo en /workspace:ro. Fuera de Docker
+  // cae al cwd del proceso. El ProjectExplorerService bloquea secretos por código.
+  codeRoot: process.env.CODE_ROOT || process.cwd(),
 };
 
 /** URLs base de la API de Wompi según el entorno. */

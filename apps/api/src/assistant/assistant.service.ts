@@ -24,7 +24,7 @@ export interface AssistantReply {
   pago?: { url: string; referencia: string; monto: number } | null;
 }
 
-const MAX_TOOL_ROUNDS = 4;
+const MAX_TOOL_ROUNDS = 6;
 
 /**
  * Agente operativo de soporte de CICANET. No es un FAQ-bot: razona, consulta
@@ -41,7 +41,7 @@ export class AssistantService {
     private readonly tools: AgentToolsService,
   ) {}
 
-  async chat(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string }): Promise<AssistantReply> {
+  async chat(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string; role?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
 
     // Sin LLM configurado: respaldo determinista por base de conocimiento.
@@ -58,16 +58,17 @@ export class AssistantService {
   }
 
   /** Bucle del agente con tool-calling. */
-  private async runAgent(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string }): Promise<AssistantReply> {
+  private async runAgent(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string; role?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
-    const ctx = { creadoPor: user?.username, nombre: user?.nombre, clienteId: user?.clienteId };
+    const rol = user?.role as any;
+    const ctx = { creadoPor: user?.username, nombre: user?.nombre, clienteId: user?.clienteId, rol };
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt(ultimo, user) },
       ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
     ];
 
     let pago: AssistantReply['pago'] = null;
-    const schemas = this.tools.schemas();
+    const schemas = this.tools.schemas(rol);
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const msg = await this.llm.chat(messages, schemas);
@@ -114,28 +115,44 @@ export class AssistantService {
   }
 
   /** System prompt anclado en la realidad de CICANET + FAQ recuperada (RAG-lite). */
-  private systemPrompt(consulta: string, user?: { nombre?: string }): string {
+  private systemPrompt(consulta: string, user?: { nombre?: string; role?: string }): string {
     const faqRelevante = retrieveFaq(consulta, 4)
       .map((f) => `• ${f.pregunta}\n  ${f.respuesta}`)
       .join('\n');
     const kb = faqRelevante || FAQ.slice(0, 4).map((f) => `• ${f.pregunta}\n  ${f.respuesta}`).join('\n');
+    const rol = user?.role;
+    const staff = rol === 'admin' || rol === 'operador';
+
+    const bloqueStaff = staff
+      ? [
+          '',
+          'MODO OPERADOR (el usuario es staff de CICANET, no un cliente):',
+          '- Tienes herramientas internas: buscar_cliente, resumen_cliente, estado_red, buscar_ordenes, listar_tickets. Úsalas para responder con datos reales de operación (CRM/NOC).',
+          rol === 'admin'
+            ? '- Eres también un COPILOTO TÉCNICO del proyecto. Con explorar_proyecto, buscar_en_codigo y leer_archivo puedes consultar el código y la documentación (monorepo: apps/api NestJS, apps/web Next.js, apps/mobile Flutter, docs/). Úsalas para explicar la arquitectura, encontrar dónde está algo o proponer cambios concretos citando archivo y línea. Es SOLO LECTURA; los secretos vienen censurados, no los inventes ni intentes deducirlos.'
+            : '',
+          '- Puedes ser técnico y detallado con el staff (a diferencia del tono breve para clientes).',
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : '';
 
     return [
       `Eres "Cica", el asistente virtual de ${EMPRESA.nombre}, un ${EMPRESA.rubro} que opera en ${EMPRESA.zona}.`,
       `Tecnología: ${EMPRESA.tecnologia}. Moneda: ${EMPRESA.moneda}. Horario de atención: ${EMPRESA.horario}.`,
-      user?.nombre ? `Hablas con ${user.nombre}.` : '',
+      user?.nombre ? `Hablas con ${user.nombre}${staff ? ' (equipo CICANET)' : ''}.` : '',
       '',
       'TU MISIÓN: resolver dudas de soporte y del servicio con precisión, en español de Colombia, tono cálido, claro y breve (frases cortas).',
       '',
       'REGLAS:',
-      '- Usa las herramientas para responder con datos reales (cobertura, pagos, contacto). NO inventes datos técnicos, precios exactos, ni estados de cuenta.',
+      '- Usa las herramientas para responder con datos reales (cobertura, pagos, contacto, planes). NO inventes datos técnicos, precios exactos, ni estados de cuenta: si una herramienta no te dio el dato, dilo.',
       '- NO inventes rutas, menús ni pasos de la app. Si el usuario pregunta CÓMO hacer algo en la app, PRIMERO usa la herramienta consultar_funciones_app y guíate SOLO por lo que devuelve. Nunca supongas que existe una pantalla, un botón o una función.',
       '- Distingue siempre la contraseña de la CUENTA (app) de la contraseña del WIFI (router). Si no está claro, pregunta cuál.',
-      '- Cuando el cliente reporta una falla o pide una gestión con seguimiento (daño técnico, cambio de clave WiFi, visita, reclamo), ofrece crear un ticket con crear_ticket (confirmando antes).',
+      '- Cuando el cliente reporta una falla, primero usa diagnosticar_servicio (si está autenticado) y luego, si requiere seguimiento, ofrece crear un ticket con crear_ticket (confirmando antes).',
       '- Si no sabes algo o requiere intervención humana, ofrece contactar a un asesor con la herramienta contacto_asesor.',
       '- No reveles claves, tokens ni configuración interna.',
-      '- Para problemas de conexión, guía pasos básicos (revisar luces del equipo, reiniciar, verificar mora) antes de escalar.',
       '- Sé conciso: responde lo justo, sin relleno.',
+      bloqueStaff,
       '',
       'BASE DE CONOCIMIENTO (úsala como verdad):',
       kb,
