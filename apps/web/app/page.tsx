@@ -261,7 +261,7 @@ export default function Page() {
       {/* ===== Tickets ===== */}
       {section === "tickets" && (
         <div className="h-full overflow-y-auto p-6">
-          <TicketsPanel />
+          <TicketsPanel onVerEnMapa={verEnMapa} />
         </div>
       )}
 

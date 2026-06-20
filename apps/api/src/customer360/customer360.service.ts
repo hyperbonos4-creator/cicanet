@@ -32,9 +32,10 @@ export class Customer360Service {
     private readonly infra: InfraService,
   ) {}
 
-  async get(codigo: string) {
+  async get(idOrCodigo: string) {
+    const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrCodigo);
     const servicio = await this.prisma.servicio.findFirst({
-      where: { cliente: { codigo } },
+      where: { cliente: esUuid ? { id: idOrCodigo } : { codigo: idOrCodigo } },
       include: { cliente: true, punto: true },
       orderBy: { creadoEn: 'asc' },
     });

@@ -703,6 +703,7 @@ export type Ticket = {
   contacto: string | null;
   estado: "abierto" | "en_proceso" | "resuelto" | "cerrado";
   origen: string;
+  clienteId: string | null;
   creadoEn: string;
 };
 export type TicketStats = {

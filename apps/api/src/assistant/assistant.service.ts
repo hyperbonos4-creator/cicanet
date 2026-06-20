@@ -100,6 +100,7 @@ export class AssistantService {
     const ctx = { creadoPor: user?.username, nombre: user?.nombre, clienteId: user?.clienteId, rol };
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt(ultimo, user) },
+      // (el prompt de sistema ya conoce la identidad del usuario vía `user`)
       // Historial corto: menos contexto = menos latencia. Las últimas 6 vueltas
       // bastan para mantener el hilo de una conversación de soporte.
       ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
@@ -220,7 +221,7 @@ export class AssistantService {
   }
 
   /** System prompt anclado en la realidad de CICANET + FAQ recuperada (RAG-lite). */
-  private systemPrompt(consulta: string, user?: { nombre?: string; role?: string }): string {
+  private systemPrompt(consulta: string, user?: { nombre?: string; role?: string; clienteId?: string }): string {
     const faqRelevante = retrieveFaq(consulta, 4)
       .map((f) => `• ${f.pregunta}\n  ${f.respuesta}`)
       .join('\n');
@@ -228,6 +229,29 @@ export class AssistantService {
     const rol = user?.role;
     const staff = rol === 'admin' || rol === 'operador';
     const contable = rol === 'admin' || rol === 'contador';
+    // Cliente identificado: tiene una cuenta del CRM ligada a su sesión. Cica NO
+    // debe volver a preguntarle si está autenticado — ya lo sabe por el contexto.
+    const autenticado = !!user?.clienteId;
+
+    // Bloque de identidad: le dice a Cica, sin ambigüedad, con quién habla y qué
+    // puede hacer de inmediato. Esto evita la pregunta absurda "¿estás autenticado?".
+    const bloqueIdentidad = staff
+      ? '' // el staff se describe en bloqueStaff
+      : autenticado
+        ? [
+            '',
+            'IDENTIDAD DEL USUARIO (CLIENTE YA AUTENTICADO):',
+            `- Hablas con ${user?.nombre ?? 'un cliente'}, un cliente con sesión iniciada en la app de CICANET. Su cuenta ya está identificada y tus herramientas reciben su identificador automáticamente.`,
+            '- NUNCA le preguntes si está autenticado, ni le pidas iniciar sesión, documento, código de cliente o datos de cuenta: YA lo tienes. Pedírselo es un error y rompe la experiencia.',
+            '- Cuando pregunte por SU servicio, factura, deuda o una falla, usa de una vez mi_servicio, mis_facturas o diagnosticar_servicio. No pidas permiso para consultar lo suyo.',
+            '- Para crear un ticket (crear_ticket): se asocia solo a su cuenta. NO pidas datos; basta confirmar en una frase el problema ("¿Te creo el ticket para que un técnico revise el cable?") y, si dice que sí, créalo de inmediato.',
+          ].join('\n')
+        : [
+            '',
+            'IDENTIDAD DEL USUARIO (ANÓNIMO / SIN SESIÓN):',
+            '- No sabes quién es porque no ha iniciado sesión. Para acciones sobre su cuenta (ver su servicio/facturas, diagnóstico o crear un ticket ligado a su cuenta) necesita iniciar sesión en la app con su documento; pídeselo solo cuando la acción lo requiera.',
+            '- Igual puedes ayudarlo sin sesión: cobertura, planes, precios, cómo pagar, info general y conectarlo con un asesor. Si reporta una falla y no quiere iniciar sesión, toma su nombre y teléfono y crea el ticket con esos datos de contacto.',
+          ].join('\n');
 
     const bloqueContable = contable
       ? [
@@ -256,6 +280,7 @@ export class AssistantService {
       `Eres "Cica", el asistente virtual de ${EMPRESA.nombre}, un ${EMPRESA.rubro} que opera en ${EMPRESA.zona}.`,
       `Tecnología: ${EMPRESA.tecnologia}. Moneda: ${EMPRESA.moneda}. Horario de atención: ${EMPRESA.horario}.`,
       user?.nombre ? `Hablas con ${user.nombre}${staff ? ' (equipo CICANET)' : ''}.` : '',
+      bloqueIdentidad,
       '',
       'TU MISIÓN: resolver dudas de soporte y del servicio con precisión, en español de Colombia, tono cálido, claro y breve (frases cortas).',
       '',
@@ -265,7 +290,7 @@ export class AssistantService {
       '- Usa las herramientas para responder con datos reales (cobertura, pagos, contacto, planes). NO inventes datos técnicos, precios exactos, ni estados de cuenta: si una herramienta no te dio el dato, dilo.',
       '- NO inventes rutas, menús ni pasos de la app. Si el usuario pregunta CÓMO hacer algo en la app, PRIMERO usa la herramienta consultar_funciones_app y guíate SOLO por lo que devuelve. Nunca supongas que existe una pantalla, un botón o una función.',
       '- Distingue siempre la contraseña de la CUENTA (app) de la contraseña del WIFI (router). Si no está claro, pregunta cuál.',
-      '- Cuando el cliente reporta una falla, primero usa diagnosticar_servicio (si está autenticado) y luego, si requiere seguimiento, ofrece crear un ticket con crear_ticket (confirmando antes).',
+      '- Cuando un cliente AUTENTICADO reporta una falla: usa diagnosticar_servicio de inmediato (sin pedirle datos) y, si requiere seguimiento, confirma en una frase y crea el ticket con crear_ticket. Si NO tiene sesión, pídele iniciar sesión para ligarlo a su cuenta o tómale nombre y teléfono para el ticket.',
       '- Si no sabes algo o requiere intervención humana, usa la herramienta contacto_asesor y responde ÚNICAMENTE que un asesor se comunicará con el cliente pronto. NUNCA entregues enlaces de WhatsApp, números ni digas que tú envías un mensaje: del contacto se encarga el agente.',
       '- No reveles claves, tokens ni configuración interna.',
       '- Sé conciso: responde lo justo, sin relleno.',

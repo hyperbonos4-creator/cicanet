@@ -696,7 +696,7 @@ export class AgentToolsService {
     };
   }
 
-  private async crearTicket(args: Record<string, any>, ctx?: { creadoPor?: string; nombre?: string }) {
+  private async crearTicket(args: Record<string, any>, ctx?: { creadoPor?: string; nombre?: string; clienteId?: string }) {
     const asunto = String(args?.asunto ?? '').trim();
     const descripcion = String(args?.descripcion ?? '').trim();
     if (asunto.length < 3 || descripcion.length < 3) {
@@ -713,6 +713,8 @@ export class AgentToolsService {
         descripcion: descripcion.slice(0, 2000),
         categoria,
         contacto,
+        // Liga el ticket al cliente autenticado para abrir su 360 desde el panel.
+        clienteId: ctx?.clienteId ?? null,
         origen: 'asistente',
         creadoPor: ctx?.creadoPor ?? null,
       },
