@@ -685,3 +685,42 @@ model DepreciacionRegistro {
   @@unique([activoFijoId, periodo])
   @@map("depreciacion_registro")
 }
+
+/// Empleado para nómina. Maestro mínimo (la liquidación calcula salud/pensión).
+model Empleado {
+  id               String   @id @default(uuid()) @db.Uuid
+  nombre           String
+  documento        String   @unique
+  tipoDocumento    String   @default("CC") @map("tipo_documento")
+  cargo            String?
+  salarioBase      Decimal  @db.Decimal(16, 2) @map("salario_base")
+  fechaIngreso     DateTime @db.Date @map("fecha_ingreso")
+  email            String?
+  estado           String   @default("activo") // activo | retirado
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  liquidaciones    LiquidacionNomina[]
+
+  @@map("empleado")
+}
+
+/// Liquidación de nómina de un empleado en un periodo (idempotente por empleado+periodo).
+model LiquidacionNomina {
+  id               String   @id @default(uuid()) @db.Uuid
+  empleadoId       String   @map("empleado_id") @db.Uuid
+  empleado         Empleado @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  periodo          String   // "2026-06"
+  /// Detalle [{ concepto, valor }].
+  devengados       Json     @db.JsonB
+  deducciones      Json     @db.JsonB
+  totalDevengado   Decimal  @db.Decimal(16, 2) @map("total_devengado")
+  totalDeducciones Decimal  @db.Decimal(16, 2) @map("total_deducciones")
+  neto             Decimal  @db.Decimal(16, 2)
+  asientoId        String?  @map("asiento_id") @db.Uuid
+  /// Si se emitió el documento de nómina electrónica ante la DIAN.
+  documentoElectronico Boolean @default(false) @map("documento_electronico")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  @@unique([empleadoId, periodo])
+  @@map("liquidacion_nomina")
+}

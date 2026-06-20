@@ -123,19 +123,25 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 
 > Lo que amarra a la contadora a Helisa/Siigo en cierre anual. Trabajo fiscal pesado.
 
-### T3.1 — Información exógena / medios magnéticos
-- **Modelo:** mapeo `CuentaContable` → **concepto DIAN** (1001 pagos, 1003 retenciones
-  practicadas, 1005 IVA descontable, 1006 IVA generado, 1007 ingresos, 1008 CxC, 1009 CxP).
-- Generador anual: escanea movimientos, cruza NIT de terceros, exporta formatos
-  (Excel/XML DIAN). Patrón validado por l10n_co de Odoo.
-- **Aceptación:** generar formato 1001 de un año demo con totales por tercero correctos.
+### T3.1 — Información exógena / medios magnéticos ✅ (2026-06-20)
+- **Backend** `apps/api/src/exogena/`: genera los formatos derivando del ledger por
+  tercero — **1001** (pagos/gastos), **1003** (retenciones practicadas), **1005**
+  (IVA descontable), **1006** (IVA generado), **1007** (ingresos), **1008** (CxC),
+  **1009** (CxP). Hereda el tercero del asiento para líneas de ingreso/gasto. ✅
+- Endpoints: `GET /exogena/formatos`, `/exogena/:formato?anio=`, `/exogena/:formato/csv`. ✅
+- **Web:** pestaña "Exógena" (selector de formato + año, tabla por tercero, exportar Excel). ✅
+- **Verificado:** 1007 ingresos $195k por 2 terceros; 1001 pagos $1.000.000.
+- **Nota:** borrador que la contadora revisa antes de presentar (la clasificación fina de conceptos es criterio profesional).
 
-### T3.2 — Nómina electrónica
-- **Aprovechar el módulo `nomina` de `facho`** (ya vendorizado: devengados, deducciones,
-  salud, pensión, transporte, horas extra).
-- Modelo de empleados/contratos, liquidación mensual, documento de nómina electrónica DIAN,
-  y contabilización (gasto de personal + pasivos laborales + retenciones).
-- **Aceptación:** liquidar una nómina demo emite el documento y deja el asiento cuadrado.
+### T3.2 — Nómina electrónica ✅ (2026-06-20)
+- **Modelo:** `Empleado` + `LiquidacionNomina` (idempotente por empleado+periodo). ✅
+- **Backend** `apps/api/src/payroll/`: maestro de empleados, liquidación (devengados −
+  salud 4% − pensión 4%, auxilio de transporte) y contabilización
+  (Dr 510506; Cr 237005 salud, 237006 pensión, 250505 neto al empleado). Crea las
+  cuentas de aportes si faltan. Config (SMMLV/auxilio/%) editable. ✅
+- **Web:** pestaña "Nómina" (empleados, preview, liquidar). ✅
+- **Verificado:** empleado $2.000.000 → devengado $2.200.000, neto $2.040.000, idempotente.
+- **Pendiente (certs DIAN):** emisión del documento de nómina electrónica vía `einvoice` (módulo `nomina` de facho).
 
 ### T3.3 — NIIF / notas y cumplimiento
 - Etiquetas NIIF en el PUC, notas a los estados financieros, conciliación fiscal básica.

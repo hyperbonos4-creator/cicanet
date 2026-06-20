@@ -1085,3 +1085,23 @@ export function depreciacionPreview(periodo: string): Promise<{ periodo: string;
 export function depreciacionRun(periodo: string, dryRun = false): Promise<{ periodo: string; procesados: number; totalDepreciacion: number }> {
   return authFetch("/assets/depreciacion/run", { method: "POST", body: JSON.stringify({ periodo, dryRun }) });
 }
+
+// ---- Información exógena (módulo exogena) ----
+export type FormatoExogena = { codigo: string; nombre: string; descripcion: string };
+export function listFormatosExogena(): Promise<FormatoExogena[]> { return authFetch("/exogena/formatos"); }
+export function generarExogena(formato: string, anio: number): Promise<{ formato: string; nombre: string; anio: number; terceros: number; total: number; filas: { tipoDocumento: string; nit: string; dv: string | null; nombre: string; valor: number }[] }> {
+  return authFetch(`/exogena/${formato}?anio=${anio}`);
+}
+
+// ---- Nómina (módulo payroll) ----
+export type Empleado = { id: string; nombre: string; documento: string; cargo: string | null; salarioBase: string; estado: string };
+export function listEmpleados(): Promise<Empleado[]> { return authFetch("/payroll/empleados"); }
+export function crearEmpleado(input: { nombre: string; documento: string; cargo?: string; salarioBase: number }): Promise<Empleado> {
+  return authFetch("/payroll/empleados", { method: "POST", body: JSON.stringify(input) });
+}
+export function nominaPreview(periodo: string): Promise<{ periodo: string; empleados: number; totalDevengado: number; totalNeto: number; items: any[] }> {
+  return authFetch(`/payroll/preview?periodo=${periodo}`);
+}
+export function nominaRun(periodo: string, dryRun = false): Promise<{ periodo: string; liquidados: number; totalNeto: number }> {
+  return authFetch("/payroll/run", { method: "POST", body: JSON.stringify({ periodo, dryRun }) });
+}

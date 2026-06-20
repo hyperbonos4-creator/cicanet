@@ -23,6 +23,8 @@ import { DunningModule } from './dunning/dunning.module';
 import { PayablesModule } from './payables/payables.module';
 import { TaxesModule } from './taxes/taxes.module';
 import { AssetsModule } from './assets/assets.module';
+import { ExogenaModule } from './exogena/exogena.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -51,6 +53,8 @@ import { HealthController } from './health.controller';
     PayablesModule,
     TaxesModule,
     AssetsModule,
+    ExogenaModule,
+    PayrollModule,
   ],
   controllers: [HealthController],
 })

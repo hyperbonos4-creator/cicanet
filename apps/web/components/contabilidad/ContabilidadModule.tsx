@@ -39,6 +39,12 @@ import {
   crearActivoFijo,
   depreciacionPreview,
   depreciacionRun,
+  listFormatosExogena,
+  generarExogena,
+  listEmpleados,
+  crearEmpleado,
+  nominaPreview,
+  nominaRun,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -53,9 +59,11 @@ import {
   type FacturaCompra,
   type LineaCompra,
   type ActivoFijo,
+  type FormatoExogena,
+  type Empleado,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "compras" | "activos" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "facturacion" | "cobranza" | "compras" | "activos" | "nomina" | "exogena" | "bancos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -67,6 +75,8 @@ const TABS: { key: Tab; label: string; soloAdmin?: boolean }[] = [
   { key: "facturacion", label: "Facturación", soloAdmin: true },
   { key: "compras", label: "Compras / CxP" },
   { key: "activos", label: "Activos" },
+  { key: "nomina", label: "Nómina" },
+  { key: "exogena", label: "Exógena" },
   { key: "bancos", label: "Bancos" },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
@@ -103,6 +113,8 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "facturacion" && <FacturacionTab />}
       {tab === "compras" && <ComprasTab canEdit={canEdit} />}
       {tab === "activos" && <ActivosTab isAdmin={isAdmin} />}
+      {tab === "nomina" && <NominaTab isAdmin={isAdmin} />}
+      {tab === "exogena" && <ExogenaTab />}
       {tab === "bancos" && <BancosTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
@@ -133,6 +145,131 @@ function DashboardTab() {
         <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
       </div>
+    </div>
+  );
+}
+
+/* ===================== Nómina ===================== */
+function NominaTab({ isAdmin }: { isAdmin: boolean }) {
+  const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const ahora = new Date();
+  const [periodo, setPeriodo] = useState(`${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`);
+  const [prev, setPrev] = useState<{ empleados: number; totalDevengado: number; totalNeto: number } | null>(null);
+  const [nombre, setNombre] = useState(""); const [doc, setDoc] = useState(""); const [salario, setSalario] = useState(0);
+  const [msg, setMsg] = useState<string | null>(null); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+
+  async function refresh() { try { setEmpleados(await listEmpleados()); setPrev(await nominaPreview(periodo)); setErr(null); } catch (e: any) { setErr(e.message); } }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [periodo]);
+
+  async function crear() {
+    if (!nombre || !doc || salario <= 0) return;
+    setBusy(true);
+    try { await crearEmpleado({ nombre, documento: doc, salarioBase: salario }); setNombre(""); setDoc(""); setSalario(0); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function correr() {
+    if (!confirm(`¿Liquidar la nómina de ${periodo}? Genera asientos por cada empleado.`)) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try { const r = await nominaRun(periodo); setMsg(`Nómina ${periodo}: ${r.liquidados} empleado(s), neto ${money(r.totalNeto)}.`); await refresh(); }
+    catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="glass p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Periodo"><input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className={input} /></Field>
+          {prev && <div className="text-xs text-cica-muted">Por liquidar: <b className="text-cica-gold">{prev.empleados}</b> · devengado {money(prev.totalDevengado)} · neto {money(prev.totalNeto)}</div>}
+          {isAdmin && <button onClick={correr} disabled={busy || !prev?.empleados} className="ml-auto rounded-lg bg-gradient-to-r from-cica-amber to-cica-gold px-4 py-2 text-sm font-bold text-cica-black disabled:opacity-50">Liquidar nómina</button>}
+        </div>
+        {msg && <div className="mt-3 rounded-lg border border-status-ftth/40 bg-status-ftth/10 px-3 py-2 text-xs text-status-ftth">{msg}</div>}
+        {err && <div className="mt-3 rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{err}</div>}
+        <p className="mt-2 text-[10px] text-cica-muted">La emisión del documento de nómina electrónica ante la DIAN se habilita al cargar los certificados de CICANET (vía einvoice).</p>
+      </div>
+
+      {isAdmin && (
+        <div className="glass p-4">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Registrar empleado</div>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} className={input} /></Field>
+            <Field label="Documento"><input value={doc} onChange={(e) => setDoc(e.target.value)} className={input} /></Field>
+            <Field label="Salario base"><input type="number" value={salario || ""} onChange={(e) => setSalario(Number(e.target.value))} className={input} /></Field>
+            <button onClick={crear} disabled={busy} className="rounded-lg border border-cica-border px-3 py-2 text-xs text-cica-silver hover:border-cica-gold/40">+ Empleado</button>
+          </div>
+        </div>
+      )}
+
+      <div className="glass p-4">
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">Empleado</th><th className="text-left">Cargo</th><th className="text-right">Salario</th><th className="text-right">Estado</th></tr></thead>
+          <tbody>
+            {empleados.map((e) => (
+              <tr key={e.id} className="border-t border-cica-border/30">
+                <td className="py-1 text-cica-silver">{e.nombre} · {e.documento}</td>
+                <td className="text-cica-muted">{e.cargo ?? "—"}</td>
+                <td className="text-right text-cica-silver">{money(Number(e.salarioBase))}</td>
+                <td className="text-right"><span className={`text-[11px] ${e.estado === "activo" ? "text-status-ftth" : "text-cica-muted"}`}>{e.estado}</span></td>
+              </tr>
+            ))}
+            {empleados.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-cica-muted">Sin empleados registrados.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Información exógena ===================== */
+function ExogenaTab() {
+  const [formatos, setFormatos] = useState<FormatoExogena[]>([]);
+  const [formato, setFormato] = useState("1007");
+  const [anio, setAnio] = useState(new Date().getFullYear());
+  const [data, setData] = useState<{ nombre: string; terceros: number; total: number; filas: any[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { listFormatosExogena().then(setFormatos).catch(() => {}); }, []);
+  useEffect(() => { setData(null); generarExogena(formato, anio).then(setData).catch((e) => setErr(e.message)); }, [formato, anio]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="glass p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Formato DIAN">
+            <select value={formato} onChange={(e) => setFormato(e.target.value)} className={`${input} min-w-[280px]`}>
+              {formatos.map((f) => <option key={f.codigo} value={f.codigo}>{f.codigo} · {f.nombre}</option>)}
+            </select>
+          </Field>
+          <Field label="Año"><input type="number" value={anio} onChange={(e) => setAnio(Number(e.target.value))} className={`${input} w-28`} /></Field>
+          <button onClick={() => downloadFile(`/exogena/${formato}/csv?anio=${anio}`, `exogena-${formato}-${anio}.csv`).catch((e) => alert(e.message))} className="rounded-lg border border-cica-border px-3 py-2 text-xs text-cica-silver hover:border-cica-gold/40">Exportar (Excel)</button>
+        </div>
+        <p className="mt-2 text-[10px] text-cica-muted">Borrador derivado del ledger por tercero. La contadora revisa y ajusta conceptos antes de presentar a la DIAN.</p>
+      </div>
+
+      {err && <Aviso texto={err} />}
+      {data && (
+        <div className="glass p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-bold text-white">{data.nombre} · {anio}</div>
+            <div className="text-sm font-bold text-cica-gold">{money(data.total)} · {data.terceros} tercero(s)</div>
+          </div>
+          <div className="max-h-[55vh] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-cica-navy/90"><tr className="text-cica-muted"><th className="text-left">Tipo</th><th className="text-left">NIT/Doc</th><th className="text-left">Nombre</th><th className="text-right px-2">Valor</th></tr></thead>
+              <tbody>
+                {data.filas.map((f, i) => (
+                  <tr key={i} className="border-t border-cica-border/30">
+                    <td className="py-1 text-cica-muted">{f.tipoDocumento}</td>
+                    <td className="text-cica-silver">{f.nit}{f.dv ? `-${f.dv}` : ""}</td>
+                    <td className="text-cica-silver">{f.nombre}</td>
+                    <td className="text-right px-2 text-cica-silver">{money(f.valor)}</td>
+                  </tr>
+                ))}
+                {data.filas.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-cica-muted">Sin datos para este formato/año.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
