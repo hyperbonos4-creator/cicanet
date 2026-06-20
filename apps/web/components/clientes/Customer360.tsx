@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCliente360, updateCliente, createTicket, type Cliente360 } from "../../lib/api";
+import { getCliente360, updateCliente, createTicket, paymentsCheckout, type Cliente360 } from "../../lib/api";
 import { money } from "./ClientesModule";
 
 type Tab = "resumen" | "servicio" | "topologia" | "facturacion" | "tickets" | "equipos";
@@ -40,6 +40,7 @@ export default function Customer360({
   const [acting, setActing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [ticketOpen, setTicketOpen] = useState(false);
+  const [cobroUrl, setCobroUrl] = useState<string | null>(null);
 
   function reload() {
     getCliente360(id).then(setData).catch((e) => setErr(e.message));
@@ -48,6 +49,25 @@ export default function Customer360({
   useEffect(() => {
     getCliente360(id).then(setData).catch((e) => setErr(e.message));
   }, [id]);
+
+  async function cobrar() {
+    if (acting || !data) return;
+    const pendiente = data.facturacion.facturas.find((f) => !f.pagada && f.estado !== "anulada");
+    setActing(true);
+    setToast(null);
+    setCobroUrl(null);
+    try {
+      const co = pendiente
+        ? await paymentsCheckout({ facturaId: pendiente.id, email: data.cliente.email ?? undefined })
+        : await paymentsCheckout({ montoCents: Math.round(data.servicio.saldo * 100), descripcion: `Saldo ${data.cliente.nombre}`, email: data.cliente.email ?? undefined });
+      setCobroUrl(co.checkoutUrl);
+      setToast("Link de pago generado ✓");
+    } catch (e: any) {
+      setToast(e.message || "No se pudo generar el cobro.");
+    } finally {
+      setActing(false);
+    }
+  }
 
   async function accionEstado(estadoServicio: string, estadoCliente: string, label: string) {
     if (acting) return;
@@ -111,6 +131,19 @@ export default function Customer360({
                   <ActionBtn disabled={acting} tone="ok" onClick={() => accionEstado("activo", "activo", "Activado")}>Activar</ActionBtn>
                 )}
                 <ActionBtn disabled={acting} tone="neutral" onClick={() => setTicketOpen((v) => !v)}>Crear ticket</ActionBtn>
+                {data.servicio.saldo > 0 && (
+                  <ActionBtn disabled={acting} tone="ok" onClick={cobrar}>Cobrar</ActionBtn>
+                )}
+              </div>
+            )}
+            {cobroUrl && (
+              <div className="mt-2 rounded-lg border border-status-ftth/40 bg-status-ftth/10 p-2.5">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-status-ftth">Link de pago</div>
+                <a href={cobroUrl} target="_blank" rel="noreferrer" className="block break-all text-[11px] text-status-ftth hover:underline">{cobroUrl}</a>
+                <button
+                  onClick={() => { navigator.clipboard?.writeText(cobroUrl); setToast("Link copiado ✓"); }}
+                  className="mt-1.5 rounded border border-status-ftth/40 px-2 py-1 text-[10px] font-semibold text-status-ftth hover:bg-status-ftth/10"
+                >Copiar para WhatsApp</button>
               </div>
             )}
             {toast && <div className="mt-2 rounded-lg border border-cica-border/60 bg-cica-navy/40 px-3 py-1.5 text-[11px] text-cica-silver">{toast}</div>}

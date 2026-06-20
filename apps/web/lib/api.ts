@@ -553,6 +553,24 @@ export function getCliente360(id: string): Promise<Cliente360> {
   return authFetch(`/clientes/${encodeURIComponent(id)}/360`);
 }
 
+// ---- Cobro: genera el link de pago Wompi de una factura ----
+export type CheckoutData = {
+  referencia: string;
+  montoCents: number;
+  moneda: string;
+  descripcion?: string;
+  checkoutUrl: string;
+};
+
+export function paymentsCheckout(input: {
+  facturaId?: string;
+  montoCents?: number;
+  descripcion?: string;
+  email?: string;
+}): Promise<CheckoutData> {
+  return authFetch("/payments/checkout", { method: "POST", body: JSON.stringify(input) });
+}
+
 // ---- Soporte (canal de WhatsApp configurable por el admin) ----
 export type SupportWhatsapp = {
   numero: string;
