@@ -1,11 +1,58 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 const ESTADOS = ['abierto', 'en_proceso', 'resuelto', 'cerrado'];
+const CATEGORIAS = ['tecnico', 'facturacion', 'comercial', 'general'];
 
 @Injectable()
 export class TicketsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Crea un ticket (desde el panel/staff o el asistente). */
+  async create(input: {
+    asunto: string;
+    descripcion: string;
+    categoria?: string;
+    clienteId?: string;
+    contacto?: string;
+    creadoPor?: string;
+    origen?: string;
+  }) {
+    const asunto = (input.asunto || '').trim();
+    const descripcion = (input.descripcion || '').trim();
+    if (asunto.length < 3 || descripcion.length < 3) {
+      throw new BadRequestException('Asunto y descripción son obligatorios.');
+    }
+    const categoria = CATEGORIAS.includes(String(input.categoria)) ? String(input.categoria) : 'general';
+    const codigo = `TCK-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString('hex').toUpperCase()}`;
+    // clienteId puede llegar como UUID o como código público (CLI-0001): se
+    // normaliza al UUID real (la columna es uuid). Si no resuelve, queda null.
+    const clienteId = await this.resolverClienteId(input.clienteId);
+    return this.prisma.ticket.create({
+      data: {
+        codigo,
+        asunto: asunto.slice(0, 200),
+        descripcion: descripcion.slice(0, 2000),
+        categoria,
+        clienteId,
+        contacto: input.contacto?.slice(0, 120) ?? null,
+        creadoPor: input.creadoPor ?? null,
+        origen: input.origen ?? 'panel',
+      },
+    });
+  }
+
+  /** Acepta UUID o código (CLI-0001) y devuelve el UUID del cliente, o null. */
+  private async resolverClienteId(value?: string): Promise<string | null> {
+    const v = (value || '').trim();
+    if (!v) return null;
+    const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    const cliente = esUuid
+      ? await this.prisma.cliente.findUnique({ where: { id: v } })
+      : await this.prisma.cliente.findUnique({ where: { codigo: v } });
+    return cliente?.id ?? null;
+  }
 
   /** Lista tickets (opcionalmente por estado o categoría), más recientes primero. */
   async list(filtros: { estado?: string; categoria?: string } = {}) {

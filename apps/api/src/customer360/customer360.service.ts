@@ -51,7 +51,7 @@ export class Customer360Service {
     );
     const pendientes = facturas.filter((f) => f.estado !== 'pagada' && f.estado !== 'anulada');
 
-    // --- Tickets (del cliente: por clienteId o por documento de login) ---
+    // --- Tickets (del cliente: por clienteId UUID o documento de login) ---
     const tickets = await this.prisma.ticket.findMany({
       where: { OR: [{ clienteId: c.id }, { creadoPor: c.documento }] },
       orderBy: { creadoEn: 'desc' },

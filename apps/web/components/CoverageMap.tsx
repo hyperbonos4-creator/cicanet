@@ -199,8 +199,9 @@ export default function CoverageMap({
           tiles: [GEOMEDELLIN_TILES],
           tileSize: 256,
           minzoom: 0,
-          maxzoom: 22,
-          attribution: "Ortofoto © Alcaldía de Medellín · GeoMedellín",
+          // El caché oficial llega ~z19; MapLibre reescala más allá (sin 404).
+          maxzoom: 19,
+          attribution: "Ortofoto 2024 © Alcaldía de Medellín · GeoMedellín (CC)",
         });
         map.addLayer({
           id: "ortofoto",

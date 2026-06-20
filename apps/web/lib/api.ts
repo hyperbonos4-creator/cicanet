@@ -667,3 +667,13 @@ export function updateTicketEstado(id: string, estado: string): Promise<Ticket> 
     body: JSON.stringify({ estado }),
   });
 }
+
+export function createTicket(input: {
+  asunto: string;
+  descripcion: string;
+  categoria?: string;
+  clienteId?: string;
+  contacto?: string;
+}): Promise<Ticket> {
+  return authFetch("/tickets", { method: "POST", body: JSON.stringify(input) });
+}

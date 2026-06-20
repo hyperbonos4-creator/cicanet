@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getCliente360, type Cliente360 } from "../../lib/api";
+import { getCliente360, updateCliente, createTicket, type Cliente360 } from "../../lib/api";
 import { money } from "./ClientesModule";
 
 type Tab = "resumen" | "servicio" | "topologia" | "facturacion" | "tickets" | "equipos";
@@ -37,10 +37,32 @@ export default function Customer360({
   const [data, setData] = useState<Cliente360 | null>(null);
   const [tab, setTab] = useState<Tab>("resumen");
   const [err, setErr] = useState<string | null>(null);
+  const [acting, setActing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [ticketOpen, setTicketOpen] = useState(false);
+
+  function reload() {
+    getCliente360(id).then(setData).catch((e) => setErr(e.message));
+  }
 
   useEffect(() => {
     getCliente360(id).then(setData).catch((e) => setErr(e.message));
   }, [id]);
+
+  async function accionEstado(estadoServicio: string, estadoCliente: string, label: string) {
+    if (acting) return;
+    setActing(true);
+    setToast(null);
+    try {
+      await updateCliente(id, { estadoServicio: estadoServicio as any, estado: estadoCliente as any });
+      setToast(`${label} ✓`);
+      reload();
+    } catch (e: any) {
+      setToast(e.message || "No se pudo aplicar la acción.");
+    } finally {
+      setActing(false);
+    }
+  }
 
   if (err) return <div className="mx-auto max-w-5xl"><button onClick={onBack} className="mb-4 text-xs text-cica-gold">← Volver</button><div className="glass p-6 text-sm text-status-sin">{err}</div></div>;
   if (!data) return <div className="grid h-full place-items-center text-cica-muted"><div className="h-9 w-9 animate-spin rounded-full border-2 border-cica-border border-t-cica-gold" /></div>;
@@ -73,6 +95,31 @@ export default function Customer360({
             </div>
             {canEdit && (
               <button onClick={() => onEdit(cliente.id)} className="btn-cica mt-4 w-full text-xs">Editar datos</button>
+            )}
+            {canEdit && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {servicio.estadoServicio === "activo" && (
+                  <ActionBtn disabled={acting} tone="warn" onClick={() => accionEstado("suspendido", "suspendido", "Suspendido")}>Suspender</ActionBtn>
+                )}
+                {(servicio.estadoServicio === "suspendido" || servicio.estadoServicio === "cortado") && (
+                  <ActionBtn disabled={acting} tone="ok" onClick={() => accionEstado("activo", "activo", "Reactivado")}>Reactivar</ActionBtn>
+                )}
+                {(servicio.estadoServicio === "activo" || servicio.estadoServicio === "suspendido") && (
+                  <ActionBtn disabled={acting} tone="danger" onClick={() => accionEstado("cortado", "suspendido", "Cortado")}>Cortar</ActionBtn>
+                )}
+                {servicio.estadoServicio === "instalacion_pendiente" && (
+                  <ActionBtn disabled={acting} tone="ok" onClick={() => accionEstado("activo", "activo", "Activado")}>Activar</ActionBtn>
+                )}
+                <ActionBtn disabled={acting} tone="neutral" onClick={() => setTicketOpen((v) => !v)}>Crear ticket</ActionBtn>
+              </div>
+            )}
+            {toast && <div className="mt-2 rounded-lg border border-cica-border/60 bg-cica-navy/40 px-3 py-1.5 text-[11px] text-cica-silver">{toast}</div>}
+            {ticketOpen && canEdit && (
+              <TicketMini
+                clienteId={cliente.id}
+                onClose={() => setTicketOpen(false)}
+                onCreated={() => { setTicketOpen(false); setToast("Ticket creado ✓"); setTab("tickets"); reload(); }}
+              />
             )}
           </div>
 
@@ -266,4 +313,64 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <div className="flex justify-between gap-2 text-xs"><span className="text-cica-muted">{k}</span><span className="text-right font-medium text-cica-silver">{v}</span></div>;
+}
+
+const ACTION_TONE: Record<string, string> = {
+  ok: "border-status-ftth/40 text-status-ftth hover:bg-status-ftth/10",
+  warn: "border-status-parcial/40 text-status-parcial hover:bg-status-parcial/10",
+  danger: "border-status-sin/40 text-status-sin hover:bg-status-sin/10",
+  neutral: "border-cica-border/60 text-cica-silver hover:bg-cica-border/30",
+};
+function ActionBtn({ children, onClick, tone, disabled }: { children: React.ReactNode; onClick: () => void; tone: string; disabled?: boolean }) {
+  return (
+    <button onClick={onClick} disabled={disabled}
+      className={`flex-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-50 ${ACTION_TONE[tone]}`}>
+      {children}
+    </button>
+  );
+}
+
+function TicketMini({ clienteId, onClose, onCreated }: { clienteId: string; onClose: () => void; onCreated: () => void }) {
+  const [asunto, setAsunto] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [categoria, setCategoria] = useState("tecnico");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    if (asunto.trim().length < 3 || descripcion.trim().length < 3) {
+      setError("Completa asunto y descripción.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await createTicket({ asunto, descripcion, categoria, clienteId });
+      onCreated();
+    } catch (e: any) {
+      setError(e.message || "No se pudo crear.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inp = "w-full rounded-lg border border-cica-border bg-cica-navy/80 px-3 py-2 text-xs text-cica-silver outline-none focus:border-cica-gold";
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-lg border border-cica-border/60 bg-cica-navy/40 p-3">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-cica-muted">Nuevo ticket</div>
+      <input value={asunto} onChange={(e) => setAsunto(e.target.value)} placeholder="Asunto" className={inp} />
+      <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Descripción" rows={2} className={inp + " resize-none"} />
+      <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className={inp}>
+        <option value="tecnico">Técnico</option>
+        <option value="facturacion">Facturación</option>
+        <option value="comercial">Comercial</option>
+        <option value="general">General</option>
+      </select>
+      {error && <div className="text-[11px] text-status-sin">{error}</div>}
+      <div className="flex gap-2">
+        <button onClick={guardar} disabled={saving} className="btn-cica flex-1 text-xs disabled:opacity-50">{saving ? "Creando…" : "Crear"}</button>
+        <button onClick={onClose} className="rounded-lg border border-cica-border/60 px-3 text-xs text-cica-muted">Cancelar</button>
+      </div>
+    </div>
+  );
 }
