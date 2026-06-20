@@ -29,6 +29,8 @@ export interface ToolSchema {
 export interface AssistantMessage {
   content: string | null;
   tool_calls?: ToolCall[];
+  /** Uso de tokens del proveedor (si lo reporta), para observabilidad. */
+  usage?: { prompt: number; completion: number } | null;
 }
 
 /**
@@ -48,7 +50,8 @@ export class LlmProvider {
   private readonly logger = new Logger('LlmProvider');
 
   get configured(): boolean {
-    return !!config.assistant.apiKey;
+    // Ollama local no requiere API key; cualquier otro proveedor sí.
+    return !!config.assistant.apiKey || config.assistant.provider === 'ollama';
   }
 
   get model(): string {
@@ -65,10 +68,12 @@ export class LlmProvider {
   async chat(
     messages: ChatMessage[],
     tools?: ToolSchema[],
-    opts?: { timeoutMs?: number },
+    opts?: { timeoutMs?: number; model?: string },
   ): Promise<AssistantMessage> {
-    const { baseUrl, apiKey, model, maxTokens, temperature, callTimeoutMs } = config.assistant;
-    if (!apiKey) throw new Error('assistant_not_configured');
+    const { baseUrl, apiKey, model: defaultModel, maxTokens, temperature, callTimeoutMs } = config.assistant;
+    const model = opts?.model || defaultModel;
+    // Ollama local funciona sin API key; el resto de proveedores la exige.
+    if (!apiKey && config.assistant.provider !== 'ollama') throw new Error('assistant_not_configured');
 
     const body: Record<string, unknown> = {
       model,
@@ -91,7 +96,8 @@ export class LlmProvider {
       res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          // Solo enviar Authorization si hay key (Ollama no la necesita).
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
@@ -115,21 +121,32 @@ export class LlmProvider {
 
     const data: any = await res.json();
     const msg = data?.choices?.[0]?.message;
+    const usage = data?.usage
+      ? { prompt: Number(data.usage.prompt_tokens ?? 0), completion: Number(data.usage.completion_tokens ?? 0) }
+      : null;
     return {
       content: stripThinking(msg?.content),
       tool_calls: msg?.tool_calls,
+      usage,
     };
   }
 }
 
 /**
  * Quita el bloque de razonamiento de modelos "thinking" (Qwen3, DeepSeek-R1, etc.)
- * para que no se filtre al cliente. Soporta <think>…</think> y variantes.
+ * para que no se filtre al cliente. Cubre varias variantes de etiquetas.
  */
 function stripThinking(content: string | null | undefined): string | null {
   if (content == null) return null;
   return content
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<reflection>[\s\S]*?<\/reflection>/gi, '')
+    .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+    // Bloque "reasoning_content" embebido al inicio (algunos modelos locales).
+    .replace(/^\s*reasoning[_\s]?content\s*[:=][\s\S]*?(?=\n\n)/i, '')
+    // Etiqueta de apertura huérfana (si el modelo se cortó sin cerrarla).
+    .replace(/<\/?(?:think|thinking|reasoning|reflection|analysis)>/gi, '')
     .trim();
 }

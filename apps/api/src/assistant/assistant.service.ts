@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { LlmProvider, type ChatMessage } from './llm.provider';
 import { AgentToolsService } from './agent-tools.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { config } from '../config';
 import {
   EMPRESA,
@@ -50,21 +51,45 @@ export class AssistantService {
   constructor(
     private readonly llm: LlmProvider,
     private readonly tools: AgentToolsService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /** Registra una corrida del asistente (observabilidad). Best-effort: nunca lanza. */
+  private async recordRun(m: {
+    rol?: string; modelo: string; duracionMs: number; rondas: number;
+    herramientas: string[]; ai: boolean; exito: boolean;
+    tokensPrompt?: number; tokensCompletion?: number;
+  }) {
+    try {
+      await this.prisma.assistantRun.create({
+        data: {
+          rol: m.rol ?? null, modelo: m.modelo, duracionMs: Math.round(m.duracionMs), rondas: m.rondas,
+          herramientas: m.herramientas as any, ai: m.ai, exito: m.exito,
+          tokensPrompt: m.tokensPrompt ?? null, tokensCompletion: m.tokensCompletion ?? null,
+        },
+      });
+    } catch (e: any) {
+      this.logger.debug(`No se registró AssistantRun: ${e.message}`);
+    }
+  }
 
   async chat(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string; role?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
 
     // Sin LLM configurado: respaldo determinista por base de conocimiento.
     if (!this.llm.configured) {
-      return this.fallback(ultimo);
+      const fb = this.fallback(ultimo);
+      void this.recordRun({ rol: user?.role, modelo: 'fallback-faq', duracionMs: 0, rondas: 0, herramientas: [], ai: false, exito: true });
+      return fb;
     }
 
     try {
       return await this.runAgent(history, user);
     } catch (e: any) {
       this.logger.warn(`Agente falló (${e.message}); usando respaldo FAQ.`);
-      return this.fallback(ultimo);
+      const fb = this.fallback(ultimo);
+      void this.recordRun({ rol: user?.role, modelo: config.assistant.model, duracionMs: 0, rondas: 0, herramientas: [], ai: false, exito: false });
+      return fb;
     }
   }
 
@@ -84,6 +109,20 @@ export class AssistantService {
     const schemas = this.tools.schemas(rol);
     const { budgetMs, callTimeoutMs } = config.assistant;
 
+    // --- Métricas de observabilidad (no guardan el contenido del chat) ---
+    const started = Date.now();
+    const toolsUsed: string[] = [];
+    let rondas = 0;
+    let tokPrompt = 0;
+    let tokCompletion = 0;
+    const finish = (reply: AssistantReply): AssistantReply => {
+      void this.recordRun({
+        rol, modelo: this.llm.model, duracionMs: Date.now() - started, rondas,
+        herramientas: toolsUsed, ai: true, exito: true, tokensPrompt: tokPrompt, tokensCompletion: tokCompletion,
+      });
+      return reply;
+    };
+
     // Presupuesto de tiempo: el agente SIEMPRE responde antes de agotarlo, para
     // que la petición HTTP no se cuelgue (modelos locales lentos) y el frontend
     // nunca muestre "Tuve un problema para responder".
@@ -101,6 +140,8 @@ export class AssistantService {
         // La ronda nunca consume el margen reservado para el cierre.
         const t = Math.min(callTimeoutMs, restante() - FINAL_RESERVE_MS);
         msg = await this.llm.chat(messages, schemas, { timeoutMs: t });
+        rondas++;
+        if (msg.usage) { tokPrompt += msg.usage.prompt; tokCompletion += msg.usage.completion; }
       } catch (e: any) {
         // Timeout/fallo en una ronda: no abortamos, redactamos con lo que haya.
         this.logger.warn(`Ronda ${round} del agente falló (${e.message}); cierro con lo recopilado.`);
@@ -108,12 +149,12 @@ export class AssistantService {
       }
 
       if (!msg.tool_calls || msg.tool_calls.length === 0) {
-        return {
+        return finish({
           reply: (msg.content || '').trim() || 'Estoy aquí para ayudarte con tu servicio CICANET.',
           ai: true,
           acciones: this.accionesPara(ultimo + ' ' + (msg.content || '')),
           pago,
-        };
+        });
       }
 
       // Registrar la intención de herramientas y ejecutarlas EN PARALELO: las
@@ -129,6 +170,7 @@ export class AssistantService {
             args = {};
           }
           const result = await this.tools.execute(tc.function.name, args, ctx);
+          toolsUsed.push(tc.function.name);
           return { tc, result };
         }),
       );
@@ -152,21 +194,23 @@ export class AssistantService {
     try {
       const tFinal = Math.min(callTimeoutMs, Math.max(MIN_ROUND_MS, restante()));
       const final = await this.llm.chat(messages, undefined, { timeoutMs: tFinal });
+      rondas++;
+      if (final.usage) { tokPrompt += final.usage.prompt; tokCompletion += final.usage.completion; }
       const reply = (final.content || '').trim();
       if (reply) {
-        return { reply, ai: true, acciones: this.accionesPara(ultimo), pago };
+        return finish({ reply, ai: true, acciones: this.accionesPara(ultimo), pago });
       }
     } catch (e: any) {
       this.logger.warn(`Cierre del agente falló (${e.message}); respuesta acotada.`);
     }
-    return {
+    return finish({
       reply:
         'Estoy procesando bastante información para responderte bien y me tardé más de lo normal. ' +
         '¿Puedes precisar un poco la pregunta? También puedo conectarte con un asesor.',
       ai: true,
       acciones: this.accionesPara(ultimo),
       pago,
-    };
+    });
   }
 
   /** Recorta un resultado de herramienta al tope configurado de caracteres. */

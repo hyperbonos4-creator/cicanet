@@ -972,3 +972,28 @@ model Usuario {
   @@index([estado])
   @@map("usuario")
 }
+
+/// Observabilidad del asistente "Cica": una fila por conversacion procesada.
+/// Permite medir cientificamente latencia, uso de herramientas, modelo y exito
+/// para optimizar (sin guardar el contenido del chat, por privacidad).
+model AssistantRun {
+  id               String   @id @default(uuid()) @db.Uuid
+  rol              String?
+  modelo           String
+  canal            String   @default("chat")
+  duracionMs       Int      @map("duracion_ms")
+  rondas           Int      @default(0)
+  /// Nombres de herramientas invocadas (["mi_servicio","estado_red"]).
+  herramientas     Json?    @db.JsonB
+  tokensPrompt     Int?     @map("tokens_prompt")
+  tokensCompletion Int?     @map("tokens_completion")
+  /// true = respondio el LLM; false = respaldo FAQ (sin IA).
+  ai               Boolean  @default(true)
+  /// true = la corrida del agente no lanzo (aunque haya caido a FAQ por timeout).
+  exito            Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  @@index([creadoEn])
+  @@index([rol])
+  @@map("assistant_run")
+}
