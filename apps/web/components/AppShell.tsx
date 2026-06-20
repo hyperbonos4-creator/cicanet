@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import type { SessionUser, IpLocation } from "../lib/api";
 
-export type Section = "dashboard" | "clientes" | "red" | "infra" | "soporte" | "tickets";
+export type Section = "dashboard" | "clientes" | "red" | "infra" | "ordenes" | "soporte" | "tickets";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrador",
@@ -28,6 +28,10 @@ const NAV: { key: Section; label: string; sub: string; icon: JSX.Element }[] = [
   {
     key: "infra", label: "Infraestructura", sub: "Activos · topología",
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M12 21V9M7 21V13M17 21V13M5 9l7-5 7 5" /><circle cx="12" cy="6.5" r="1" /></svg>),
+  },
+  {
+    key: "ordenes", label: "Órdenes", sub: "Instalaciones · técnicos",
+    icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>),
   },
   {
     key: "soporte", label: "Soporte", sub: "Canal de WhatsApp",

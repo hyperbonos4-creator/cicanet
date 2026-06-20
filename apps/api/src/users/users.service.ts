@@ -69,6 +69,11 @@ export class UsersService implements OnModuleInit {
     return this.users.find((u) => u.id === id);
   }
 
+  /** Lista usuarios staff por rol (vista pública, sin hash). Para asignación de OT. */
+  listByRole(role: Role) {
+    return this.users.filter((u) => u.role === role).map((u) => this.publicView(u));
+  }
+
   async validate(username: string, password: string): Promise<User | null> {
     const user = this.findByUsername(username);
     if (!user) return null;

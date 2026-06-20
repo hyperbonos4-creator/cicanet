@@ -219,6 +219,48 @@ model Ticket {
   @@map("ticket")
 }
 
+/// Orden de trabajo de campo (instalación / visita / reparación). El admin u
+/// operador la crea y la asigna a un técnico (por su username); el técnico la
+/// gestiona desde su apartado en la app móvil: cambia el estado, adjunta fotos
+/// de evidencia (capturadas con la cámara) y la completa con notas. El admin NO
+/// sube fotos: la evidencia la genera el técnico en sitio.
+model OrdenTrabajo {
+  id              String   @id @default(uuid()) @db.Uuid
+  codigo          String   @unique // OT-XXXX visible
+  tipo            String   @default("instalacion") // instalacion|visita|reparacion
+  estado          String   @default("asignada") // asignada|en_camino|en_sitio|completada|cancelada
+  prioridad       String   @default("media") // baja|media|alta
+
+  titulo          String
+  descripcion     String?
+  direccion       String
+  lat             Float?
+  lng             Float?
+
+  /// Username del técnico asignado (rol `tecnico`). null = sin asignar.
+  tecnico         String?
+  /// Vínculo opcional al cliente (UUID). La OT puede existir antes del alta.
+  clienteId       String?  @map("cliente_id") @db.Uuid
+  clienteNombre   String?  @map("cliente_nombre")
+  contacto        String? // teléfono/nombre de contacto en sitio
+
+  fechaProgramada DateTime? @map("fecha_programada")
+  notasTecnico    String?  @map("notas_tecnico")
+  /// Evidencia fotográfica: [{ id, url, nota, ts }]. La suben los técnicos.
+  fotos           Json?    @db.JsonB
+  /// Bitácora de cambios de estado: [{ estado, ts, por }].
+  historial       Json?    @db.JsonB
+
+  creadoPor       String?  @map("creado_por")
+  creadoEn        DateTime @default(now()) @map("creado_en")
+  completadaEn    DateTime? @map("completada_en")
+  actualizadoEn   DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([tecnico])
+  @@index([estado])
+  @@map("orden_trabajo")
+}
+
 /// Configuración clave/valor de la plataforma (editable desde el panel admin).
 /// Ej.: "soporte_whatsapp" → { numero, mensaje, habilitado }. Reutilizable para
 /// futuras configuraciones (config_facturacion, etc.) sin nuevas migraciones.
@@ -243,4 +285,85 @@ model AuditLog {
 
   @@index([entidad, entidadId])
   @@map("audit_log")
+}
+
+// ============================================================
+//  Gemelo Digital de la Red (network-digital-twin) — inventario en Postgres.
+//  Migrado desde JSON (infra-*.json) a la BD para integridad, transacciones y
+//  fuente de verdad única junto al CRM. La geometría se guarda como lat/lng
+//  (Float) + trazado (Json); las columnas PostGIS/índices GIST se añaden cuando
+//  se muevan las consultas espaciales del JS al motor. Ids con prefijo de
+//  dominio (NAP-001, POP-001, FIB-001) — públicos y estables.
+// ============================================================
+
+/// Activo de red/planta: POP, OLT, NAP, Splitter, Cliente, etc. Ficha universal.
+model Activo {
+  id            String   @id // NAP-001, POP-001, ...
+  tipo          String
+  nombre        String
+  marca         String?
+  modelo        String?
+  serie         String?
+  direccion     String?
+  barrio        String?
+  comuna        String?
+  ciudad        String?
+  lat           Float
+  lng           Float
+  estado        String   @default("Activo")
+  propio        Boolean  @default(true)
+  regimen       String?
+  /// Topología: de qué activo depende (grafo padre→hijo).
+  padreId       String?  @map("padre_id")
+  sitioId       String?  @map("sitio_id")
+  /// Plan mensual (COP) cuando el activo es un Cliente — base de ingresos.
+  planMensual   Float?   @map("plan_mensual")
+  /// Atributos por tipo (puertosTotal/Usados de NAP, etc.).
+  atributos     Json?    @db.JsonB
+  /// Evidencia fotográfica [{ id, categoria, url, subidoEn, autor }].
+  fotos         Json?    @db.JsonB
+  documentos    Json?    @db.JsonB
+  historial     Json?    @db.JsonB
+  creadoPor     String?  @map("creado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([tipo])
+  @@index([padreId])
+  @@map("activo")
+}
+
+/// Segmento de fibra: trayecto físico entre dos puntos/activos.
+model SegmentoFibra {
+  id               String   @id // FIB-001
+  nombre           String?
+  tipoFibra        String?  @map("tipo_fibra")
+  hilos            Int?
+  origenId         String?  @map("origen_id")
+  destinoId        String?  @map("destino_id")
+  origenDireccion  String?  @map("origen_direccion")
+  destinoDireccion String?  @map("destino_direccion")
+  origenLng        Float    @map("origen_lng")
+  origenLat        Float    @map("origen_lat")
+  destinoLng       Float    @map("destino_lng")
+  destinoLat       Float    @map("destino_lat")
+  /// Trazado [[lng,lat], ...].
+  trazado          Json?    @db.JsonB
+  longitud         Float // metros
+  creadoPor        String?  @map("creado_por")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+
+  @@map("segmento_fibra")
+}
+
+/// Sitio físico (POP, nodo, gabinete) que agrupa activos.
+model Sitio {
+  id         String   @id // SITE-001
+  nombre     String
+  lat        Float
+  lng        Float
+  activosIds Json?    @map("activos_ids") @db.JsonB
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  @@map("sitio")
 }

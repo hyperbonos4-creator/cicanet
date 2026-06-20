@@ -543,7 +543,7 @@ export type Cliente360 = {
   red: {
     encontrado: boolean;
     onu: { onuSerial: string | null; puerto: number | null; ip: string | null; vlan: number | null };
-    nap: { id: string; nombre: string; tipo: string; direccion: string | null; capacidad: { total: number; usados: number; libres: number; semaforo: string } | null; impacto: { clientesDependientes: number; napsDependientes: number; ingresosMensuales: number } } | null;
+    nap: { id: string; nombre: string; tipo: string; direccion: string | null; capacidad: { total: number; usados: number; libres: number; semaforo: string } | null; impacto: { clientesDependientes: number; napsDependientes: number; ingresosMensuales: number }; fotos?: AssetPhoto[] } | null;
     cadena: { id: string; nombre: string; tipo: string }[];
     vecinos?: { total: number; conFalla: number; conTicketAbierto: number };
   };
@@ -695,4 +695,94 @@ export function createTicket(input: {
   contacto?: string;
 }): Promise<Ticket> {
   return authFetch("/tickets", { method: "POST", body: JSON.stringify(input) });
+}
+
+// ---- Órdenes de trabajo de campo (instalaciones / visitas / reparaciones) ----
+// El admin/operador crea y asigna a un técnico; el técnico las ejecuta desde su
+// app (cambia estado, sube fotos con la cámara, completa). El admin no sube fotos.
+export type OrdenEstado = "asignada" | "en_camino" | "en_sitio" | "completada" | "cancelada";
+export type OrdenTipo = "instalacion" | "visita" | "reparacion";
+export type OrdenPrioridad = "baja" | "media" | "alta";
+
+export type OrdenFoto = { id: string; url: string; nota?: string; ts: string; autor?: string };
+
+export type OrdenTrabajo = {
+  id: string;
+  codigo: string;
+  tipo: OrdenTipo;
+  estado: OrdenEstado;
+  prioridad: OrdenPrioridad;
+  titulo: string;
+  descripcion: string | null;
+  direccion: string;
+  lat: number | null;
+  lng: number | null;
+  tecnico: string | null;
+  clienteId: string | null;
+  clienteNombre: string | null;
+  contacto: string | null;
+  fechaProgramada: string | null;
+  notasTecnico: string | null;
+  fotos: OrdenFoto[] | null;
+  historial: { estado: string; ts: string; por?: string }[] | null;
+  creadoPor: string | null;
+  creadoEn: string;
+  completadaEn: string | null;
+};
+
+export type OrdenStats = {
+  total: number;
+  activas: number;
+  porEstado: Record<string, number>;
+};
+
+export function listOrdenes(filtros: { estado?: string; tecnico?: string; tipo?: string } = {}): Promise<OrdenTrabajo[]> {
+  const qs = new URLSearchParams(
+    Object.entries(filtros).filter(([, v]) => v != null && v !== "") as [string, string][],
+  ).toString();
+  return authFetch(`/ordenes${qs ? `?${qs}` : ""}`);
+}
+
+export function ordenesStats(): Promise<OrdenStats> {
+  return authFetch("/ordenes/stats");
+}
+
+export function createOrden(input: {
+  titulo: string;
+  direccion: string;
+  tipo?: OrdenTipo;
+  prioridad?: OrdenPrioridad;
+  descripcion?: string;
+  lat?: number;
+  lng?: number;
+  tecnico?: string;
+  clienteId?: string;
+  clienteNombre?: string;
+  contacto?: string;
+  fechaProgramada?: string;
+}): Promise<OrdenTrabajo> {
+  return authFetch("/ordenes", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function asignarOrden(id: string, tecnico: string | null): Promise<OrdenTrabajo> {
+  return authFetch(`/ordenes/${encodeURIComponent(id)}/asignar`, {
+    method: "PATCH",
+    body: JSON.stringify({ tecnico }),
+  });
+}
+
+export function updateOrdenEstado(id: string, estado: OrdenEstado): Promise<OrdenTrabajo> {
+  return authFetch(`/ordenes/${encodeURIComponent(id)}/estado`, {
+    method: "PATCH",
+    body: JSON.stringify({ estado }),
+  });
+}
+
+export function deleteOrden(id: string): Promise<{ id: string }> {
+  return authFetch(`/ordenes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export type Tecnico = { id: string; username: string; nombre: string; email: string; role: string };
+export function listTecnicos(): Promise<Tecnico[]> {
+  return authFetch("/ordenes/tecnicos");
 }

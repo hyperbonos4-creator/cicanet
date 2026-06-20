@@ -5,9 +5,15 @@ import 'package:cicanet_mobile/features/home/home_screen.dart';
 import 'package:cicanet_mobile/features/facturas/facturas_screen.dart';
 import 'package:cicanet_mobile/features/dispositivos/dispositivos_screen.dart';
 import 'package:cicanet_mobile/features/profile/profile_screen.dart';
+import 'package:cicanet_mobile/features/auth/auth_notifier.dart';
+import 'package:cicanet_mobile/features/tecnico/tecnico_shell.dart';
 
 /// Contenedor principal con pestañas. Usa IndexedStack para conservar el
 /// estado de cada pestaña al cambiar (no re-ejecuta initState).
+///
+/// La UI se ramifica por rol: el técnico de campo (`tecnico`) ve su propio
+/// apartado de órdenes de trabajo; el resto (cliente) ve las pestañas de
+/// autoservicio (Inicio/Facturas/Dispositivos/Perfil).
 class MainShell extends ConsumerStatefulWidget {
   const MainShell({super.key});
 
@@ -27,6 +33,10 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    // El técnico tiene un apartado propio (no ve la UI del cliente).
+    final role = ref.watch(authProvider).user?.role;
+    if (role == 'tecnico') return const TecnicoShell();
+
     return Scaffold(
       backgroundColor: UDS.surface.base,
       body: IndexedStack(index: _index, children: _tabs),

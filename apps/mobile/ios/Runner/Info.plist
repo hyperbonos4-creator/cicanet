@@ -4,6 +4,12 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>CICANET usa la cámara para que el técnico tome fotos de evidencia de las instalaciones en sitio.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CICANET necesita acceso a tus fotos para adjuntar evidencia a las órdenes de trabajo.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>CICANET puede guardar fotos de evidencia de las instalaciones.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

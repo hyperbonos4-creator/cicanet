@@ -9,6 +9,7 @@ import AppShell, { type Section } from "../components/AppShell";
 import OperacionPanel from "../components/panels/OperacionPanel";
 import ClientesPanel from "../components/panels/ClientesPanel";
 import InfraPanel from "../components/panels/InfraPanel";
+import OrdenesPanel from "../components/panels/OrdenesPanel";
 import SoportePanel from "../components/panels/SoportePanel";
 import TicketsPanel from "../components/panels/TicketsPanel";
 import CicaAssistant from "../components/CicaAssistant";
@@ -241,6 +242,13 @@ export default function Page() {
       {section === "tickets" && (
         <div className="h-full overflow-y-auto p-6">
           <TicketsPanel />
+        </div>
+      )}
+
+      {/* ===== Órdenes de trabajo ===== */}
+      {section === "ordenes" && (
+        <div className="h-full overflow-y-auto p-6">
+          <OrdenesPanel canEdit={!!canEdit} />
         </div>
       )}
 
