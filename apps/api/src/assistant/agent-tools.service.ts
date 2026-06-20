@@ -6,6 +6,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { SupportService } from '../support/support.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MeService } from '../me/me.service';
 import { APP_MAP } from './knowledge';
 import { config } from '../config';
 import type { ToolSchema } from './llm.provider';
@@ -26,6 +27,7 @@ export class AgentToolsService {
     private readonly whatsapp: WhatsappService,
     private readonly support: SupportService,
     private readonly prisma: PrismaService,
+    private readonly me: MeService,
   ) {}
 
   /** Esquemas que se envían al modelo (formato OpenAI tools). */
@@ -104,6 +106,24 @@ export class AgentToolsService {
       {
         type: 'function',
         function: {
+          name: 'mi_servicio',
+          description:
+            'Devuelve el estado real del servicio del cliente AUTENTICADO (plan, estado, velocidad, saldo, día de corte). Úsala cuando pregunte por SU plan, SU estado, "¿tengo internet?", "¿estoy suspendido?", etc.',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'mis_facturas',
+          description:
+            'Devuelve las facturas del cliente AUTENTICADO y si tiene saldo pendiente. Úsala cuando pregunte por SUS facturas, SU deuda o quiera pagar.',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'crear_ticket',
           description:
             'Crea un ticket de soporte cuando el cliente reporta un problema o pide una gestión que requiere seguimiento (falla técnica, cambio de clave WiFi, visita, reclamo de factura). Confirma con el cliente antes de crearlo.',
@@ -129,7 +149,7 @@ export class AgentToolsService {
   async execute(
     name: string,
     args: Record<string, any>,
-    ctx?: { creadoPor?: string; nombre?: string },
+    ctx?: { creadoPor?: string; nombre?: string; clienteId?: string },
   ): Promise<unknown> {
     try {
       switch (name) {
@@ -145,6 +165,10 @@ export class AgentToolsService {
           return this.infoPlanes();
         case 'consultar_funciones_app':
           return APP_MAP;
+        case 'mi_servicio':
+          return await this.miServicio(ctx?.clienteId);
+        case 'mis_facturas':
+          return await this.misFacturas(ctx?.clienteId);
         case 'crear_ticket':
           return await this.crearTicket(args, ctx);
         default:
@@ -232,6 +256,34 @@ export class AgentToolsService {
       tecnologia: 'FTTH (fibra óptica hasta el hogar)',
       segmentos: ['Hogar', 'Empresarial'],
       nota: 'Las velocidades y precios exactos dependen del plan vigente en la zona del cliente. Un asesor confirma el plan ideal según el uso (streaming, teletrabajo, varios dispositivos).',
+    };
+  }
+
+  private async miServicio(clienteId?: string) {
+    if (!clienteId) {
+      return { ok: false, requiereLogin: true, mensaje: 'Para ver tu servicio inicia sesión con tu documento en la app.' };
+    }
+    try {
+      const s = await this.me.servicio(clienteId);
+      return { ok: true, ...s };
+    } catch {
+      return { ok: false, mensaje: 'No encontré un servicio asociado a tu cuenta.' };
+    }
+  }
+
+  private async misFacturas(clienteId?: string) {
+    if (!clienteId) {
+      return { ok: false, requiereLogin: true, mensaje: 'Para ver tus facturas inicia sesión con tu documento en la app.' };
+    }
+    const facturas = await this.me.facturas(clienteId);
+    const pendiente = await this.me.facturaPendiente(clienteId);
+    return {
+      ok: true,
+      total: facturas.length,
+      pendiente: pendiente
+        ? { periodo: pendiente.periodo, total: pendiente.total, vence: pendiente.fechaVencimiento }
+        : null,
+      facturas: facturas.slice(0, 6),
     };
   }
 

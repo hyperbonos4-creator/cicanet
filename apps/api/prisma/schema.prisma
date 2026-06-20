@@ -42,6 +42,9 @@ model Cliente {
 
   estado        String   @default("activo") // activo|suspendido|retirado|moroso
   notas         String?
+  /// Hash de la clave del portal/app del cliente (login por documento). Si es
+  /// null, la clave inicial por defecto es el propio documento.
+  claveHash     String?  @map("clave_hash")
 
   creadoPor     String?  @map("creado_por")
   creadoEn      DateTime @default(now()) @map("creado_en")

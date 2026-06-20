@@ -11,6 +11,7 @@ import { SupportModule } from './support/support.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AssistantModule } from './assistant/assistant.module';
 import { TicketsModule } from './tickets/tickets.module';
+import { MeModule } from './me/me.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -27,6 +28,7 @@ import { HealthController } from './health.controller';
     WhatsappModule,
     AssistantModule,
     TicketsModule,
+    MeModule,
   ],
   controllers: [HealthController],
 })

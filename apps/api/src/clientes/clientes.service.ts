@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -46,9 +47,48 @@ export class ClientesService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  // ---- autenticación del cliente (portal/app) ----
+  /**
+   * Verifica las credenciales de un cliente para el login del portal/app.
+   * Usuario = documento. Clave: si el cliente tiene `claveHash` se compara con
+   * bcrypt; si no, la clave inicial por defecto es su propio documento.
+   * Devuelve la identidad del cliente o null.
+   */
+  async verifyCliente(
+    documento: string,
+    password: string,
+  ): Promise<{ id: string; documento: string; nombre: string; codigo: string } | null> {
+    const doc = String(documento || '').trim();
+    if (!doc || !password) return null;
+    const cliente = await this.prisma.cliente.findUnique({ where: { documento: doc } });
+    if (!cliente || cliente.estado === 'retirado') return null;
+    const ok = cliente.claveHash
+      ? await bcrypt.compare(password, cliente.claveHash)
+      : password === doc;
+    if (!ok) return null;
+    return { id: cliente.id, documento: cliente.documento, nombre: cliente.nombre, codigo: cliente.codigo };
+  }
+
+  /** Identidad del cliente por id (para refrescar el token). */
+  async verifyClienteById(
+    clienteId: string,
+  ): Promise<{ id: string; documento: string; nombre: string; codigo: string } | null> {
+    const c = await this.prisma.cliente.findUnique({ where: { id: clienteId } });
+    if (!c || c.estado === 'retirado') return null;
+    return { id: c.id, documento: c.documento, nombre: c.nombre, codigo: c.codigo };
+  }
+
+  /** Cambia la clave del portal del cliente. */
+  async cambiarClave(clienteId: string, nueva: string): Promise<void> {
+    if (!nueva || nueva.length < 4) {
+      throw new BadRequestException('La clave debe tener al menos 4 caracteres.');
+    }
+    const hash = await bcrypt.hash(nueva, 10);
+    await this.prisma.cliente.update({ where: { id: clienteId }, data: { claveHash: hash } });
+  }
+
   // ---- lectura ----
-  async list(filters: ClienteFilters = {}): Promise<Cliente[]> {
-    const where: Prisma.ServicioWhereInput = {};
+  async list(filters: ClienteFilters = {}): Promise<Cliente[]> {    const where: Prisma.ServicioWhereInput = {};
     if (filters.estadoServicio) where.estado = filters.estadoServicio;
     if (filters.tecnologia) where.tecnologia = filters.tecnologia;
     if (filters.estado) where.cliente = { estado: filters.estado };

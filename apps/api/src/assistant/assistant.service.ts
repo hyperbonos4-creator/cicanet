@@ -41,7 +41,7 @@ export class AssistantService {
     private readonly tools: AgentToolsService,
   ) {}
 
-  async chat(history: ChatTurn[], user?: { nombre?: string; username?: string }): Promise<AssistantReply> {
+  async chat(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
 
     // Sin LLM configurado: respaldo determinista por base de conocimiento.
@@ -58,9 +58,9 @@ export class AssistantService {
   }
 
   /** Bucle del agente con tool-calling. */
-  private async runAgent(history: ChatTurn[], user?: { nombre?: string; username?: string }): Promise<AssistantReply> {
+  private async runAgent(history: ChatTurn[], user?: { nombre?: string; username?: string; clienteId?: string }): Promise<AssistantReply> {
     const ultimo = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
-    const ctx = { creadoPor: user?.username, nombre: user?.nombre };
+    const ctx = { creadoPor: user?.username, nombre: user?.nombre, clienteId: user?.clienteId };
     const messages: ChatMessage[] = [
       { role: 'system', content: this.systemPrompt(ultimo, user) },
       ...history.slice(-10).map((m) => ({ role: m.role, content: m.content })),
