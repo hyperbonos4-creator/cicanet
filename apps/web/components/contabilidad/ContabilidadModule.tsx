@@ -15,6 +15,7 @@ import {
   situacionNiif,
   listPeriodos,
   cerrarPeriodo,
+  checklistCierre,
   getAging,
   getAgingPorZona,
   billingPreview,
@@ -1545,14 +1546,39 @@ function ReportesTab() {
 /* ===================== Periodos ===================== */
 function PeriodosTab({ canEdit }: { canEdit: boolean }) {
   const [periodos, setPeriodos] = useState<PeriodoContable[]>([]);
+  const [checklist, setChecklist] = useState<{ periodo: string; puedeCerrar: boolean; items: { clave: string; titulo: string; estado: string; detalle: string }[] } | null>(null);
+  const ahora = new Date();
+  const periodoActual = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`;
   async function refresh() { try { setPeriodos(await listPeriodos()); } catch { /* noop */ } }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); checklistCierre(periodoActual).then(setChecklist).catch(() => {}); /* eslint-disable-next-line */ }, []);
   async function cerrar(p: string) {
+    const chk = await checklistCierre(p).catch(() => null);
+    if (chk && !chk.puedeCerrar) { alert("No se puede cerrar: hay validaciones bloqueantes (revisa el checklist)."); setChecklist(chk); return; }
     if (!confirm(`¿Cerrar el periodo ${p}? No se podrán registrar más asientos con fecha en ese mes.`)) return;
     try { await cerrarPeriodo(p); await refresh(); } catch (e: any) { alert(e.message); }
   }
+  const icono = (estado: string) => estado === "ok" ? "✓" : estado === "warn" ? "⚠" : "✕";
+  const color = (estado: string) => estado === "ok" ? "#22E0A1" : estado === "warn" ? "#FFB02E" : "#FF4D6D";
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-4">
+      {checklist && (
+        <div className="glass p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Checklist de cierre · {checklist.periodo}</span>
+            <span className={`text-xs font-semibold ${checklist.puedeCerrar ? "text-status-ftth" : "text-status-sin"}`}>{checklist.puedeCerrar ? "Listo para cerrar" : "Con bloqueantes"}</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {checklist.items.map((it) => (
+              <div key={it.clave} className="flex items-center gap-2 text-xs">
+                <span style={{ color: color(it.estado) }}>{icono(it.estado)}</span>
+                <span className="text-cica-silver">{it.titulo}</span>
+                <span className="text-cica-muted">· {it.detalle}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {periodos.length === 0 && <Aviso texto="No hay periodos abiertos. Se crean automáticamente al registrar el primer asiento de un mes." />}
       {periodos.map((p) => (
         <div key={p.periodo} className="glass flex items-center justify-between p-3">

@@ -170,6 +170,39 @@ export class AccountingService implements OnModuleInit {
     return { periodo, estado: 'abierto' };
   }
 
+  /**
+   * Checklist de pre-cierre: valida que el periodo esté listo para cerrar.
+   * `error` bloquea el cierre; `warn` solo advierte. (cerrarPeriodo bloquea borradores).
+   */
+  async checklistCierre(periodo: string) {
+    const [borradores, movs, recibos, sinConciliar, empleados, liquidaciones, activos, depreciaciones] = await Promise.all([
+      this.prisma.asientoContable.count({ where: { periodo, estado: 'borrador' } }),
+      this.prisma.movimientoContable.aggregate({ _sum: { debito: true, credito: true }, where: { asiento: { periodo, estado: 'contabilizado' } } }),
+      this.prisma.reciboCaja.count({ where: { estado: { in: ['sin_aplicar', 'parcial'] } } }),
+      this.prisma.movimientoBancario.count({ where: { estado: 'sin_conciliar' } }),
+      this.prisma.empleado.count({ where: { estado: 'activo' } }),
+      this.prisma.liquidacionNomina.count({ where: { periodo } }),
+      this.prisma.activoFijo.count({ where: { estado: 'activo' } }),
+      this.prisma.depreciacionRegistro.count({ where: { periodo } }),
+    ]);
+    const debito = round2(D(movs._sum.debito));
+    const credito = round2(D(movs._sum.credito));
+    const cuadra = debito === credito;
+    const nominaPend = Math.max(0, empleados - liquidaciones);
+    const depPend = depreciaciones === 0 && activos > 0;
+
+    const items = [
+      { clave: 'borradores', titulo: 'Comprobantes en borrador', estado: borradores > 0 ? 'error' : 'ok', detalle: borradores > 0 ? `${borradores} sin contabilizar` : 'Todos contabilizados' },
+      { clave: 'cuadre', titulo: 'Partida doble cuadrada', estado: cuadra ? 'ok' : 'error', detalle: cuadra ? `D=C=${debito.toLocaleString('es-CO')}` : `Descuadre: ${(debito - credito).toLocaleString('es-CO')}` },
+      { clave: 'recibos', titulo: 'Recibos de caja por aplicar', estado: recibos > 0 ? 'warn' : 'ok', detalle: recibos > 0 ? `${recibos} pendiente(s)` : 'Todos aplicados' },
+      { clave: 'banco', titulo: 'Conciliación bancaria', estado: sinConciliar > 0 ? 'warn' : 'ok', detalle: sinConciliar > 0 ? `${sinConciliar} movimiento(s) sin conciliar` : 'Conciliado' },
+      { clave: 'nomina', titulo: 'Nómina del periodo', estado: nominaPend > 0 ? 'warn' : 'ok', detalle: nominaPend > 0 ? `${nominaPend} empleado(s) sin liquidar` : 'Liquidada' },
+      { clave: 'depreciacion', titulo: 'Depreciación del periodo', estado: depPend ? 'warn' : 'ok', detalle: depPend ? 'Pendiente de correr' : 'Corrida' },
+    ];
+    const bloqueantes = items.filter((i) => i.estado === 'error').length;
+    return { periodo, puedeCerrar: bloqueantes === 0, bloqueantes, items };
+  }
+
   // ---- Asientos ----
 
   /** Crea (y opcionalmente contabiliza) un asiento de doble partida. */

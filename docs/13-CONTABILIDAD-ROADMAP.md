@@ -312,8 +312,13 @@ si está conciliado contra banco y aplicado contra cartera. (Hoy ya hay
 - **Web:** pestaña "Tesorería" (egreso/traslado/comisión, saldos, flujo de caja, movimientos). ✅
 - **Verificado:** egreso $200k, traslado $500k, comisión $15k; saldos por cuenta y flujo proyectado; balance cuadra.
 
-### FASE D — Cierre mensual robusto 🟠
-- Checklist + validaciones pre-cierre + secuencia de cierre con lock e informe de cuadre.
+### FASE D — Cierre mensual robusto ✅ (2026-06-20)
+- **Checklist de pre-cierre** (`GET /accounting/periodos/:periodo/checklist`): valida
+  comprobantes en borrador (bloqueante), partida doble cuadrada (bloqueante), recibos
+  por aplicar, conciliación, nómina y depreciación del periodo (advertencias). ✅
+- Cerrar mes verifica el checklist (no cierra con bloqueantes) + lock del periodo. ✅
+- **Web:** checklist visual en la pestaña "Periodos" antes de cerrar. ✅
+- **Verificado:** 6 validaciones en verde, puedeCerrar=True, cuadre D=C.
 
 ### FASE E — Centro DIAN unificado + estados 🟠
 - Vista única de FE/notas/documento soporte/nómina/exógena + certificados/resolución +

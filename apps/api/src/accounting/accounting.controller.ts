@@ -60,6 +60,11 @@ export class AccountingController {
     return this.accounting.listPeriodos();
   }
 
+  @Get('periodos/:periodo/checklist')
+  checklist(@Param('periodo') periodo: string) {
+    return this.accounting.checklistCierre(periodo);
+  }
+
   @Post('periodos/:periodo/cerrar')
   cerrar(@Param('periodo') periodo: string, @Req() req: Request) {
     return this.accounting.cerrarPeriodo(periodo, (req as any).user?.username);

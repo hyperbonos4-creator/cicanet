@@ -913,6 +913,9 @@ export function listPeriodos(): Promise<PeriodoContable[]> {
 export function cerrarPeriodo(periodo: string): Promise<PeriodoContable> {
   return authFetch(`/accounting/periodos/${encodeURIComponent(periodo)}/cerrar`, { method: "POST" });
 }
+export function checklistCierre(periodo: string): Promise<{ periodo: string; puedeCerrar: boolean; bloqueantes: number; items: { clave: string; titulo: string; estado: string; detalle: string }[] }> {
+  return authFetch(`/accounting/periodos/${encodeURIComponent(periodo)}/checklist`);
+}
 export function accountingDashboard(periodo?: string): Promise<{ periodo: string; ingresos: number; gastos: number; utilidadNeta: number; cartera: number; bancosCaja: number; asientosDelPeriodo: number }> {
   return authFetch(`/accounting/reportes/dashboard${periodo ? `?periodo=${periodo}` : ""}`);
 }
