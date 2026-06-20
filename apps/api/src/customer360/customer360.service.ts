@@ -33,9 +33,15 @@ export class Customer360Service {
   ) {}
 
   async get(idOrCodigo: string) {
-    const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrCodigo);
+    const v = (idOrCodigo || '').trim();
+    const esUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    // Acepta UUID, código público (CLI-xxxx) o documento (con el que el cliente
+    // inicia sesión y que queda como `creadoPor` en sus tickets).
+    const whereCliente: Prisma.ClienteWhereInput = esUuid
+      ? { id: v }
+      : { OR: [{ codigo: v }, { documento: v }] };
     const servicio = await this.prisma.servicio.findFirst({
-      where: { cliente: esUuid ? { id: idOrCodigo } : { codigo: idOrCodigo } },
+      where: { cliente: whereCliente },
       include: { cliente: true, punto: true },
       orderBy: { creadoEn: 'asc' },
     });

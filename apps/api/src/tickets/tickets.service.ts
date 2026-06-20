@@ -59,11 +59,34 @@ export class TicketsService {
     const where: Record<string, unknown> = {};
     if (filtros.estado && ESTADOS.includes(filtros.estado)) where.estado = filtros.estado;
     if (filtros.categoria) where.categoria = filtros.categoria;
-    return this.prisma.ticket.findMany({
+    const tickets = await this.prisma.ticket.findMany({
       where,
       orderBy: { creadoEn: 'desc' },
       take: 200,
     });
+    return this.ligarClientes(tickets);
+  }
+
+  /**
+   * Liga tickets a su cliente cuando no tienen `clienteId` guardado: los creados
+   * por un cliente con sesión llevan su documento en `creadoPor`. Así el panel
+   * abre el 360 incluso para tickets anteriores a este vínculo. Una sola consulta
+   * por documento (no N+1).
+   */
+  private async ligarClientes<T extends { clienteId: string | null; creadoPor: string | null }>(tickets: T[]): Promise<T[]> {
+    const docs = [...new Set(tickets.filter((t) => !t.clienteId && t.creadoPor).map((t) => t.creadoPor as string))];
+    if (docs.length === 0) return tickets;
+    const clientes = await this.prisma.cliente.findMany({
+      where: { documento: { in: docs } },
+      select: { id: true, documento: true },
+    });
+    const porDoc = new Map(clientes.map((c) => [c.documento, c.id]));
+    for (const t of tickets) {
+      if (!t.clienteId && t.creadoPor && porDoc.has(t.creadoPor)) {
+        t.clienteId = porDoc.get(t.creadoPor) ?? null;
+      }
+    }
+    return tickets;
   }
 
   /** Tickets creados por un usuario concreto (vista del cliente). */
