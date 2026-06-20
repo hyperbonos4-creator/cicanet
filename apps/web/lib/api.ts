@@ -928,3 +928,40 @@ export function balanceGeneral(hasta?: string): Promise<{ hasta: string; activo:
 export function libroMayor(cuenta: string, periodo?: string): Promise<{ cuenta: any; movimientos: any[]; saldoFinal: number }> {
   return authFetch(`/accounting/reportes/mayor?cuenta=${encodeURIComponent(cuenta)}${periodo ? `&periodo=${periodo}` : ""}`);
 }
+
+// ---- Cartera / Cobranza (módulo collections) ----
+export type AgingBuckets = { porVencer: number; d1_30: number; d31_60: number; d61_90: number; d90mas: number };
+export type AgingCliente = {
+  cliente: { id: string; codigo: string; nombre: string; estado: string; telefono: string | null; email: string | null };
+  ubicacion: { barrio: string | null; comuna: string | null; nap: string | null };
+  buckets: AgingBuckets;
+  total: number;
+  facturas: number;
+  maxDias: number;
+};
+export type Aging = {
+  generadoEn: string;
+  resumen: AgingBuckets;
+  totalCartera: number;
+  totalVencido: number;
+  clientesConDeuda: number;
+  clientes: AgingCliente[];
+};
+export type AgingZona = { dimension: string; grupos: { nombre: string; total: number; vencido: number; clientes: number; buckets: AgingBuckets }[] };
+
+export function getAging(opts: { barrio?: string; nap?: string; soloVencidos?: boolean } = {}): Promise<Aging> {
+  const qs = new URLSearchParams();
+  if (opts.barrio) qs.set("barrio", opts.barrio);
+  if (opts.nap) qs.set("nap", opts.nap);
+  if (opts.soloVencidos) qs.set("soloVencidos", "true");
+  return authFetch(`/collections/aging${qs.toString() ? `?${qs}` : ""}`);
+}
+export function getAgingPorZona(dim: "barrio" | "comuna" | "nap" = "barrio"): Promise<AgingZona> {
+  return authFetch(`/collections/aging/por-zona?dim=${dim}`);
+}
+export function carteraResumen(): Promise<{ totalCartera: number; totalVencido: number; clientesConDeuda: number; buckets: AgingBuckets }> {
+  return authFetch("/collections/resumen");
+}
+export function carteraCliente(id: string): Promise<{ clienteId: string; total: number; vencido: number; facturas: any[] }> {
+  return authFetch(`/collections/cliente/${encodeURIComponent(id)}`);
+}

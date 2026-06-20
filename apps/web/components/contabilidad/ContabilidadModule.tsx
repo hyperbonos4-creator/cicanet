@@ -14,20 +14,25 @@ import {
   balanceGeneral,
   listPeriodos,
   cerrarPeriodo,
+  getAging,
+  getAgingPorZona,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
   type LineaAsiento,
   type PeriodoContable,
+  type Aging,
+  type AgingZona,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "dashboard", label: "Resumen" },
+  { key: "cartera", label: "Cartera" },
   { key: "asientos", label: "Comprobantes" },
   { key: "nuevo", label: "Nuevo asiento" },
   { key: "cuentas", label: "Plan de cuentas" },
@@ -57,6 +62,7 @@ export default function ContabilidadModule({ canEdit }: { canEdit: boolean }) {
       </div>
 
       {tab === "dashboard" && <DashboardTab />}
+      {tab === "cartera" && <CarteraTab />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => setTab("asientos")} />}
       {tab === "cuentas" && <CuentasTab />}
@@ -86,6 +92,106 @@ function DashboardTab() {
         <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
         <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
       </div>
+    </div>
+  );
+}
+
+/* ===================== Cartera / Aging ===================== */
+function CarteraTab() {
+  const [aging, setAging] = useState<Aging | null>(null);
+  const [zona, setZona] = useState<AgingZona | null>(null);
+  const [dim, setDim] = useState<"barrio" | "comuna" | "nap">("barrio");
+  const [soloVencidos, setSoloVencidos] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { getAging({ soloVencidos }).then(setAging).catch((e) => setErr(e.message)); }, [soloVencidos]);
+  useEffect(() => { getAgingPorZona(dim).then(setZona).catch(() => {}); }, [dim]);
+
+  if (err) return <Aviso texto={err} />;
+  if (!aging) return <Cargando />;
+
+  const b = aging.resumen;
+  return (
+    <div className="flex flex-col gap-5">
+      {/* KPIs de cartera */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi label="Cartera total" value={money(aging.totalCartera)} accent="text-cica-gold" />
+        <Kpi label="Cartera vencida" value={money(aging.totalVencido)} accent={aging.totalVencido > 0 ? "text-status-sin" : "text-cica-silver"} />
+        <Kpi label="Clientes con deuda" value={String(aging.clientesConDeuda)} accent="text-cica-steelLight" />
+        <Kpi label="+90 días (crítico)" value={money(b.d90mas)} accent={b.d90mas > 0 ? "text-status-sin" : "text-cica-muted"} />
+      </div>
+
+      {/* Distribución por antigüedad */}
+      <div className="glass p-4">
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Antigüedad de cartera</div>
+        <div className="grid grid-cols-5 gap-2 text-center text-xs">
+          <BucketCell label="Por vencer" value={b.porVencer} color="#22E0A1" />
+          <BucketCell label="1-30 días" value={b.d1_30} color="#FFB02E" />
+          <BucketCell label="31-60 días" value={b.d31_60} color="#FF9838" />
+          <BucketCell label="61-90 días" value={b.d61_90} color="#FF6B4D" />
+          <BucketCell label="+90 días" value={b.d90mas} color="#FF4D6D" />
+        </div>
+      </div>
+
+      {/* Por zona/NAP */}
+      <div className="glass p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Cartera por {dim}</div>
+          <div className="flex gap-1">
+            {(["barrio", "comuna", "nap"] as const).map((d) => (
+              <button key={d} onClick={() => setDim(d)} className={`rounded px-2 py-0.5 text-[11px] ${dim === d ? "bg-cica-gold/20 text-cica-gold" : "text-cica-muted hover:text-cica-silver"}`}>{d}</button>
+            ))}
+          </div>
+        </div>
+        <table className="w-full text-xs">
+          <thead><tr className="text-cica-muted"><th className="text-left">{dim}</th><th className="text-right">Clientes</th><th className="text-right">Vencido</th><th className="text-right">Total</th></tr></thead>
+          <tbody>
+            {zona?.grupos.map((g) => (
+              <tr key={g.nombre} className="border-t border-cica-border/30">
+                <td className="py-1 text-cica-silver">{g.nombre}</td>
+                <td className="text-right text-cica-muted">{g.clientes}</td>
+                <td className="text-right" style={{ color: g.vencido > 0 ? "#FF4D6D" : undefined }}>{money(g.vencido)}</td>
+                <td className="text-right text-cica-silver">{money(g.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Clientes morosos */}
+      <div className="glass p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-cica-muted">Clientes con deuda</div>
+          <label className="flex items-center gap-2 text-[11px] text-cica-muted">
+            <input type="checkbox" checked={soloVencidos} onChange={(e) => setSoloVencidos(e.target.checked)} /> solo vencidos
+          </label>
+        </div>
+        <div className="max-h-[50vh] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-cica-navy/90"><tr className="text-cica-muted"><th className="text-left">Cliente</th><th className="text-left">Barrio</th><th className="text-right">Días</th><th className="text-right">+90</th><th className="text-right px-2">Total</th></tr></thead>
+            <tbody>
+              {aging.clientes.map((c) => (
+                <tr key={c.cliente.id} className="border-t border-cica-border/30">
+                  <td className="py-1 text-cica-silver">{c.cliente.codigo} · {c.cliente.nombre}</td>
+                  <td className="text-cica-muted">{c.ubicacion.barrio ?? "—"}</td>
+                  <td className="text-right" style={{ color: c.maxDias > 60 ? "#FF4D6D" : c.maxDias > 0 ? "#FFB02E" : "#22E0A1" }}>{c.maxDias > 0 ? c.maxDias : "al día"}</td>
+                  <td className="text-right text-cica-muted">{c.buckets.d90mas ? money(c.buckets.d90mas) : ""}</td>
+                  <td className="text-right px-2 font-semibold text-cica-silver">{money(c.total)}</td>
+                </tr>
+              ))}
+              {aging.clientes.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-cica-muted">Sin cartera pendiente. 🎉</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+function BucketCell({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded-lg border border-cica-border/40 p-2">
+      <div className="text-sm font-bold" style={{ color }}>{money(value)}</div>
+      <div className="text-[10px] text-cica-muted">{label}</div>
     </div>
   );
 }

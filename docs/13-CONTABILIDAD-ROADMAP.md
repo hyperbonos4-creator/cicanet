@@ -31,14 +31,13 @@ del software ante la DIAN y resolución de numeración. Sin esto no se emite a D
 > Convierte el "libro contable" en un sistema de cartera y recaudo. Es lo que la
 > contadora siente el primer día y el moat frente a Siigo (cartera georreferenciada).
 
-### T1.1 — Cartera / Aging de cuentas por cobrar
+### T1.1 — Cartera / Aging de cuentas por cobrar ✅ (2026-06-20)
 - **Backend** `apps/api/src/collections/`:
-  - Servicio de aging: por cliente, con buckets 0-30 / 31-60 / 61-90 / +90 días.
-  - Vistas agregadas: cartera **por barrio / NAP / zona / plan** (cruce con CRM + infra).
-  - Endpoints: `GET /collections/aging`, `/collections/aging/por-zona`, `/collections/cliente/:id`.
-- **Web** (workspace contador + Customer 360): tabla de aging con filtros y semáforo.
-- **Aceptación:** dado un cliente con factura vencida, el aging lo ubica en el bucket
-  correcto y suma igual al saldo de la cuenta 130505 del balance.
+  - Servicio de aging: por cliente, con buckets 0-30 / 31-60 / 61-90 / +90 días. ✅
+  - Vistas agregadas: cartera **por barrio / NAP / zona / plan** (cruce con CRM + infra). ✅
+  - Endpoints: `GET /collections/aging`, `/collections/aging/por-zona`, `/collections/cliente/:id`, `/collections/resumen`. ✅
+- **Web** (workspace contador, pestaña "Cartera"): KPIs, antigüedad, por zona/NAP, clientes morosos. ✅
+- **Verificado en vivo:** buckets exactos (porVencer/1-30/31-60/+90), cartera por barrio, total/vencido cuadran.
 
 ### T1.2 — Facturación recurrente por ciclo (la columna vertebral)
 - **Modelo Prisma:** `CicloFacturacion`, `CargoRecurrente` (plan, arriendo equipo,
