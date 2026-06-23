@@ -101,6 +101,14 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-cicanet-dev-refresh-secret-change-me}
       SEED_ADMIN_USER: ${SEED_ADMIN_USER:-admin}
       SEED_ADMIN_PASS: ${SEED_ADMIN_PASS:-cicanet2026}
+      # Demo público efímero (VISIONYX Telecom). false en el ISP real; true SOLO
+      # en el despliegue de demostración. DEMO_APP_URL = URL pública de la web.
+      DEMO_MODE: ${DEMO_MODE:-false}
+      DEMO_TTL_MINUTES: ${DEMO_TTL_MINUTES:-60}
+      DEMO_MAX_ACTIVE_SESSIONS: ${DEMO_MAX_ACTIVE_SESSIONS:-40}
+      DEMO_SWEEP_SECONDS: ${DEMO_SWEEP_SECONDS:-60}
+      DEMO_ROLE: ${DEMO_ROLE:-admin}
+      DEMO_APP_URL: ${DEMO_APP_URL:-http://localhost:3000}
       DATABASE_URL: postgres://${POSTGRES_USER:-cicanet}:${POSTGRES_PASSWORD:-cicanet_dev}@postgres:5432/${POSTGRES_DB:-cicanet}
       REDIS_URL: redis://redis:6379
       # Pasarela de pagos (Wompi)
@@ -123,13 +131,18 @@ services:
       # (red interna de Docker). El secreto se añade en el PATH.
       EVOLUTION_WEBHOOK_URL: http://api:4000/api/whatsapp/webhook/evolution
       NOTIFICATION_WEBHOOK_SECRET: ${NOTIFICATION_WEBHOOK_SECRET:-cicanet-webhook-secret-dev}
-      # Asistente virtual (LLM agnóstico compatible-OpenAI). Por defecto apunta a
-      # Ollama del host (Qwen3 local). Cambiar a OpenRouter/Gemini = cambiar estas vars.
-      ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-ollama}
+      # Asistente virtual (LLM agnóstico compatible-OpenAI). Por defecto usa el
+      # MISMO modelo que el asistente de la web de access: GLM (Cloudflare Workers
+      # AI) con ROTACIÓN automática sobre el pool de cuentas (cuentas.json), que
+      # el contenedor lee del monorepo montado en /workspace:ro.
+      ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-cloudflare}
       ASSISTANT_BASE_URL: ${ASSISTANT_BASE_URL:-http://host.docker.internal:11434/v1}
       ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
-      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-qwen3:8b}
-      # Respuestas breves = menos tokens = menos latencia (modelo local).
+      ASSISTANT_MODEL: "${ASSISTANT_MODEL:-@cf/zai-org/glm-4.7-flash}"
+      ASSISTANT_DISABLE_THINKING: ${ASSISTANT_DISABLE_THINKING:-true}
+      # Pool de cuentas Cloudflare para rotación (mismo modelo que access).
+      ASSISTANT_ACCOUNTS_FILE: ${ASSISTANT_ACCOUNTS_FILE:-/workspace/cuentas/cuentas.json}
+      # Respuestas breves = menos tokens = menos latencia.
       ASSISTANT_MAX_TOKENS: ${ASSISTANT_MAX_TOKENS:-400}
       ASSISTANT_TEMPERATURE: ${ASSISTANT_TEMPERATURE:-0.3}
       # Agente local-rápido: pocas llamadas (plan→ejecutar→sintetizar), tools en

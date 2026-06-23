@@ -34,6 +34,7 @@ import { AssetRegistryModule } from './asset-registry/asset-registry.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { DocumentosModule } from './documentos/documentos.module';
 import { PresupuestoModule } from './presupuesto/presupuesto.module';
+import { DemoModule } from './demo/demo.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -73,6 +74,7 @@ import { HealthController } from './health.controller';
     AnalyticsModule,
     DocumentosModule,
     PresupuestoModule,
+    DemoModule,
   ],
   controllers: [HealthController],
 })

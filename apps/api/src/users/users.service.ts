@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { config } from '../config';
 
@@ -184,5 +185,48 @@ export class UsersService implements OnModuleInit {
     await this.prisma.usuario.update({ where: { id }, data: { estado } });
     await this.reload();
     return this.publicView(this.findById(id)!);
+  }
+
+  // ---- Demo efímero (solo cuando DEMO_MODE=true) ----
+
+  /** Cuenta las sesiones demo activas (usuarios con prefijo demo_). */
+  countActiveDemoUsers(): number {
+    return this.cache.filter((u) => u.username.startsWith('demo_')).length;
+  }
+
+  /**
+   * Crea un usuario demo efímero con credenciales aleatorias. Devuelve el
+   * usuario y la contraseña EN CLARO (única vez; no se persiste en claro).
+   * El barredor lo elimina al expirar el TTL.
+   */
+  async createDemoUser(role: Role): Promise<{ username: string; password: string; nombre: string }> {
+    const rand = randomBytes(4).toString('hex'); // 8 hex
+    const username = `demo_${rand}`;
+    const password = `Demo-${randomBytes(4).toString('hex')}`; // >=6, mezcla
+    const idEmpleado = `DEMO-${rand}`;
+    await this.prisma.usuario.create({
+      data: {
+        username,
+        nombre: 'Invitado demo',
+        email: null,
+        role,
+        passwordHash: await bcrypt.hash(password, 10),
+        idEmpleado,
+        cargo: 'demo',
+        creadoPor: 'demo',
+      },
+    });
+    await this.reload();
+    return { username, password, nombre: 'Invitado demo' };
+  }
+
+  /** Elimina los usuarios demo cuyo creadoEn supera el TTL. Devuelve cuántos. */
+  async sweepDemoUsers(ttlMinutes: number): Promise<number> {
+    const limite = new Date(Date.now() - ttlMinutes * 60_000);
+    const { count } = await this.prisma.usuario.deleteMany({
+      where: { username: { startsWith: 'demo_' }, creadoEn: { lt: limite } },
+    });
+    if (count > 0) await this.reload();
+    return count;
   }
 }

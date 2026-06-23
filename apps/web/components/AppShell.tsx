@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import type { SessionUser, IpLocation } from "../lib/api";
 
 export type Section = "dashboard" | "clientes" | "red" | "infra" | "ordenes" | "soporte" | "tickets" | "contabilidad" | "usuarios";
@@ -91,10 +90,13 @@ export default function AppShell({
         }`}
       >
         <div className="flex items-center gap-3 px-5 py-5">
-          <Image src="/cicanet-logo.png" alt="CICANET" width={38} height={38} className="rounded-full shadow-glow" priority />
+          <span className="relative grid h-10 w-10 shrink-0 place-items-center">
+            <span className="absolute inset-0 rounded-full bg-cica-glow/30 blur-md" aria-hidden />
+            <img src="/vx-emblem.svg" alt="VisionYX" width={40} height={40} className="relative h-10 w-10 rounded-full ring-1 ring-cica-steel/40" />
+          </span>
           <div>
-            <div className="text-base font-extrabold leading-none tracking-tight cica-gradient-text">CICANET</div>
-            <div className="mt-0.5 text-[10px] text-cica-muted">Gestión ISP</div>
+            <div className="vx-display text-base font-extrabold leading-none tracking-tight cica-gradient-text">CICANET</div>
+            <div className="mt-1 text-[10px] tracking-wide text-cica-muted">ISP · by VisionYX</div>
           </div>
         </div>
 
@@ -112,7 +114,7 @@ export default function AppShell({
                     : "text-cica-muted hover:bg-cica-border/30 hover:text-cica-silver"
                 }`}
               >
-                <span className={`relative ${active ? "drop-shadow-[0_0_6px_rgba(245,197,24,0.6)]" : ""}`}>
+                <span className={`relative ${active ? "drop-shadow-[0_0_6px_rgba(168,85,247,0.6)]" : ""}`}>
                   {n.icon}
                   {badge > 0 && (
                     <span className="absolute -right-2 -top-2 grid h-4 min-w-4 animate-pulseGlow place-items-center rounded-full bg-status-sin px-1 text-[9px] font-bold leading-none text-white shadow-[0_0_8px_rgba(255,77,109,0.7)]">
@@ -152,6 +154,13 @@ export default function AppShell({
 
       {/* ===== Columna principal ===== */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* Banner de modo demo (sesión efímera) */}
+        {user?.username?.startsWith("demo_") && (
+          <div className="flex shrink-0 items-center justify-center gap-2 bg-gradient-to-r from-cica-amber/20 via-cica-glow/20 to-cica-gold/20 px-4 py-1.5 text-center text-[11px] font-semibold text-cica-silver">
+            <span className="inline-block h-2 w-2 animate-pulseGlow rounded-full bg-cica-amber" />
+            Estás en una <b className="mx-1 text-cica-gold">sesión de demostración</b> de VISIONYX Telecom · datos de ejemplo · se elimina sola al expirar
+          </div>
+        )}
         {/* Topbar */}
         <header className="z-10 flex shrink-0 items-center justify-between border-b border-cica-border/70 bg-cica-navy/60 px-6 py-3.5 backdrop-blur-xl">
           <div className="flex items-center gap-3">

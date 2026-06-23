@@ -3,6 +3,37 @@
  * Todos los valores tienen default para que la API corra sin .env en la demo.
  * En producción se sobrescriben por variables de entorno.
  */
+import * as fs from 'fs';
+
+/** Cuenta Cloudflare para el pool de rotación del asistente. */
+export interface AssistantAccount {
+  accountId: string;
+  apiToken: string;
+}
+
+/**
+ * Carga el pool de cuentas Cloudflare del asistente (mismo modelo que el
+ * asistente de la web de access). Origen, por orden:
+ *  1) ASSISTANT_ACCOUNTS = JSON inline `[{ "accountId|account_id", "apiToken|token" }]`
+ *  2) ASSISTANT_ACCOUNTS_FILE = ruta a un JSON con ese formato (p. ej. cuentas.json)
+ * Si no hay ninguno, el asistente usa la cuenta única (ASSISTANT_BASE_URL/KEY).
+ */
+function loadAssistantAccounts(): AssistantAccount[] {
+  const norm = (arr: any[]): AssistantAccount[] =>
+    (Array.isArray(arr) ? arr : [])
+      .map((a) => ({ accountId: a.accountId ?? a.account_id, apiToken: a.apiToken ?? a.token }))
+      .filter((a) => a.accountId && a.apiToken);
+  try {
+    if (process.env.ASSISTANT_ACCOUNTS) return norm(JSON.parse(process.env.ASSISTANT_ACCOUNTS));
+    if (process.env.ASSISTANT_ACCOUNTS_FILE) {
+      return norm(JSON.parse(fs.readFileSync(process.env.ASSISTANT_ACCOUNTS_FILE, 'utf8')));
+    }
+  } catch {
+    /* JSON/archivo inválido → pool vacío (cae a cuenta única). */
+  }
+  return [];
+}
+
 export const config = {
   port: parseInt(process.env.API_PORT || '4000', 10),
 
@@ -73,6 +104,22 @@ export const config = {
     password: process.env.SEED_ADMIN_PASS || 'cicanet2026',
   },
 
+  // Demo público (igual patrón que VISIONYX Access): un visitante genera una
+  // sesión efímera con credenciales propias y TTL; al expirar, el barredor
+  // elimina el usuario. SOLO se activa con DEMO_MODE=true (en el despliegue de
+  // demo); en el ISP real queda en false y el endpoint responde 403. NUNCA
+  // habilitar en producción real (crearía cuentas staff sin auth).
+  demo: {
+    enabled: (process.env.DEMO_MODE || 'false').toLowerCase() === 'true',
+    ttlMinutes: parseInt(process.env.DEMO_TTL_MINUTES || '60', 10),
+    maxActiveSessions: parseInt(process.env.DEMO_MAX_ACTIVE_SESSIONS || '40', 10),
+    sweepSeconds: parseInt(process.env.DEMO_SWEEP_SECONDS || '60', 10),
+    // Rol del usuario demo (admin para mostrar toda la plataforma incl. la cabina).
+    role: (process.env.DEMO_ROLE || 'admin').toLowerCase(),
+    // URL pública de la app web a la que se envía al visitante a iniciar sesión.
+    appUrl: (process.env.DEMO_APP_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  },
+
   // Pasarela de pagos (Wompi — Colombia). Sandbox por defecto.
   // Llaves en https://comercios.wompi.co (test: pub_test_/prv_test_).
   wompi: {
@@ -113,7 +160,7 @@ export const config = {
   // u Ollama local cambiando solo estas variables. Si no hay apiKey, el asistente
   // responde con la base de conocimiento (FAQ determinista) sin alucinar.
   assistant: {
-    // 'gemini' | 'openai' | 'groq' | 'openrouter' | 'ollama' | 'custom'
+    // 'gemini' | 'openai' | 'groq' | 'openrouter' | 'ollama' | 'cloudflare' | 'custom'
     provider: (process.env.ASSISTANT_PROVIDER || 'gemini').toLowerCase(),
     apiKey: process.env.ASSISTANT_API_KEY || '',
     // Endpoint compatible-OpenAI. Default: Gemini (clave gratis en AI Studio).
@@ -122,6 +169,17 @@ export const config = {
       'https://generativelanguage.googleapis.com/v1beta/openai'
     ).replace(/\/$/, ''),
     model: process.env.ASSISTANT_MODEL || 'gemini-2.0-flash',
+    // GLM (Cloudflare Workers AI) es "thinking": sin esto gasta tokens razonando
+    // y deja `content` vacío. Lo desactivamos por defecto (igual que access).
+    disableThinking: (process.env.ASSISTANT_DISABLE_THINKING || 'true') !== 'false',
+    // Pool de cuentas Cloudflare para ROTACIÓN automática (mismo modelo y misma
+    // robustez que el asistente "Vix" de access): al agotar la cuota/limite de
+    // una cuenta (401/402/403/429) salta a la siguiente y reintenta.
+    accounts: loadAssistantAccounts() as AssistantAccount[],
+    // Plantilla de base URL de Workers AI por cuenta ({account_id} se sustituye).
+    cloudflareBase:
+      process.env.ASSISTANT_CF_BASE_TEMPLATE ||
+      'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
     // Tope de tokens de salida. En modelos locales el TIEMPO ≈ tokens_generados /
     // velocidad: con ~33 tok/s, 700 tokens son ~21s POR llamada. Respuestas de
     // soporte deben ser breves, así que limitamos fuerte (gran palanca de latencia).
