@@ -24,8 +24,8 @@ import {
 
 const ASSET_TYPES = ["POP", "OLT", "Switch", "Router", "NAP", "Splitter", "UPS", "Servidor", "Camara", "Empalme", "ONU", "Cliente"];
 const TIPO_COLOR: Record<string, string> = {
-  POP: "#F5C518", OLT: "#3E6FB0", NAP: "#22E0A1", CTO: "#22E0A1",
-  Splitter: "#7FA8DD", Cliente: "#7FA8DD",
+  POP: "#22D3EE", OLT: "#3B82F6", NAP: "#22E0A1", CTO: "#22E0A1",
+  Splitter: "#38BDF8", Cliente: "#38BDF8",
 };
 const dotColor = (tipo: string) => TIPO_COLOR[tipo] || "#8B96AC";
 
@@ -677,7 +677,7 @@ function TopologiaView({  assets, fibras, canEdit, onFocus, onInfraChanged, setN
       const f = await createInfraFiber({ origenId, destinoId, tipoFibra, hilos: parseInt(hilos, 10) || undefined });
       setOrigenId(""); setDestinoId("");
       onInfraChanged();
-      onFocus(f.origen.lng, f.origen.lat, "#FFD24A");
+      onFocus(f.origen.lng, f.origen.lat, "#6366F1");
     } catch (e: any) { setNetErr(e.message || "No se pudo crear el tramo"); }
     finally { setBusy(false); }
   }
@@ -749,7 +749,7 @@ function TopologiaView({  assets, fibras, canEdit, onFocus, onInfraChanged, setN
           <div className="flex max-h-44 flex-col gap-1.5 overflow-y-auto pr-1">
             {fibras.map((f) => (
               <div key={f.properties.id} className="flex items-center justify-between gap-2 rounded-lg border border-cica-glow/30 bg-cica-navy/40 px-3 py-1.5">
-                <button onClick={() => onFocus(f.geometry.coordinates[0][0], f.geometry.coordinates[0][1], "#FFD24A")} className="truncate text-left text-[11px] font-semibold text-cica-glow hover:underline">
+                <button onClick={() => onFocus(f.geometry.coordinates[0][0], f.geometry.coordinates[0][1], "#6366F1")} className="truncate text-left text-[11px] font-semibold text-cica-glow hover:underline">
                   🟡 {f.properties.nombre} <span className="text-cica-muted">· {f.properties.longitud} m{f.properties.hilos ? ` · ${f.properties.hilos}h` : ""}</span>
                 </button>
                 {canEdit && <button onClick={() => quitarFibra(f.properties.id)} className="shrink-0 text-cica-muted hover:text-status-sin">✕</button>}

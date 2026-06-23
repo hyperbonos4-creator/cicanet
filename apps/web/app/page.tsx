@@ -102,10 +102,18 @@ export default function Page() {
     ticketStats().then(setTickStats).catch(() => {});
 
     ipLocate()
-      .then((loc) => { setIpLoc(loc); if (loc.fuente === "ip-api") setFocusPoint({ lng: loc.lng, lat: loc.lat, color: "#3E6FB0" }); })
+      .then((loc) => { setIpLoc(loc); if (loc.fuente === "ip-api") setFocusPoint({ lng: loc.lng, lat: loc.lat, color: "#3B82F6" }); })
       .catch(() => {});
 
-    const socket = io(SOCKET_URL, { auth: { token: getToken() }, transports: ["polling", "websocket"] });
+    const socket = io(SOCKET_URL, {
+      auth: { token: getToken() },
+      transports: ["polling", "websocket"],
+      // ngrok (free) intercala una página de advertencia en peticiones de
+      // navegador sin este header; sin él, el handshake de Socket.IO recibe HTML
+      // y entra en bucle de reconexión a través del túnel. authFetch ya lo envía
+      // para el API; aquí lo añadimos al transporte polling del socket.
+      extraHeaders: { "ngrok-skip-browser-warning": "true" },
+    });
     socketRef.current = socket;
     socket.on("connect", () => setLive(true));
     socket.on("disconnect", () => setLive(false));
@@ -183,7 +191,7 @@ export default function Page() {
   const pinColor = buildResult
     ? buildResult.resultado === "instalable" ? "#22E0A1" : "#FF4D6D"
     : !coverage
-    ? "#F5C518"
+    ? "#22D3EE"
     : coverage.cobertura
     ? coverage.estado === "ftth" ? "#22E0A1" : "#FFB02E"
     : coverage.estado === "fuera_de_zona" ? "#8B96AC" : "#FF4D6D";
@@ -333,8 +341,8 @@ export default function Page() {
                 <LegendDot color="#22E0A1" label="FTTH disponible" />
                 <LegendDot color="#FFB02E" label="Cobertura parcial / NAP saturada" />
                 <LegendDot color="#FF4D6D" label="Sin cobertura / suspendido" />
-                <LegendDot color="#F5C518" label="Fibra troncal" />
-                <LegendDot color="#3E6FB0" label="Cliente activo" />
+                <LegendDot color="#22D3EE" label="Fibra troncal" />
+                <LegendDot color="#3B82F6" label="Cliente activo" />
               </div>
             </div>
 

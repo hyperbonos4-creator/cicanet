@@ -48,10 +48,18 @@ export interface AssistantMessage {
 @Injectable()
 export class LlmProvider {
   private readonly logger = new Logger('LlmProvider');
+  /** Índice de la cuenta activa del pool (persistente en el proceso). */
+  private accountIdx = 0;
+  /** Códigos HTTP que justifican rotar de cuenta. */
+  private readonly rotatable = new Set([401, 402, 403, 429]);
 
   get configured(): boolean {
-    // Ollama local no requiere API key; cualquier otro proveedor sí.
-    return !!config.assistant.apiKey || config.assistant.provider === 'ollama';
+    // Hay con qué responder: pool de cuentas, cuenta única, u Ollama local.
+    return (
+      config.assistant.accounts.length > 0 ||
+      !!config.assistant.apiKey ||
+      config.assistant.provider === 'ollama'
+    );
   }
 
   get model(): string {
@@ -60,20 +68,17 @@ export class LlmProvider {
 
   /**
    * Un turno de chat. Devuelve el mensaje del asistente (texto y/o tool_calls).
-   * Lanza si no está configurado o si el proveedor falla.
-   *
-   * `opts.timeoutMs` aborta la llamada si el proveedor (p. ej. un modelo local
-   * lento de Ollama) no responde a tiempo, para no bloquear la petición HTTP.
+   * Si hay un pool de cuentas Cloudflare configurado, ROTA automáticamente ante
+   * cuota/límite/auth (401/402/403/429) o timeout — igual que el asistente de
+   * access. Si no, usa la cuenta única (Gemini/OpenAI/Ollama…).
    */
   async chat(
     messages: ChatMessage[],
     tools?: ToolSchema[],
     opts?: { timeoutMs?: number; model?: string },
   ): Promise<AssistantMessage> {
-    const { baseUrl, apiKey, model: defaultModel, maxTokens, temperature, callTimeoutMs } = config.assistant;
-    const model = opts?.model || defaultModel;
-    // Ollama local funciona sin API key; el resto de proveedores la exige.
-    if (!apiKey && config.assistant.provider !== 'ollama') throw new Error('assistant_not_configured');
+    const { maxTokens, temperature, callTimeoutMs, disableThinking } = config.assistant;
+    const model = opts?.model || config.assistant.model;
 
     const body: Record<string, unknown> = {
       model,
@@ -82,12 +87,58 @@ export class LlmProvider {
       max_tokens: maxTokens,
       stream: false,
     };
+    // GLM (Cloudflare) necesita esto para responder en `content` y no "pensar".
+    if (disableThinking) body.chat_template_kwargs = { enable_thinking: false };
     if (tools && tools.length) {
       body.tools = tools;
       body.tool_choice = 'auto';
     }
 
     const timeoutMs = Math.max(1000, opts?.timeoutMs ?? callTimeoutMs);
+    const pool = config.assistant.accounts;
+
+    // ── Modo pool: rota entre cuentas Cloudflare (mismo modelo que access) ──
+    if (pool.length) {
+      let lastErr: any;
+      for (let attempt = 0; attempt < pool.length; attempt++) {
+        const acc = pool[this.accountIdx % pool.length];
+        const baseUrl = config.assistant.cloudflareBase
+          .replace('{account_id}', acc.accountId)
+          .replace(/\/+$/, '');
+        try {
+          return await this.doCall(baseUrl, acc.apiToken, body, timeoutMs);
+        } catch (e: any) {
+          lastErr = e;
+          if (!this.isRotatable(e)) throw e;
+          this.logger.warn(
+            `Asistente: cuenta ${acc.accountId} no disponible (${e?.status ?? e?.message}); rotando…`,
+          );
+          this.accountIdx = (this.accountIdx + 1) % pool.length;
+        }
+      }
+      throw lastErr ?? new Error('assistant_all_accounts_exhausted');
+    }
+
+    // ── Cuenta única (Gemini/OpenAI/Groq/Ollama…) ──
+    if (!config.assistant.apiKey && config.assistant.provider !== 'ollama') {
+      throw new Error('assistant_not_configured');
+    }
+    return this.doCall(config.assistant.baseUrl, config.assistant.apiKey, body, timeoutMs);
+  }
+
+  /** ¿El error justifica rotar de cuenta? (límite/cuota/auth o timeout). */
+  private isRotatable(e: any): boolean {
+    if (e?.rotatable === true) return true;
+    return typeof e?.status === 'number' && this.rotatable.has(e.status);
+  }
+
+  /** Llamada cruda a un endpoint OpenAI-compatible; marca status/timeout. */
+  private async doCall(
+    baseUrl: string,
+    apiKey: string,
+    body: Record<string, unknown>,
+    timeoutMs: number,
+  ): Promise<AssistantMessage> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -96,7 +147,6 @@ export class LlmProvider {
       res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
-          // Solo enviar Authorization si hay key (Ollama no la necesita).
           ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
           'Content-Type': 'application/json',
         },
@@ -106,7 +156,9 @@ export class LlmProvider {
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         this.logger.warn(`LLM timeout tras ${timeoutMs}ms`);
-        throw new Error('assistant_timeout');
+        const err: any = new Error('assistant_timeout');
+        err.rotatable = true; // una cuenta colgada → probar la siguiente
+        throw err;
       }
       throw e;
     } finally {
@@ -116,7 +168,9 @@ export class LlmProvider {
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       this.logger.warn(`LLM HTTP ${res.status}: ${detail.slice(0, 200)}`);
-      throw new Error(`assistant_http_${res.status}`);
+      const err: any = new Error(`assistant_http_${res.status}`);
+      err.status = res.status;
+      throw err;
     }
 
     const data: any = await res.json();

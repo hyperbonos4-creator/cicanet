@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { login } from "../../lib/api";
 
 export default function LoginPage() {
@@ -46,19 +45,21 @@ export default function LoginPage() {
 
       <div className="glass relative z-10 w-full max-w-sm animate-fadeUp p-8">
         <div className="mb-7 flex flex-col items-center text-center">
-          <Image
-            src="/cicanet-logo.png"
-            alt="CICANET"
-            width={84}
-            height={84}
-            className="mb-3 rounded-full shadow-glow"
-            priority
-          />
-          <h1 className="text-2xl font-extrabold tracking-tight cica-gradient-text">
+          <span className="relative mb-3 grid h-24 w-24 place-items-center">
+            <span className="absolute inset-0 rounded-full bg-cica-glow/25 blur-xl" aria-hidden />
+            <img
+              src="/vx-emblem.svg"
+              alt="VisionYX"
+              width={88}
+              height={88}
+              className="relative h-[88px] w-[88px] rounded-full ring-1 ring-cica-steel/40"
+            />
+          </span>
+          <h1 className="vx-display text-2xl font-extrabold tracking-tight cica-gradient-text">
             CICANET
           </h1>
-          <p className="mt-1 text-xs text-cica-muted">
-            La red del futuro · acceso restringido
+          <p className="mt-1.5 text-xs tracking-wide text-cica-muted">
+            ISP inteligente · by VisionYX · acceso restringido
           </p>
         </div>
 

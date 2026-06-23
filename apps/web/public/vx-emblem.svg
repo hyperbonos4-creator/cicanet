@@ -1,0 +1,34 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="VisionYX">
+  <defs>
+    <radialGradient id="vx-disc" cx="50%" cy="34%" r="80%">
+      <stop offset="0" stop-color="#1b2f59"/>
+      <stop offset="0.6" stop-color="#0d1830"/>
+      <stop offset="1" stop-color="#070d1c"/>
+    </radialGradient>
+    <linearGradient id="vx-stroke" x1="28" y1="30" x2="92" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3ee9ff"/>
+      <stop offset="0.5" stop-color="#5b8bff"/>
+      <stop offset="1" stop-color="#c06bff"/>
+    </linearGradient>
+    <linearGradient id="vx-ring" x1="12" y1="12" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3ee9ff"/>
+      <stop offset="1" stop-color="#c06bff"/>
+    </linearGradient>
+    <filter id="vx-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- disco -->
+  <circle cx="60" cy="60" r="58" fill="url(#vx-disc)"/>
+  <!-- anillo de marca con glow -->
+  <circle cx="60" cy="60" r="56" fill="none" stroke="url(#vx-ring)" stroke-width="3.2"/>
+
+  <!-- V audaz: dos trazos gruesos con glow, legible a tamaño pequeño -->
+  <g filter="url(#vx-glow)" stroke="url(#vx-stroke)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M33 33 L60 86 L87 33"/>
+  </g>
+  <!-- realce central -->
+  <path d="M33 33 L60 86 L87 33" stroke="#eafcff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.35"/>
+</svg>

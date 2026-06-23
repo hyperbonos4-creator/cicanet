@@ -6,6 +6,12 @@ const API_TARGET = process.env.API_PROXY_TARGET || "http://api:4000";
 
 const nextConfig = {
   reactStrictMode: true,
+  // Permite servir nuestro emblema SVG propio vía next/image.
+  images: {
+    dangerouslyAllowSVG: true,
+    contentDispositionType: "attachment",
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+  },
   // Evita que Next redirija (308) la barra final de /socket.io/, que rompe el WebSocket.
   skipTrailingSlashRedirect: true,
   async rewrites() {

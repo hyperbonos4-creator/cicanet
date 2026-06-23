@@ -9,37 +9,41 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Paleta de marca CICANET — metálico: navy profundo + plata + dorado, fibra azul acero
+        // Paleta de marca VISIONYX — degradado cian → azul → violeta sobre navy
+        // profundo. Se conservan las claves `cica-*` (las usan los componentes)
+        // pero sus valores ahora son los de VisionYX, así toda la UI hereda el
+        // estilo sin reescribir cada vista.
         cica: {
-          black: "#04060C",
-          navy: "#0A0E1A",
-          panel: "#0E1322",
-          border: "#222B40",
-          steel: "#3E6FB0", // fibra / azul acero (secundario)
-          steelLight: "#7FA8DD",
-          gold: "#F5C518", // acento dorado principal
-          amber: "#C8860D", // dorado profundo (inicio de degradados)
-          glow: "#FFD24A", // brillo dorado
-          silver: "#E9EDF5", // texto plateado
-          muted: "#8B96AC",
+          black: "#060B16", // fondo base
+          navy: "#0B1326", // fondo alterno / barras
+          panel: "#0F1A30", // superficies
+          border: "#233150", // bordes
+          steel: "#3B82F6", // azul de marca (secundario)
+          steelLight: "#38BDF8", // azul-cian claro
+          gold: "#A855F7", // ACENTO principal → violeta (fin de degradados)
+          amber: "#22D3EE", // cian (inicio de degradados)
+          glow: "#6366F1", // índigo (brillo)
+          silver: "#EAF1FB", // texto claro
+          muted: "#A6B6D4", // texto atenuado
         },
         status: {
-          ftth: "#22E0A1",
-          parcial: "#FFB02E",
-          sin: "#FF4D6D",
+          ftth: "#28E0A0",
+          parcial: "#FFC14D",
+          sin: "#FF5470",
         },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "var(--font-sans)", "sans-serif"],
       },
       boxShadow: {
-        glow: "0 0 20px rgba(245, 197, 24, 0.35)",
-        "glow-strong": "0 0 30px rgba(245, 197, 24, 0.55)",
-        panel: "0 8px 40px rgba(0, 0, 0, 0.5)",
+        glow: "0 0 20px rgba(99, 102, 241, 0.40)",
+        "glow-strong": "0 0 32px rgba(99, 102, 241, 0.60)",
+        panel: "0 18px 50px rgba(0, 0, 0, 0.50)",
       },
       backgroundImage: {
         "cica-radial":
-          "radial-gradient(circle at 30% 20%, rgba(245,197,24,0.10), transparent 45%), radial-gradient(circle at 80% 70%, rgba(62,111,176,0.12), transparent 40%)",
+          "radial-gradient(circle at 28% 18%, rgba(34,211,238,0.10), transparent 45%), radial-gradient(circle at 82% 72%, rgba(168,85,247,0.12), transparent 42%)",
       },
       keyframes: {
         pulseGlow: {

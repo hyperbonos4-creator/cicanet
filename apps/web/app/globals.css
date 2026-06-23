@@ -5,7 +5,8 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
-  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Exo 2", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Orbitron", var(--font-sans);
 }
 
 * {
@@ -17,13 +18,13 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #04060c;
-  color: #e9edf5;
+  background: #060b16;
+  color: #eaf1fb;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---- Utilidades de marca CICANET ---- */
+/* ---- Utilidades de marca VISIONYX ---- */
 @layer components {
   .glass {
     @apply bg-cica-panel/70 backdrop-blur-xl border border-cica-border/80 rounded-2xl shadow-panel;
@@ -31,21 +32,26 @@ body {
   .glass-soft {
     @apply bg-cica-panel/50 backdrop-blur-md border border-cica-border/60 rounded-xl;
   }
-  /* Texto metálico: plata → dorado → ámbar (igual que el logotipo) */
+  /* Tipografía display (Orbitron) para el wordmark y titulares de marca */
+  .vx-display {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+  }
+  /* Texto con degradado de marca: cian → índigo → violeta (VisionYX) */
   .cica-gradient-text {
-    background: linear-gradient(95deg, #ffffff 0%, #f5c518 52%, #c8860d 100%);
+    background: linear-gradient(100deg, #22d3ee 0%, #6366f1 52%, #a855f7 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   .btn-cica {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
-           text-cica-black transition-all duration-200;
-    background: linear-gradient(95deg, #c8860d, #f5c518);
-    box-shadow: 0 0 18px rgba(245, 197, 24, 0.35);
+           text-white transition-all duration-200;
+    background: linear-gradient(100deg, #22d3ee, #3b82f6 55%, #a855f7);
+    box-shadow: 0 0 18px rgba(99, 102, 241, 0.40);
   }
   .btn-cica:hover {
-    box-shadow: 0 0 28px rgba(245, 197, 24, 0.6);
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.65);
     transform: translateY(-1px);
   }
 }
@@ -59,11 +65,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #222b40;
+  background: #233150;
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #c8860d;
+  background: #22d3ee;
 }
 
 /* ---- Marcadores de red (NAP/POP) ---- */
@@ -99,64 +105,64 @@ body {
   }
 }
 .nap-available {
-  background: #f5c518;
-  color: #f5c518;
-  box-shadow: 0 0 14px #f5c518;
+  background: #22d3ee;
+  color: #22d3ee;
+  box-shadow: 0 0 14px #22d3ee;
 }
 .nap-near {
-  background: #ffb02e;
-  color: #ffb02e;
-  box-shadow: 0 0 14px #ffb02e;
+  background: #ffc14d;
+  color: #ffc14d;
+  box-shadow: 0 0 14px #ffc14d;
 }
 .nap-full {
-  background: #ff4d6d;
-  color: #ff4d6d;
-  box-shadow: 0 0 14px #ff4d6d;
+  background: #ff5470;
+  color: #ff5470;
+  box-shadow: 0 0 14px #ff5470;
 }
 .pop-marker {
   width: 22px;
   height: 22px;
   border-radius: 6px;
   transform: rotate(45deg);
-  background: linear-gradient(135deg, #c8860d, #f5c518);
+  background: linear-gradient(135deg, #22d3ee, #a855f7);
   border: 2px solid #ffffff;
-  box-shadow: 0 0 20px rgba(245, 197, 24, 0.8);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.8);
   cursor: pointer;
 }
 
 /* ---- Popups de MapLibre con tema oscuro ---- */
 .maplibregl-popup-content {
-  background: rgba(14, 19, 34, 0.95) !important;
-  color: #e9edf5 !important;
-  border: 1px solid #222b40 !important;
+  background: rgba(15, 26, 48, 0.95) !important;
+  color: #eaf1fb !important;
+  border: 1px solid #233150 !important;
   border-radius: 14px !important;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 22px rgba(245, 197, 24, 0.18) !important;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 22px rgba(99, 102, 241, 0.20) !important;
   backdrop-filter: blur(12px);
   padding: 14px 16px !important;
   font-family: var(--font-sans);
 }
 .maplibregl-popup-tip {
-  border-top-color: rgba(14, 19, 34, 0.95) !important;
-  border-bottom-color: rgba(14, 19, 34, 0.95) !important;
+  border-top-color: rgba(15, 26, 48, 0.95) !important;
+  border-bottom-color: rgba(15, 26, 48, 0.95) !important;
 }
 .maplibregl-popup-close-button {
-  color: #8b96ac !important;
+  color: #a6b6d4 !important;
   font-size: 18px !important;
   padding: 4px 8px !important;
 }
 .maplibregl-ctrl-group {
-  background: rgba(14, 19, 34, 0.9) !important;
-  border: 1px solid #222b40 !important;
+  background: rgba(15, 26, 48, 0.9) !important;
+  border: 1px solid #233150 !important;
 }
 .maplibregl-ctrl-group button {
   background: transparent !important;
 }
 .maplibregl-ctrl-group button + button {
-  border-top: 1px solid #222b40 !important;
+  border-top: 1px solid #233150 !important;
 }
 .maplibregl-ctrl-attrib {
-  background: rgba(4, 6, 12, 0.6) !important;
+  background: rgba(6, 11, 22, 0.6) !important;
 }
 .maplibregl-ctrl-attrib a {
-  color: #8b96ac !important;
+  color: #a6b6d4 !important;
 }

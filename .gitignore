@@ -50,3 +50,6 @@ scripts/.ngrok-authtoken
 # Token de GitHub (PAT) para el build móvil — NUNCA versionar
 scripts/.gh-token
 *.gh-token
+
+# Credenciales Cloudflare del asistente (tokens en texto plano — NUNCA subir)
+cuentas/

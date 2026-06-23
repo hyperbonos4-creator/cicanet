@@ -234,13 +234,13 @@ export default function CoverageMap({
         id: "comuna1-fill",
         type: "fill",
         source: "comuna1",
-        paint: { "fill-color": "#3E6FB0", "fill-opacity": 0.04 },
+        paint: { "fill-color": "#3B82F6", "fill-opacity": 0.04 },
       });
       map.addLayer({
         id: "comuna1-line",
         type: "line",
         source: "comuna1",
-        paint: { "line-color": "#3E6FB0", "line-width": 1, "line-opacity": 0.35 },
+        paint: { "line-color": "#3B82F6", "line-width": 1, "line-opacity": 0.35 },
       });
 
       map.addSource("coverage", { type: "geojson", data: data.coverage as any });
@@ -255,7 +255,7 @@ export default function CoverageMap({
             "ftth", COVERAGE_COLORS.ftth,
             "parcial", COVERAGE_COLORS.parcial,
             "sin", COVERAGE_COLORS.sin,
-            "#3E6FB0",
+            "#3B82F6",
           ],
           "fill-opacity": 0.18,
         },
@@ -271,7 +271,7 @@ export default function CoverageMap({
             "ftth", COVERAGE_COLORS.ftth,
             "parcial", COVERAGE_COLORS.parcial,
             "sin", COVERAGE_COLORS.sin,
-            "#3E6FB0",
+            "#3B82F6",
           ],
           "line-width": 1.5,
           "line-opacity": 0.7,
@@ -283,14 +283,14 @@ export default function CoverageMap({
         id: "sector-fill",
         type: "fill",
         source: "sector",
-        paint: { "fill-color": "#F5C518", "fill-opacity": 0.04 },
+        paint: { "fill-color": "#22D3EE", "fill-opacity": 0.04 },
       });
       map.addLayer({
         id: "sector-line",
         type: "line",
         source: "sector",
         paint: {
-          "line-color": "#F5C518",
+          "line-color": "#22D3EE",
           "line-width": 1.2,
           "line-opacity": 0.45,
         },
@@ -321,13 +321,13 @@ export default function CoverageMap({
         type: "fill",
         source: "draw",
         filter: ["==", "$type", "Polygon"],
-        paint: { "fill-color": "#F5C518", "fill-opacity": 0.15 },
+        paint: { "fill-color": "#22D3EE", "fill-opacity": 0.15 },
       });
       map.addLayer({
         id: "draw-line",
         type: "line",
         source: "draw",
-        paint: { "line-color": "#F5C518", "line-width": 2, "line-dasharray": [2, 1] },
+        paint: { "line-color": "#22D3EE", "line-width": 2, "line-dasharray": [2, 1] },
       });
       map.addLayer({
         id: "draw-vertices",
@@ -336,7 +336,7 @@ export default function CoverageMap({
         filter: ["==", "$type", "Point"],
         paint: {
           "circle-radius": 5,
-          "circle-color": "#F5C518",
+          "circle-color": "#22D3EE",
           "circle-stroke-width": 2,
           "circle-stroke-color": "#fff",
         },
@@ -348,14 +348,14 @@ export default function CoverageMap({
         type: "line",
         source: "fiber",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#F5C518", "line-width": 6, "line-opacity": 0.18, "line-blur": 4 },
+        paint: { "line-color": "#22D3EE", "line-width": 6, "line-opacity": 0.18, "line-blur": 4 },
       });
       map.addLayer({
         id: "fiber-line",
         type: "line",
         source: "fiber",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#FFD24A", "line-width": 1.8, "line-opacity": 0.95 },
+        paint: { "line-color": "#6366F1", "line-width": 1.8, "line-opacity": 0.95 },
       });
 
       map.addSource("clients", { type: "geojson", data: data.clients as any });
@@ -367,7 +367,7 @@ export default function CoverageMap({
           "circle-radius": 7,
           "circle-blur": 1,
           "circle-opacity": 0.5,
-          "circle-color": ["match", ["get", "estado"], "suspendido", "#FF4D6D", "#3E6FB0"],
+          "circle-color": ["match", ["get", "estado"], "suspendido", "#FF4D6D", "#3B82F6"],
         },
       });
       map.addLayer({
@@ -376,7 +376,7 @@ export default function CoverageMap({
         source: "clients",
         paint: {
           "circle-radius": 3.2,
-          "circle-color": ["match", ["get", "estado"], "suspendido", "#FF4D6D", "#7FA8DD"],
+          "circle-color": ["match", ["get", "estado"], "suspendido", "#FF4D6D", "#38BDF8"],
           "circle-stroke-width": 1,
           "circle-stroke-color": "rgba(255,255,255,0.6)",
         },
@@ -389,14 +389,14 @@ export default function CoverageMap({
         type: "line",
         source: "infra-fiber",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#F5C518", "line-width": 7, "line-opacity": 0.2, "line-blur": 4 },
+        paint: { "line-color": "#22D3EE", "line-width": 7, "line-opacity": 0.2, "line-blur": 4 },
       });
       map.addLayer({
         id: "infra-fiber-line",
         type: "line",
         source: "infra-fiber",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#FFD24A", "line-width": 2.4, "line-opacity": 0.95 },
+        paint: { "line-color": "#6366F1", "line-width": 2.4, "line-opacity": 0.95 },
       });
       map.addSource("infra-assets", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
@@ -408,8 +408,8 @@ export default function CoverageMap({
           "circle-blur": 1,
           "circle-opacity": 0.45,
           "circle-color": ["match", ["get", "tipo"],
-            "POP", "#F5C518", "OLT", "#3E6FB0", "NAP", "#22E0A1", "CTO", "#22E0A1",
-            "Splitter", "#7FA8DD", "Cliente", "#7FA8DD", "#8B96AC"],
+            "POP", "#22D3EE", "OLT", "#3B82F6", "NAP", "#22E0A1", "CTO", "#22E0A1",
+            "Splitter", "#38BDF8", "Cliente", "#38BDF8", "#8B96AC"],
         },
       });
       map.addLayer({
@@ -419,8 +419,8 @@ export default function CoverageMap({
         paint: {
           "circle-radius": ["match", ["get", "tipo"], "POP", 7, 4.5],
           "circle-color": ["match", ["get", "tipo"],
-            "POP", "#F5C518", "OLT", "#3E6FB0", "NAP", "#22E0A1", "CTO", "#22E0A1",
-            "Splitter", "#7FA8DD", "Cliente", "#7FA8DD", "#E9EDF5"],
+            "POP", "#22D3EE", "OLT", "#3B82F6", "NAP", "#22E0A1", "CTO", "#22E0A1",
+            "Splitter", "#38BDF8", "Cliente", "#38BDF8", "#E9EDF5"],
           "circle-stroke-width": 2,
           "circle-stroke-color": "#04060C",
         },
@@ -434,7 +434,7 @@ export default function CoverageMap({
         filter: [">", ["coalesce", ["get", "fotosCount"], 0], 0],
         paint: {
           "circle-radius": 3,
-          "circle-color": "#F5C518",
+          "circle-color": "#22D3EE",
           "circle-translate": [7, -7],
           "circle-stroke-width": 1.5,
           "circle-stroke-color": "#04060C",
@@ -538,7 +538,7 @@ export default function CoverageMap({
     focusMarkerRef.current = null;
     if (!focusPoint) return;
 
-    const color = focusPoint.color || "#F5C518";
+    const color = focusPoint.color || "#22D3EE";
     const el = document.createElement("div");
     el.style.cssText = `width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #fff;box-shadow:0 0 18px ${color};`;
     focusMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" })
@@ -573,7 +573,7 @@ export default function CoverageMap({
       lastFlyRef.current = null;
       return;
     }
-    const color = pinColor || "#F5C518";
+    const color = pinColor || "#22D3EE";
     const { lng, lat } = draggablePin;
 
     if (!pinMarkerRef.current) {
@@ -747,7 +747,7 @@ function buildNodeMarkers(
           : '<span style="color:#FFB02E">degradado</span>'
       }</div>
         <div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#8B96AC">Puertos</span><strong style="color:#fff">${p.puertos_usados}/${p.puertos_total}</strong></div>
-        <div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#8B96AC">Libres</span><strong style="color:${libres > 0 ? "#F5C518" : "#FF4D6D"}">${libres}</strong></div>
+        <div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#8B96AC">Libres</span><strong style="color:${libres > 0 ? "#22D3EE" : "#FF4D6D"}">${libres}</strong></div>
       </div>`,
     );
 
@@ -770,7 +770,7 @@ function buildBarrioLabels(map: MlMap, comuna1: FC, labelsRef: React.MutableRefO
     const esPopular = f.properties.codigo === "0103";
     el.textContent = f.properties.nombre;
     el.style.cssText = `font-size:${esPopular ? 11 : 9.5}px;font-weight:${esPopular ? 800 : 600};
-      color:${esPopular ? "#F5C518" : "#8B96AC"};white-space:nowrap;pointer-events:none;
+      color:${esPopular ? "#22D3EE" : "#8B96AC"};white-space:nowrap;pointer-events:none;
       text-shadow:0 1px 4px rgba(0,0,0,0.9),0 0 8px rgba(0,0,0,0.8);letter-spacing:0.2px;`;
     const marker = new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map);
     labelsRef.current.push(marker);

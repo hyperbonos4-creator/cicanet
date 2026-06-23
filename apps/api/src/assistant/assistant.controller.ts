@@ -15,10 +15,11 @@ export class AssistantController {
   /** Estado del asistente y acciones rápidas iniciales (para la UI). */
   @Get('info')
   info() {
+    const ia = config.assistant.accounts.length > 0 || !!config.assistant.apiKey;
     return {
       nombre: 'Cica',
-      ia: !!config.assistant.apiKey,
-      modelo: config.assistant.apiKey ? config.assistant.model : null,
+      ia,
+      modelo: ia ? config.assistant.model : null,
       saludo:
         '¡Hola! Soy Cica, el asistente de CICANET. Puedo ayudarte con pagos, cobertura, planes y soporte técnico. ¿En qué te ayudo?',
       acciones: QUICK_ACTIONS,

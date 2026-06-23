@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import type { SessionUser } from "../lib/api";
 
 export type ModuleKey = "operacion" | "clientes" | "infra";
@@ -60,7 +59,7 @@ export default function ModuleRail({
   return (
     <nav className="pointer-events-auto z-20 flex h-full w-[76px] flex-col items-center justify-between border-r border-cica-border/70 bg-cica-navy/80 py-4 backdrop-blur-xl">
       <div className="flex flex-col items-center gap-6">
-        <Image src="/cicanet-logo.png" alt="CICANET" width={44} height={44} className="rounded-full shadow-glow" priority />
+        <img src="/vx-emblem.svg" alt="VisionYX" width={44} height={44} className="h-11 w-11 rounded-full ring-1 ring-cica-steel/40 shadow-glow" />
 
         <div className="flex flex-col items-center gap-2">
           {MODULES.map((m) => {
@@ -76,7 +75,7 @@ export default function ModuleRail({
                     : "text-cica-muted hover:bg-cica-border/40 hover:text-cica-silver"
                 }`}
               >
-                <span className={active ? "drop-shadow-[0_0_6px_rgba(245,197,24,0.7)]" : ""}>{m.icon}</span>
+                <span className={active ? "drop-shadow-[0_0_6px_rgba(168,85,247,0.7)]" : ""}>{m.icon}</span>
                 <span className="leading-tight">{m.label}</span>
               </button>
             );

@@ -30,6 +30,6 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Protege todo menos assets de Next, el logo, y el proxy de API/WebSocket.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|cicanet-logo.png|api|socket.io).*)"],
+  // Protege todo menos assets de Next, los logos, y el proxy de API/WebSocket.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|vx-emblem.svg|visionyx-logo.png|cicanet-logo.png|api|socket.io).*)"],
 };

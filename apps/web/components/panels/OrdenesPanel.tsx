@@ -19,7 +19,7 @@ import {
 
 const ESTADO_META: Record<OrdenEstado, { label: string; color: string; bg: string }> = {
   asignada: { label: "Asignada", color: "#8B96AC", bg: "rgba(139,150,172,0.15)" },
-  en_camino: { label: "En camino", color: "#3E6FB0", bg: "rgba(62,111,176,0.18)" },
+  en_camino: { label: "En camino", color: "#3B82F6", bg: "rgba(59,130,246,0.18)" },
   en_sitio: { label: "En sitio", color: "#FFB02E", bg: "rgba(255,176,46,0.18)" },
   completada: { label: "Completada", color: "#22E0A1", bg: "rgba(34,224,161,0.16)" },
   cancelada: { label: "Cancelada", color: "#FF4D6D", bg: "rgba(255,77,109,0.16)" },
