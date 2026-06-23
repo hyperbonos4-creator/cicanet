@@ -17,6 +17,6 @@ import { RolesGuard } from '../auth/guards';
   imports: [AuthModule, PrismaModule],
   controllers: [AccountingController],
   providers: [AccountingService, ReportsService, PostingEngineService, RolesGuard],
-  exports: [AccountingService, PostingEngineService],
+  exports: [AccountingService, ReportsService, PostingEngineService],
 })
 export class AccountingModule {}

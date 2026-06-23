@@ -997,3 +997,49 @@ model AssistantRun {
   @@index([rol])
   @@map("assistant_run")
 }
+
+/// Documento soporte adjunto a una entidad contable (PARTE V — gestión documental).
+/// Para auditoría DIAN: factura del proveedor, soporte de pago, RUT, contrato,
+/// extracto bancario. El archivo vive en DATA_DIR/uploads/contabilidad/<entidad>/<id>/
+/// y se sirve estáticamente bajo /api/uploads/. Nunca contiene secretos.
+model DocumentoSoporte {
+  id             String   @id @default(uuid()) @db.Uuid
+  codigo         String   @unique // DOC-000001
+  /// Entidad respaldada: asiento | compra | recibo | dian | activo | nomina | tesoreria | general
+  entidadTipo    String   @map("entidad_tipo")
+  entidadId      String   @map("entidad_id")
+  /// Clasificación: factura | soporte_pago | rut | contrato | extracto | otro
+  categoria      String   @default("otro")
+  nombreOriginal String   @map("nombre_original")
+  archivo        String // nombre del archivo en disco
+  url            String // ruta relativa servida (/api/uploads/contabilidad/...)
+  mimeType       String   @map("mime_type")
+  tamano         Int // bytes
+  notas          String?
+  subidoPor      String?  @map("subido_por")
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  @@index([entidadTipo, entidadId])
+  @@index([categoria])
+  @@map("documento_soporte")
+}
+
+/// Presupuesto por cuenta PUC (y opcionalmente centro de costo) para el control
+/// presupuestal (Presupuesto vs Real — PARTE V). `periodo` null = meta anual;
+/// "2026-06" = meta mensual. La ejecución real se calcula del ledger en runtime.
+model Presupuesto {
+  id            String    @id @default(uuid()) @db.Uuid
+  anio          Int
+  periodo       String? // null = anual; "2026-06" = mensual
+  cuentaCodigo  String    @map("cuenta_codigo")
+  centroCosto   String?   @map("centro_costo")
+  monto         Decimal   @db.Decimal(16, 2)
+  notas         String?
+  creadoPor     String?   @map("creado_por")
+  creadoEn      DateTime  @default(now()) @map("creado_en")
+  actualizadoEn DateTime? @updatedAt @map("actualizado_en")
+
+  @@index([anio])
+  @@index([cuentaCodigo])
+  @@map("presupuesto")
+}

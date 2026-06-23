@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  API_URL,
   accountingDashboard,
   listAsientos,
   crearAsiento,
@@ -55,6 +56,7 @@ import {
   anularRecibo,
   listClientes,
   workbench,
+  workbenchSalud,
   listTesoreria,
   tesoreriaSaldos,
   tesoreriaFlujo,
@@ -83,7 +85,18 @@ import {
   darDeBajaActivo,
   bankingHuerfanos,
   tesoreriaAnticipo,
+  listDocumentos,
+  documentosResumen,
+  subirDocumento,
+  eliminarDocumento,
+  listPresupuesto,
+  ejecucionPresupuestal,
+  upsertPresupuesto,
+  eliminarPresupuesto,
   type WorkbenchCard,
+  type SaludFinanciera,
+  type Alerta,
+  type Indicador,
   type AsientoContable,
   type CuentaContable,
   type TerceroContable,
@@ -107,9 +120,13 @@ import {
   type DianCentro,
   type AssetRed,
   type CentroCosto,
+  type DocumentoSoporte,
+  type PresupuestoLinea,
+  type EjecucionPresupuestal,
+  type EjecucionLinea,
 } from "../../lib/api";
 
-type Tab = "dashboard" | "cartera" | "acuerdos" | "recibos" | "facturacion" | "cobranza" | "compras" | "tesoreria" | "activos" | "inventario" | "nomina" | "exogena" | "dian" | "bancos" | "analitica" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
+type Tab = "dashboard" | "cartera" | "acuerdos" | "recibos" | "facturacion" | "cobranza" | "compras" | "tesoreria" | "activos" | "inventario" | "nomina" | "exogena" | "dian" | "bancos" | "analitica" | "presupuesto" | "documentos" | "asientos" | "nuevo" | "cuentas" | "reportes" | "periodos";
 
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
@@ -133,7 +150,7 @@ const GRUPOS: { key: Grupo; label: string }[] = [
 ];
 
 const TABS: { key: Tab; label: string; group: Grupo; soloAdmin?: boolean }[] = [
-  { key: "dashboard", label: "Pendientes del día", group: "hoy" },
+  { key: "dashboard", label: "Centro de control", group: "hoy" },
   // Operación contable
   { key: "cartera", label: "Cartera", group: "operacion" },
   { key: "recibos", label: "Recibos de caja", group: "operacion" },
@@ -155,9 +172,11 @@ const TABS: { key: Tab; label: string; group: Grupo; soloAdmin?: boolean }[] = [
   { key: "asientos", label: "Comprobantes", group: "libros" },
   { key: "nuevo", label: "Nuevo asiento", group: "libros" },
   { key: "cuentas", label: "Plan de cuentas", group: "libros" },
+  { key: "documentos", label: "Documentos", group: "libros" },
   { key: "reportes", label: "Reportes", group: "libros" },
   // Analítica
   { key: "analitica", label: "Analítica ISP", group: "analitica" },
+  { key: "presupuesto", label: "Presupuesto vs Real", group: "analitica" },
 ];
 
 export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: boolean; isAdmin: boolean }) {
@@ -230,6 +249,8 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
       {tab === "dian" && <DianTab isAdmin={isAdmin} />}
       {tab === "bancos" && <BancosTab />}
       {tab === "analitica" && <AnaliticaTab canEdit={canEdit} />}
+      {tab === "presupuesto" && <PresupuestoTab canEdit={canEdit} />}
+      {tab === "documentos" && <DocumentosTab canEdit={canEdit} isAdmin={isAdmin} />}
       {tab === "asientos" && <AsientosTab canEdit={canEdit} />}
       {tab === "nuevo" && <NuevoAsientoTab canEdit={canEdit} onDone={() => goTab("asientos")} />}
       {tab === "cuentas" && <CuentasTab />}
@@ -240,25 +261,128 @@ export default function ContabilidadModule({ canEdit, isAdmin }: { canEdit: bool
 }
 
 /* ===================== Dashboard ===================== */
+/* ===================== Centro de control financiero (home) ===================== */
+const SEV_STYLE: Record<Alerta["severidad"], { dot: string; text: string; ring: string; label: string }> = {
+  critica: { dot: "bg-status-sin", text: "text-status-sin", ring: "border-l-status-sin", label: "Crítico" },
+  atencion: { dot: "bg-status-parcial", text: "text-status-parcial", ring: "border-l-status-parcial", label: "Atención" },
+  info: { dot: "bg-cica-steelLight", text: "text-cica-steelLight", ring: "border-l-cica-steelLight", label: "Información" },
+};
+const IND_STYLE: Record<Indicador["estado"], string> = {
+  bueno: "text-status-ftth",
+  alerta: "text-status-parcial",
+  malo: "text-status-sin",
+  neutro: "text-cica-muted",
+};
+
 function DashboardTab({ onGo }: { onGo: (t: Tab) => void }) {
   const [d, setD] = useState<any>(null);
   const [wb, setWb] = useState<WorkbenchCard[] | null>(null);
+  const [salud, setSalud] = useState<SaludFinanciera | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     accountingDashboard().then(setD).catch((e) => setErr(e.message));
     workbench().then((w) => setWb(w.tarjetas)).catch(() => {});
+    workbenchSalud().then(setSalud).catch(() => {});
   }, []);
   if (err) return <Aviso texto={err} />;
   if (!d) return <Cargando />;
+
+  const estado = salud?.estadoGlobal ?? "sano";
+  const banner =
+    estado === "critico"
+      ? { txt: "Requiere atención inmediata", cls: "text-status-sin", dot: "bg-status-sin" }
+      : estado === "atencion"
+      ? { txt: "Con pendientes por revisar", cls: "text-status-parcial", dot: "bg-status-parcial" }
+      : { txt: "Finanzas en orden", cls: "text-status-ftth", dot: "bg-status-ftth" };
+
+  // Pendientes: accionables primero (valor > 0), ceros atenuados al final.
+  const pendientes = wb ? [...wb].sort((a, b) => (b.valor > 0 ? 1 : 0) - (a.valor > 0 ? 1 : 0)) : null;
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
+      {/* Semáforo global + resumen de alertas */}
+      <div className="glass flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="flex items-center gap-3">
+          <span className={`h-3 w-3 rounded-full ${banner.dot} animate-pulseGlow`} />
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-cica-muted">Centro de control · {d.periodo}</div>
+            <div className={`text-lg font-extrabold ${banner.cls}`}>{banner.txt}</div>
+          </div>
+        </div>
+        {salud && (
+          <div className="flex gap-2 text-[11px] font-semibold">
+            <span className="rounded-lg bg-status-sin/15 px-2.5 py-1 text-status-sin">{salud.resumenAlertas.criticas} críticas</span>
+            <span className="rounded-lg bg-status-parcial/15 px-2.5 py-1 text-status-parcial">{salud.resumenAlertas.atencion} atención</span>
+            <span className="rounded-lg bg-cica-steelLight/15 px-2.5 py-1 text-cica-steelLight">{salud.resumenAlertas.info} info</span>
+          </div>
+        )}
+      </div>
+
+      {/* Motor de alertas por excepción */}
+      {salud && (
+        <div>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Alertas</div>
+          {salud.alertas.length === 0 ? (
+            <div className="glass flex items-center gap-3 p-4 text-sm">
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-status-ftth/15 text-status-ftth">✓</span>
+              <span className="text-cica-silver">Sin alertas. No hay anomalías contables ni financieras detectadas.</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+              {salud.alertas.map((a) => (
+                <button
+                  key={a.clave}
+                  onClick={() => onGo(a.tab as Tab)}
+                  className={`glass flex items-start gap-3 border-l-4 ${SEV_STYLE[a.severidad].ring} p-3 text-left transition-colors hover:border-cica-gold/40`}
+                >
+                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${SEV_STYLE[a.severidad].dot}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold text-cica-silver">{a.titulo}</span>
+                      <span className={`shrink-0 text-[10px] font-bold uppercase ${SEV_STYLE[a.severidad].text}`}>{SEV_STYLE[a.severidad].label}</span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-cica-muted">{a.detalle}</div>
+                    <div className={`mt-1 text-[11px] font-semibold ${SEV_STYLE[a.severidad].text}`}>{a.accion} →</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Indicadores de salud financiera */}
+      {salud && salud.indicadores.length > 0 && (
+        <div>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Salud financiera</div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            {salud.indicadores.map((i) => (
+              <button
+                key={i.clave}
+                onClick={() => i.tab && onGo(i.tab as Tab)}
+                title={i.ayuda}
+                className="glass p-3 text-left transition-colors hover:border-cica-gold/40"
+              >
+                <div className={`text-xl font-extrabold ${IND_STYLE[i.estado]}`}>{i.valor}</div>
+                <div className="mt-0.5 text-[11px] font-semibold text-cica-silver">{i.titulo}</div>
+                <div className="mt-0.5 line-clamp-2 text-[10px] text-cica-muted">{i.ayuda}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Bandeja de pendientes (workbench) */}
-      {wb && (
+      {pendientes && (
         <div>
           <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Pendientes del día</div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {wb.map((c) => (
-              <button key={c.clave} onClick={() => onGo(c.tab as Tab)} className="glass p-3 text-left transition-colors hover:border-cica-gold/40">
+            {pendientes.map((c) => (
+              <button
+                key={c.clave}
+                onClick={() => onGo(c.tab as Tab)}
+                className={`glass p-3 text-left transition-colors hover:border-cica-gold/40 ${c.valor > 0 ? "" : "opacity-50"}`}
+              >
                 <div className={`text-2xl font-extrabold ${c.valor > 0 ? "text-cica-gold" : "text-cica-muted"}`}>{c.valor}</div>
                 <div className="mt-0.5 text-[11px] font-semibold text-cica-silver">{c.titulo}</div>
                 <div className="text-[10px] text-cica-muted">{c.detalle}</div>
@@ -268,18 +392,40 @@ function DashboardTab({ onGo }: { onGo: (t: Tab) => void }) {
           </div>
         </div>
       )}
+
       {/* KPIs financieros */}
       <div>
-        <div className="mb-2 text-[11px] text-cica-muted">Periodo {d.periodo}</div>
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Resultados del periodo {d.periodo}</div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           <Kpi label="Ingresos del periodo" value={money(d.ingresos)} accent="text-status-ftth" />
           <Kpi label="Gastos + costos" value={money(d.gastos)} accent="text-status-parcial" />
           <Kpi label="Utilidad neta" value={money(d.utilidadNeta)} accent={d.utilidadNeta >= 0 ? "text-cica-gold" : "text-status-sin"} />
           <Kpi label="Cartera (CxC clientes)" value={money(d.cartera)} accent="text-cica-steelLight" />
-          <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent="text-cica-silver" />
+          <Kpi label="Bancos y caja" value={money(d.bancosCaja)} accent={d.bancosCaja >= 0 ? "text-cica-silver" : "text-status-sin"} />
           <Kpi label="Comprobantes del periodo" value={String(d.asientosDelPeriodo)} accent="text-cica-muted" />
         </div>
       </div>
+
+      {/* Calendario tributario */}
+      {salud && salud.calendario.obligaciones.length > 0 && (
+        <div>
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-cica-muted">Calendario tributario</div>
+          <div className="glass divide-y divide-cica-border/50">
+            {salud.calendario.obligaciones.map((o) => (
+              <button key={o.clave} onClick={() => onGo(o.tab as Tab)} className="flex w-full items-center justify-between gap-3 p-3 text-left transition-colors hover:bg-cica-navy/30">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-cica-silver">{o.titulo}</div>
+                  <div className="text-[11px] text-cica-muted">{o.detalle} · {o.fecha}</div>
+                </div>
+                <span className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-bold ${SEV_STYLE[o.severidad].text} bg-cica-navy/50`}>
+                  {o.diasRestantes < 0 ? `Vencido (${Math.abs(o.diasRestantes)}d)` : o.diasRestantes === 0 ? "Hoy" : `En ${o.diasRestantes} d`}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5 text-[10px] text-cica-muted">{salud.calendario.nota}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2105,6 +2251,251 @@ function PeriodosTab({ canEdit }: { canEdit: boolean }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ===================== Presupuesto vs Real ===================== */
+const PRES_ESTADO: Record<EjecucionLinea["estado"], string> = {
+  bueno: "text-status-ftth",
+  alerta: "text-status-parcial",
+  malo: "text-status-sin",
+};
+function PresupuestoTab({ canEdit }: { canEdit: boolean }) {
+  const anioActual = new Date().getFullYear();
+  const [anio, setAnio] = useState(anioActual);
+  const [data, setData] = useState<EjecucionPresupuestal | null>(null);
+  const [cuentas, setCuentas] = useState<CuentaContable[]>([]);
+  const [centros, setCentros] = useState<CentroCosto[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [form, setForm] = useState({ cuentaCodigo: "", monto: "", periodo: "", centroCosto: "", notas: "" });
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    ejecucionPresupuestal(anio).then(setData).catch((e) => setErr(e.message));
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [anio]);
+  useEffect(() => {
+    listCuentas().then((c) => setCuentas(c.filter((x: any) => x.imputable))).catch(() => {});
+    listCentrosCosto().then(setCentros).catch(() => {});
+  }, []);
+
+  async function guardar() {
+    if (!form.cuentaCodigo || !form.monto) return;
+    setBusy(true);
+    try {
+      await upsertPresupuesto({
+        anio,
+        cuentaCodigo: form.cuentaCodigo,
+        monto: Number(form.monto),
+        periodo: form.periodo || null,
+        centroCosto: form.centroCosto || null,
+        notas: form.notas || undefined,
+      });
+      setForm({ cuentaCodigo: "", monto: "", periodo: "", centroCosto: "", notas: "" });
+      load();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function borrar(id: string) {
+    if (!confirm("¿Eliminar esta meta de presupuesto?")) return;
+    await eliminarPresupuesto(id).catch((e) => setErr(e.message));
+    load();
+  }
+
+  if (err) return <Aviso texto={err} />;
+  if (!data) return <Cargando />;
+  const t = data.totales;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-cica-muted">Año</span>
+          <select value={anio} onChange={(e) => setAnio(Number(e.target.value))} className={input}>
+            {[anioActual + 1, anioActual, anioActual - 1, anioActual - 2].map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-3">
+          <Kpi label="Presupuesto" value={money(t.presupuesto)} accent="text-cica-steelLight" />
+          <Kpi label="Real (ledger)" value={money(t.real)} accent="text-cica-silver" />
+          <Kpi label="Desviación" value={`${money(t.desviacion)} (${t.desviacionPct}%)`} accent={t.desviacion === 0 ? "text-cica-muted" : "text-status-parcial"} />
+        </div>
+      </div>
+
+      {canEdit && (
+        <div className="glass p-4">
+          <div className="mb-3 text-sm font-bold text-white">Fijar meta de presupuesto · {anio}</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+            <Field label="Cuenta PUC">
+              <select value={form.cuentaCodigo} onChange={(e) => setForm({ ...form, cuentaCodigo: e.target.value })} className={input}>
+                <option value="">— Selecciona —</option>
+                {cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+              </select>
+            </Field>
+            <Field label="Monto"><input value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="0" inputMode="numeric" className={input} /></Field>
+            <Field label="Periodo (opcional)"><input value={form.periodo} onChange={(e) => setForm({ ...form, periodo: e.target.value })} placeholder={`${anio}-06 · vacío = anual`} className={input} /></Field>
+            <Field label="Centro de costo (opcional)">
+              <select value={form.centroCosto} onChange={(e) => setForm({ ...form, centroCosto: e.target.value })} className={input}>
+                <option value="">— Ninguno —</option>
+                {centros.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.nombre}</option>)}
+              </select>
+            </Field>
+            <div className="flex items-end">
+              <button onClick={guardar} disabled={busy || !form.cuentaCodigo || !form.monto} className="w-full rounded-lg bg-cica-gold/90 px-4 py-2 text-sm font-bold text-cica-black transition-colors hover:bg-cica-gold disabled:opacity-40">Guardar meta</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {data.lineas.length === 0 ? (
+        <Aviso texto="Aún no hay metas de presupuesto para este año. Fija la primera arriba." />
+      ) : (
+        <div className="glass overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-cica-navy/50 text-[11px] uppercase text-cica-muted">
+              <tr>
+                <th className="px-3 py-2 text-left">Cuenta</th>
+                <th className="px-3 py-2 text-left">Periodo / CC</th>
+                <th className="px-3 py-2 text-right">Presupuesto</th>
+                <th className="px-3 py-2 text-right">Real</th>
+                <th className="px-3 py-2 text-right">Desviación</th>
+                <th className="px-3 py-2 text-right">%</th>
+                {canEdit && <th className="px-3 py-2"></th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-cica-border/40">
+              {data.lineas.map((l) => (
+                <tr key={l.id} className="hover:bg-cica-navy/20">
+                  <td className="px-3 py-2"><span className="font-mono text-[11px] text-cica-muted">{l.cuentaCodigo}</span> <span className="text-cica-silver">{l.cuentaNombre}</span> {l.esIngreso && <span className="ml-1 text-[10px] text-status-ftth">ingreso</span>}</td>
+                  <td className="px-3 py-2 text-[11px] text-cica-muted">{l.periodo ?? "anual"}{l.centroCosto ? ` · ${l.centroCosto}` : ""}</td>
+                  <td className="px-3 py-2 text-right text-cica-steelLight">{money(l.presupuesto)}</td>
+                  <td className="px-3 py-2 text-right text-cica-silver">{money(l.real)}</td>
+                  <td className={`px-3 py-2 text-right font-semibold ${PRES_ESTADO[l.estado]}`}>{money(l.desviacion)}</td>
+                  <td className={`px-3 py-2 text-right font-semibold ${PRES_ESTADO[l.estado]}`}>{l.desviacionPct}%</td>
+                  {canEdit && <td className="px-3 py-2 text-right"><button onClick={() => borrar(l.id)} className="text-[11px] text-status-sin hover:underline">eliminar</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="text-[10px] text-cica-muted">El "Real" se calcula del ledger (movimientos contabilizados) respetando la naturaleza de cada cuenta. Para gastos, gastar de más es desfavorable; para ingresos, recaudar de menos lo es.</div>
+    </div>
+  );
+}
+
+/* ===================== Gestión documental ===================== */
+const ENTIDADES_DOC = [
+  { v: "compra", t: "Compra / CxP" }, { v: "asiento", t: "Comprobante" }, { v: "recibo", t: "Recibo de caja" },
+  { v: "dian", t: "Documento DIAN" }, { v: "activo", t: "Activo" }, { v: "nomina", t: "Nómina" },
+  { v: "tesoreria", t: "Tesorería" }, { v: "general", t: "General" },
+];
+const CATEGORIAS_DOC = [
+  { v: "factura", t: "Factura" }, { v: "soporte_pago", t: "Soporte de pago" }, { v: "rut", t: "RUT" },
+  { v: "contrato", t: "Contrato" }, { v: "extracto", t: "Extracto bancario" }, { v: "otro", t: "Otro" },
+];
+function fmtBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+function DocumentosTab({ canEdit, isAdmin }: { canEdit: boolean; isAdmin: boolean }) {
+  const [docs, setDocs] = useState<DocumentoSoporte[] | null>(null);
+  const [filtro, setFiltro] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [form, setForm] = useState<{ entidadTipo: string; entidadId: string; categoria: string; notas: string; file: File | null }>({ entidadTipo: "compra", entidadId: "", categoria: "factura", notas: "", file: null });
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    listDocumentos(filtro ? { entidadTipo: filtro } : {}).then(setDocs).catch((e) => setErr(e.message));
+  }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filtro]);
+
+  async function subir() {
+    if (!form.file || !form.entidadId) return;
+    setBusy(true);
+    try {
+      await subirDocumento(form.entidadTipo, form.entidadId.trim(), form.file, { categoria: form.categoria, notas: form.notas || undefined });
+      setForm({ ...form, entidadId: "", notas: "", file: null });
+      load();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  async function borrar(id: string) {
+    if (!confirm("¿Eliminar este soporte? Es irrecuperable.")) return;
+    await eliminarDocumento(id).catch((e) => setErr(e.message));
+    load();
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {err && <Aviso texto={err} />}
+      {canEdit && (
+        <div className="glass p-4">
+          <div className="mb-3 text-sm font-bold text-white">Adjuntar soporte</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-5">
+            <Field label="Tipo de entidad">
+              <select value={form.entidadTipo} onChange={(e) => setForm({ ...form, entidadTipo: e.target.value })} className={input}>
+                {ENTIDADES_DOC.map((e) => <option key={e.v} value={e.v}>{e.t}</option>)}
+              </select>
+            </Field>
+            <Field label="N° / ID de la entidad"><input value={form.entidadId} onChange={(e) => setForm({ ...form, entidadId: e.target.value })} placeholder="CXP-000001, CMP-..." className={input} /></Field>
+            <Field label="Categoría">
+              <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} className={input}>
+                {CATEGORIAS_DOC.map((c) => <option key={c.v} value={c.v}>{c.t}</option>)}
+              </select>
+            </Field>
+            <Field label="Archivo (PDF, imagen, CSV, Excel, XML)">
+              <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.xml" onChange={(e) => setForm({ ...form, file: e.target.files?.[0] ?? null })} className="text-[11px] text-cica-silver file:mr-2 file:rounded-md file:border-0 file:bg-cica-navy file:px-3 file:py-2 file:text-cica-silver" />
+            </Field>
+            <div className="flex items-end">
+              <button onClick={subir} disabled={busy || !form.file || !form.entidadId} className="w-full rounded-lg bg-cica-gold/90 px-4 py-2 text-sm font-bold text-cica-black transition-colors hover:bg-cica-gold disabled:opacity-40">{busy ? "Subiendo…" : "Subir"}</button>
+            </div>
+          </div>
+          <input value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} placeholder="Nota (opcional)" className={`${input} mt-3 w-full`} />
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-cica-muted">Filtrar</span>
+        <select value={filtro} onChange={(e) => setFiltro(e.target.value)} className={input}>
+          <option value="">Todas las entidades</option>
+          {ENTIDADES_DOC.map((e) => <option key={e.v} value={e.v}>{e.t}</option>)}
+        </select>
+      </div>
+
+      {!docs ? <Cargando /> : docs.length === 0 ? (
+        <Aviso texto="No hay soportes documentales. Adjunta el primero arriba." />
+      ) : (
+        <div className="glass overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-cica-navy/50 text-[11px] uppercase text-cica-muted">
+              <tr>
+                <th className="px-3 py-2 text-left">Documento</th>
+                <th className="px-3 py-2 text-left">Entidad</th>
+                <th className="px-3 py-2 text-left">Categoría</th>
+                <th className="px-3 py-2 text-right">Tamaño</th>
+                <th className="px-3 py-2 text-left">Subido</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-cica-border/40">
+              {docs.map((d) => (
+                <tr key={d.id} className="hover:bg-cica-navy/20">
+                  <td className="px-3 py-2"><span className="font-mono text-[11px] text-cica-muted">{d.codigo}</span> <span className="text-cica-silver">{d.nombreOriginal}</span>{d.notas && <div className="text-[10px] text-cica-muted">{d.notas}</div>}</td>
+                  <td className="px-3 py-2 text-[11px] text-cica-muted">{d.entidadTipo} · {d.entidadId}</td>
+                  <td className="px-3 py-2 text-[11px] text-cica-silver">{CATEGORIAS_DOC.find((c) => c.v === d.categoria)?.t ?? d.categoria}</td>
+                  <td className="px-3 py-2 text-right text-[11px] text-cica-muted">{fmtBytes(d.tamano)}</td>
+                  <td className="px-3 py-2 text-[11px] text-cica-muted">{new Date(d.creadoEn).toLocaleDateString("es-CO")}{d.subidoPor ? ` · ${d.subidoPor}` : ""}</td>
+                  <td className="px-3 py-2 text-right">
+                    <a href={`${API_URL}${d.url.replace(/^\/api/, "")}`} target="_blank" rel="noreferrer" className="mr-3 text-[11px] text-cica-steelLight hover:underline">ver</a>
+                    {isAdmin && <button onClick={() => borrar(d.id)} className="text-[11px] text-status-sin hover:underline">eliminar</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

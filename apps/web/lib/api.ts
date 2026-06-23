@@ -1143,6 +1143,90 @@ export function anularRecibo(id: string): Promise<{ ok: boolean }> {
 export type WorkbenchCard = { clave: string; titulo: string; valor: number; detalle: string; alerta: string | null; tab: string };
 export function workbench(): Promise<{ periodo: string; tarjetas: WorkbenchCard[] }> { return authFetch("/workbench"); }
 
+// ---- Centro de control financiero (workbench/salud) ----
+export type Severidad = "critica" | "atencion" | "info";
+export type EstadoIndicador = "bueno" | "alerta" | "malo" | "neutro";
+export type Alerta = { clave: string; severidad: Severidad; titulo: string; detalle: string; tab: string; accion: string };
+export type Indicador = { clave: string; titulo: string; valor: string; estado: EstadoIndicador; ayuda: string; tab?: string };
+export type ObligacionTributaria = { clave: string; titulo: string; fecha: string; diasRestantes: number; severidad: Severidad; detalle: string; tab: string };
+export type SaludFinanciera = {
+  periodo: string;
+  generadoEn: string;
+  estadoGlobal: "critico" | "atencion" | "sano";
+  resumenAlertas: { criticas: number; atencion: number; info: number };
+  alertas: Alerta[];
+  indicadores: Indicador[];
+  calendario: { nota: string; obligaciones: ObligacionTributaria[] };
+};
+export function workbenchSalud(periodo?: string): Promise<SaludFinanciera> {
+  return authFetch(`/workbench/salud${periodo ? `?periodo=${encodeURIComponent(periodo)}` : ""}`);
+}
+
+// ---- Gestión documental de soportes (módulo documentos) ----
+export type DocumentoSoporte = {
+  id: string; codigo: string; entidadTipo: string; entidadId: string; categoria: string;
+  nombreOriginal: string; url: string; mimeType: string; tamano: number; notas: string | null;
+  subidoPor: string | null; creadoEn: string;
+};
+export function listDocumentos(opts: { entidadTipo?: string; entidadId?: string; categoria?: string } = {}): Promise<DocumentoSoporte[]> {
+  const qs = new URLSearchParams();
+  if (opts.entidadTipo) qs.set("entidadTipo", opts.entidadTipo);
+  if (opts.entidadId) qs.set("entidadId", opts.entidadId);
+  if (opts.categoria) qs.set("categoria", opts.categoria);
+  return authFetch(`/documentos${qs.toString() ? `?${qs}` : ""}`);
+}
+export function documentosResumen(): Promise<{ total: number; porCategoria: { categoria: string; cantidad: number; bytes: number }[] }> {
+  return authFetch("/documentos/resumen");
+}
+export async function subirDocumento(entidadTipo: string, entidadId: string, file: File, meta: { categoria?: string; notas?: string } = {}): Promise<DocumentoSoporte> {
+  const token = getToken();
+  const fd = new FormData();
+  fd.append("file", file);
+  if (meta.categoria) fd.append("categoria", meta.categoria);
+  if (meta.notas) fd.append("notas", meta.notas);
+  const res = await fetch(`${API_URL}/documentos/${encodeURIComponent(entidadTipo)}/${encodeURIComponent(entidadId)}`, {
+    method: "POST",
+    headers: { "ngrok-skip-browser-warning": "true", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: fd,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg = body?.message || `Error ${res.status}`;
+    throw new Error(Array.isArray(msg) ? msg.join(" · ") : msg);
+  }
+  return res.json();
+}
+export function eliminarDocumento(id: string): Promise<{ ok: boolean }> {
+  return authFetch(`/documentos/${id}`, { method: "DELETE" });
+}
+
+// ---- Control presupuestal (módulo presupuesto) ----
+export type PresupuestoLinea = {
+  id: string; anio: number; periodo: string | null; cuentaCodigo: string; centroCosto: string | null;
+  monto: string; notas: string | null;
+};
+export type EjecucionLinea = {
+  id: string; cuentaCodigo: string; cuentaNombre: string; esIngreso: boolean; centroCosto: string | null;
+  periodo: string | null; presupuesto: number; real: number; desviacion: number; desviacionPct: number;
+  estado: "bueno" | "alerta" | "malo"; notas: string | null;
+};
+export type EjecucionPresupuestal = {
+  anio: number; periodo: string | null; lineas: EjecucionLinea[];
+  totales: { presupuesto: number; real: number; desviacion: number; desviacionPct: number };
+};
+export function listPresupuesto(anio: number): Promise<PresupuestoLinea[]> {
+  return authFetch(`/presupuesto?anio=${anio}`);
+}
+export function ejecucionPresupuestal(anio: number, periodo?: string): Promise<EjecucionPresupuestal> {
+  return authFetch(`/presupuesto/ejecucion?anio=${anio}${periodo ? `&periodo=${encodeURIComponent(periodo)}` : ""}`);
+}
+export function upsertPresupuesto(input: { anio: number; periodo?: string | null; cuentaCodigo: string; centroCosto?: string | null; monto: number; notas?: string }): Promise<PresupuestoLinea> {
+  return authFetch("/presupuesto", { method: "POST", body: JSON.stringify(input) });
+}
+export function eliminarPresupuesto(id: string): Promise<{ ok: boolean }> {
+  return authFetch(`/presupuesto/${id}`, { method: "DELETE" });
+}
+
 // ---- Tesorería (módulo tesoreria) ----
 export type MovTesoreria = { id: string; numero: string; tipo: string; fecha: string; monto: string; concepto: string; beneficiario: string | null; cuentaOrigen: string | null; cuentaDestino: string | null };
 export function listTesoreria(tipo?: string): Promise<MovTesoreria[]> { return authFetch(`/tesoreria/movimientos${tipo ? `?tipo=${tipo}` : ""}`); }

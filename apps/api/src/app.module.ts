@@ -32,6 +32,8 @@ import { CarteraModule } from './cartera/cartera.module';
 import { DianModule } from './dian/dian.module';
 import { AssetRegistryModule } from './asset-registry/asset-registry.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { DocumentosModule } from './documentos/documentos.module';
+import { PresupuestoModule } from './presupuesto/presupuesto.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -69,6 +71,8 @@ import { HealthController } from './health.controller';
     DianModule,
     AssetRegistryModule,
     AnalyticsModule,
+    DocumentosModule,
+    PresupuestoModule,
   ],
   controllers: [HealthController],
 })

@@ -595,3 +595,103 @@ y reproceso por documento.
 > recaudo, facturación recurrente, suspensión por mora, conciliación, DIAN y rentabilidad
 > por nodo/zona en un solo sistema). La Parte III protege ese moat puliendo la experiencia
 > de trabajo y el acople entre subledgers, no agregando pestañas.
+
+
+---
+---
+
+# PARTE IV — Centro de control financiero (home) ✅ (2026-06-23)
+
+> Cierra el último hueco señalado en la 3.ª revisión y por el análisis externo: la
+> home era una **bandeja de tareas** (qué falta hacer), no un **centro de alertas por
+> excepción** (qué está mal). Se eleva la cabina del contador al patrón FloQast/Numeric:
+> trabajar por excepción, con salud financiera y calendario tributario de un vistazo.
+
+## IV.1 — Motor de alertas por excepción ✅
+
+- **Backend** `apps/api/src/workbench/` — nuevo `GET /workbench/salud` (admin/contador).
+  Reúsa como **fuente única de verdad** `ReportsService` (dashboard + situación NIIF),
+  `AccountingService.checklistCierre`, `CollectionsService.resumen`, `DianService.getConfig`
+  y `AssetRegistryService.resumen` (no duplica lógica contable).
+- **Alertas con severidad** (crítica/atención/info), ordenadas y con drill-down (`tab`+`accion`):
+  disponible en negativo, partida doble descuadrada, documentos DIAN rechazados, cartera +90,
+  certificado de firma vencido/por vencer (críticas); pérdida del periodo, CxP vencidas,
+  comprobantes en borrador, conciliación pendiente, recibos sin identificar, equipos sin
+  capitalizar, nómina/depreciación pendientes (atención); endeudamiento alto, liquidez ajustada (info).
+- **Semáforo global** (`estadoGlobal`: critico/atencion/sano) + `resumenAlertas`.
+
+## IV.2 — Indicadores de salud financiera ✅
+
+Razón corriente, capital de trabajo, endeudamiento, margen neto, días de cartera (DSO) y
+liquidez inmediata, cada uno con estado (bueno/alerta/malo/neutro) e interpretación. Derivados
+de la situación NIIF y el dashboard ya existentes (con guardas para datos vacíos/negativos).
+
+## IV.3 — Calendario tributario ✅
+
+Próximas obligaciones (retefuente, IVA bimestral, ICA Medellín, nómina electrónica, exógena,
+vencimiento del certificado de firma) con cuenta regresiva y severidad por proximidad. **Fechas
+de referencia** (la fecha legal exacta depende del calendario DIAN del año y del dígito del NIT;
+así rotulado, sin inventar fechas oficiales).
+
+## IV.4 — Reestructuración de la home (front) ✅
+
+`ContabilidadModule.tsx` → pestaña "Hoy" renombrada a **"Centro de control"**:
+semáforo global → **alertas** (drill-down) → **salud financiera** → **pendientes del día**
+(accionables primero, ceros atenuados) → KPIs del periodo → **calendario tributario**.
+Consistente con el design system (tokens `status-*` para severidad). Sin endpoints nuevos
+para el front salvo `workbench/salud`.
+
+**Verificado en vivo (2026-06-23):** `GET /workbench/salud` con data de prueba →
+`estadoGlobal=critico` (1 crítica: disponible −$775.500; 2 atención: pérdida del periodo,
+equipo sin capitalizar; 1 info: liquidez ajustada), 6 indicadores y 5 obligaciones. Compila
+api + web (tsc limpio). `GET /workbench` (bandeja) intacto y retrocompatible.
+
+
+---
+---
+
+# PARTE V — Gestión documental + control presupuestal ✅ (2026-06-23)
+
+> Cierra los dos huecos de valor que faltaban frente a Siigo/Alegra y a lo que pide
+> cualquier contador: **soportes adjuntos** (auditoría DIAN) y **Presupuesto vs Real**
+> (control de gestión). Con esto la cabina tiene "todo lo que se encuentra en cualquier
+> otro sistema" y algo más: el real sale del propio ledger, no de un Excel aparte.
+
+## V.1 — Gestión documental de soportes ✅
+
+- **Modelo** `DocumentoSoporte` (codigo DOC-xxxxxx, entidadTipo/entidadId, categoría,
+  nombre, mime, tamaño, notas, subidoPor). Migrado con `db push`.
+- **Backend** `apps/api/src/documentos/`: subir (multipart, `FileInterceptor`), listar
+  (por entidad/categoría), resumen y eliminar (solo admin). Validación de tipo
+  (PDF/imagen/CSV/Excel/XML) y tamaño (15 MB). Almacenamiento en
+  `DATA_DIR/uploads/contabilidad/<entidad>/<id>/`, servido en `/api/uploads/` (mismo
+  patrón que evidencia de OT/infra). Sin secretos en disco ni en logs.
+- **Web:** pestaña **"Documentos"** (grupo Libros): adjuntar soporte a cualquier
+  entidad (compra, comprobante, recibo, DIAN, activo, nómina, tesorería, general),
+  filtro por entidad, ver/descargar y eliminar.
+- **Verificado en vivo (2026-06-23):** subida PDF → `DOC-000001` en `compra/CXP-000001`,
+  listado, servido estático y borrado (admin) OK.
+
+## V.2 — Control presupuestal (Presupuesto vs Real) ✅
+
+- **Modelo** `Presupuesto` (anio, periodo nullable = anual/mensual, cuentaCodigo,
+  centroCosto nullable, monto). Migrado con `db push`.
+- **Backend** `apps/api/src/presupuesto/`: fijar metas (upsert por cuenta/centro/periodo,
+  valida cuenta imputable del PUC), listar, eliminar y **ejecución**: compara la meta
+  contra el **real calculado del ledger** (movimientos contabilizados, respetando la
+  naturaleza de la cuenta), con desviación firmada y %, y semáforo
+  favorable/desfavorable (gasto de más vs ingreso de menos). Prorratea metas anuales /12
+  al consultar un mes. El ledger es la fuente de verdad: el presupuesto no genera asientos.
+- **Web:** pestaña **"Presupuesto vs Real"** (grupo Analítica): selector de año, KPIs
+  (presupuesto/real/desviación), alta de metas y tabla de ejecución con color por estado.
+- **Verificado en vivo (2026-06-23):** meta energía (513530) $1.000.000 vs real del ledger
+  $1.200.000 → desviación +$200.000 (+20%, desfavorable). Compila api + web (tsc limpio).
+
+## Estado del módulo tras la Parte V
+
+La cabina del contador queda con: centro de control (alertas + salud + calendario),
+operación contable completa (cartera, recaudo, facturación, CxP, tesorería, bancos),
+activos (fijos + inventario de red), cumplimiento (cierre, DIAN, exógena, nómina),
+libros (comprobantes, plan de cuentas, **documentos**, reportes) y analítica
+(vertical ISP + **presupuesto vs real**). Pendiente externo invariante: certificado de
+firma + habilitación DIAN + resolución de numeración (trámite, no código).
