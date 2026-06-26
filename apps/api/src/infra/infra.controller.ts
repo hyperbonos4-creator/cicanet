@@ -68,6 +68,18 @@ class CreateFiberDto {
   @IsOptional() destino?: { lng: number; lat: number };
 }
 
+class GeneratePortsDto {
+  @IsInt() total: number;
+  @IsOptional() @IsIn(['entrada', 'salida']) rol?: 'entrada' | 'salida';
+}
+
+class ConnectPortDto {
+  @IsOptional() @IsString() servicioId?: string;
+  @IsOptional() @IsString() bPuertoId?: string;
+  @IsOptional() @IsInt() hilo?: number;
+  @IsOptional() @IsString() segmentoFibraId?: string;
+}
+
 /** Gemelo Digital de la Red. Lectura: autenticado. Mutación: admin/operador. */
 @Controller('infra')
 @UseGuards(JwtAuthGuard)
@@ -191,5 +203,49 @@ export class InfraController {
   @Roles('admin', 'operador')
   deleteFiber(@Param('id') id: string) {
     return this.infra.deleteFiber(id);
+  }
+
+  // ---- Conectividad a nivel de puerto + trazado óptico ----
+
+  /** Puertos y ocupación real de un activo (NAP/OLT/Splitter). */
+  @Get('assets/:id/ports')
+  ports(@Param('id') id: string) {
+    return this.infra.portsDetail(id);
+  }
+
+  /** Genera/asegura N puertos físicos para un activo. */
+  @Post('assets/:id/ports/generate')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  generatePorts(@Param('id') id: string, @Body() dto: GeneratePortsDto) {
+    return this.infra.generatePorts(id, dto.total, dto.rol ?? 'salida');
+  }
+
+  /** Conecta un puerto a un servicio (cliente) o a otro puerto (cadena óptica). */
+  @Post('ports/:puertoId/connect')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador', 'tecnico')
+  connectPort(@Param('puertoId') puertoId: string, @Body() dto: ConnectPortDto, @Req() req: Request) {
+    return this.infra.connectPort(puertoId, { ...dto, creadoPor: (req as any).user?.username });
+  }
+
+  /** Libera un puerto (desconecta su enlace). */
+  @Post('ports/:puertoId/disconnect')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador', 'tecnico')
+  disconnectPort(@Param('puertoId') puertoId: string) {
+    return this.infra.disconnectPort(puertoId);
+  }
+
+  /** Trazado óptico de un activo hacia la raíz (POP/OLT). */
+  @Get('assets/:id/trace')
+  trace(@Param('id') id: string) {
+    return this.infra.tracePath(id);
+  }
+
+  /** Exporta la red en formato OFDS (Open Fibre Data Standard). */
+  @Get('export/ofds')
+  exportOfds() {
+    return this.infra.exportOfds();
   }
 }

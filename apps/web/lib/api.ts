@@ -342,6 +342,57 @@ export function getAssetDetail(id: string): Promise<any> {
   return authFetch(`/infra/assets/${encodeURIComponent(id)}`);
 }
 
+// ---- Conectividad a nivel de puerto + trazado óptico ----
+export type PortState = "libre" | "ocupado" | "reservado" | "dañado";
+
+export type InfraPort = {
+  id: string;
+  numero: number;
+  rol: "entrada" | "salida";
+  estado: PortState;
+  etiqueta: string | null;
+  conexion: {
+    id: string;
+    servicioId: string | null;
+    bPuertoId: string | null;
+    hilo: number | null;
+    segmentoFibraId: string | null;
+  } | null;
+};
+
+export type PortsDetail = {
+  activoId: string;
+  stats: { total: number; ocupados: number; libres: number; reservados: number; danados: number; semaforo: "verde" | "amarillo" | "rojo" };
+  puertos: InfraPort[];
+};
+
+export type TraceResult = {
+  origen: { id: string; nombre: string; tipo: string };
+  saltos: { id: string; nombre: string; tipo: string; lng?: number; lat?: number; puerto: number | null; hilo: number | null; segmentoFibraId: string | null }[];
+};
+
+export function getAssetPorts(id: string): Promise<PortsDetail> {
+  return authFetch(`/infra/assets/${encodeURIComponent(id)}/ports`);
+}
+export function generateAssetPorts(id: string, total: number, rol: "entrada" | "salida" = "salida"): Promise<{ creados: number; total: number }> {
+  return authFetch(`/infra/assets/${encodeURIComponent(id)}/ports/generate`, {
+    method: "POST",
+    body: JSON.stringify({ total, rol }),
+  });
+}
+export function connectPort(puertoId: string, input: { servicioId?: string; bPuertoId?: string; hilo?: number; segmentoFibraId?: string }): Promise<any> {
+  return authFetch(`/infra/ports/${encodeURIComponent(puertoId)}/connect`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+export function disconnectPort(puertoId: string): Promise<{ id: string }> {
+  return authFetch(`/infra/ports/${encodeURIComponent(puertoId)}/disconnect`, { method: "POST" });
+}
+export function getAssetTrace(id: string): Promise<TraceResult> {
+  return authFetch(`/infra/assets/${encodeURIComponent(id)}/trace`);
+}
+
 // ---- Evidencia fotográfica georreferenciada (vista de calle propia) ----
 export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion";
 

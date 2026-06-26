@@ -15,9 +15,13 @@ import {
   PHOTO_CATEGORIES,
   type Asset,
   type AssetType,
+  type Connection,
   type FiberSegment,
   type PhotoCategory,
   type PhotoRef,
+  type Port,
+  type PortRole,
+  type PortState,
   type Site,
 } from './domain/types';
 import { semaphore as capSemaphore, freePorts } from './domain/capacity';
@@ -26,6 +30,13 @@ import {
   evaluateConstruction as evalConstruction,
   type NapCandidate,
 } from './domain/construction';
+import {
+  portStats as connPortStats,
+  portSemaphore as connPortSemaphore,
+  tracePath as connTracePath,
+  type ConnLike,
+  type PortLike,
+} from './domain/connectivity';
 
 const PREFIX: Record<string, string> = {
   POP: 'POP',
@@ -56,6 +67,8 @@ export class InfraService implements OnModuleInit {
   private assets: Asset[] = [];
   private fiber: FiberSegment[] = [];
   private sites: Site[] = [];
+  private ports: Port[] = [];
+  private connections: Connection[] = [];
 
   private readonly dir = resolve(process.cwd(), config.geo.dataDir);
   private readonly uploadsDir = resolve(this.dir, 'uploads');
@@ -69,7 +82,7 @@ export class InfraService implements OnModuleInit {
     await this.migrateJsonIfNeeded();
     await this.hydrate();
     this.logger.log(
-      `Infra (PostgreSQL): ${this.assets.length} activos · ${this.fiber.length} fibras · ${this.sites.length} sitios`,
+      `Infra (PostgreSQL): ${this.assets.length} activos · ${this.fiber.length} fibras · ${this.sites.length} sitios · ${this.ports.length} puertos · ${this.connections.length} conexiones`,
     );
   }
 
@@ -83,6 +96,23 @@ export class InfraService implements OnModuleInit {
     this.assets = assets.map(rowToAsset);
     this.fiber = fiber.map(rowToFiber);
     this.sites = sites.map(rowToSite);
+
+    // Conectividad (Fase puerto). Tolerante a que las tablas aún no existan
+    // (antes de `prisma db push`): el resto del módulo sigue operativo.
+    try {
+      const [ports, connections] = await Promise.all([
+        this.prisma.puerto.findMany({ orderBy: [{ activoId: 'asc' }, { numero: 'asc' }] }),
+        this.prisma.conexion.findMany({ orderBy: { creadoEn: 'asc' } }),
+      ]);
+      this.ports = ports.map(rowToPort);
+      this.connections = connections.map(rowToConnection);
+    } catch (e: any) {
+      this.ports = [];
+      this.connections = [];
+      this.logger.warn(
+        `Conectividad no hidratada (¿falta "prisma db push" de puerto/conexion?): ${e.message}`,
+      );
+    }
   }
 
   /**
@@ -144,9 +174,23 @@ export class InfraService implements OnModuleInit {
     return this.assets.map((a) => ({ id: a.id, padreId: a.padreId ?? null, tipo: a.tipo }));
   }
 
-  /** Capacidad de un activo (NAP/CTO) leída de sus atributos. null si no aplica. */
+  /** Capacidad de un activo (NAP/CTO). Prefiere puertos REALES; si no hay, usa el contador de atributos. null si no aplica. */
   private capacityOf(a: Asset): { total: number; usados: number; libres: number; semaforo: string } | null {
     if (a.tipo !== 'NAP') return null;
+
+    // 1) Fuente de verdad: puertos físicos registrados (ocupación real derivada).
+    const realPorts = this.ports.filter((p) => p.activoId === a.id);
+    if (realPorts.length > 0) {
+      const stats = connPortStats(realPorts as PortLike[]);
+      return {
+        total: stats.total,
+        usados: stats.total - stats.libres,
+        libres: stats.libres,
+        semaforo: connPortSemaphore(stats),
+      };
+    }
+
+    // 2) Respaldo: contador manual en atributos (compatibilidad con NAPs sin puertos).
     const total = Number(a.atributos?.puertosTotal ?? a.atributos?.puertos_total ?? 0);
     const usados = Number(a.atributos?.puertosUsados ?? a.atributos?.puertos_usados ?? 0);
     if (!Number.isFinite(total) || total <= 0) return null;
@@ -350,6 +394,16 @@ export class InfraService implements OnModuleInit {
     };
     await this.prisma.activo.create({ data: assetToRow(asset) });
     this.assets.push(asset);
+
+    // Si es una NAP con capacidad declarada, materializa sus puertos físicos
+    // (la ocupación real se derivará de ellos, no del contador).
+    const total = Number(asset.atributos?.puertosTotal ?? asset.atributos?.puertos_total ?? 0);
+    if (asset.tipo === 'NAP' && Number.isFinite(total) && total >= 1) {
+      await this.generatePorts(id, Math.min(total, 1024), 'salida').catch((e) =>
+        this.logger.warn(`No se pudieron generar puertos de ${id}: ${e.message}`),
+      );
+    }
+
     this.logger.log(`Activo creado ${id} (${asset.tipo}) @ [${lng}, ${lat}]`);
     return asset;
   }
@@ -359,6 +413,21 @@ export class InfraService implements OnModuleInit {
     if (i === -1) throw new NotFoundException('Activo no encontrado.');
     await this.prisma.activo.delete({ where: { id } });
     this.assets.splice(i, 1);
+
+    // Limpia la conectividad asociada (puertos del activo + conexiones que los usan).
+    const portIds = this.ports.filter((p) => p.activoId === id).map((p) => p.id);
+    if (portIds.length) {
+      const portSet = new Set(portIds);
+      await this.prisma.conexion
+        .deleteMany({ where: { OR: [{ aPuertoId: { in: portIds } }, { bPuertoId: { in: portIds } }] } })
+        .catch(() => undefined);
+      await this.prisma.puerto.deleteMany({ where: { activoId: id } }).catch(() => undefined);
+      this.connections = this.connections.filter(
+        (c) => !portSet.has(c.aPuertoId) && !(c.bPuertoId && portSet.has(c.bPuertoId)),
+      );
+      this.ports = this.ports.filter((p) => p.activoId !== id);
+    }
+
     try {
       const folder = resolve(this.uploadsDir, id);
       if (existsSync(folder)) rmSync(folder, { recursive: true, force: true });
@@ -545,8 +614,247 @@ export class InfraService implements OnModuleInit {
       ancestros: this.ancestors(id).map((p) => ({ id: p.id, nombre: p.nombre, tipo: p.tipo })),
       descendientes: descendientes.map((d) => ({ id: d.id, nombre: d.nombre, tipo: d.tipo })),
       capacidad: this.capacityOf(a),
+      puertos: this.portsDetail(id),
+      trazado: this.tracePath(id),
       impacto: this.impactOf(id),
       clientesDependientes: this.impactOf(id).clientesDependientes,
+    };
+  }
+
+  // ---- conectividad a nivel de puerto (Fase puerto) ----
+
+  /** Puertos de un activo (orden por número). */
+  listPorts(activoId: string): Port[] {
+    return this.ports
+      .filter((p) => p.activoId === activoId)
+      .sort((a, b) => a.numero - b.numero);
+  }
+
+  /** Conexión activa que ocupa un puerto (como origen o destino), si existe. */
+  private connectionOfPort(puertoId: string): Connection | undefined {
+    return this.connections.find(
+      (c) => c.estado === 'activa' && (c.aPuertoId === puertoId || c.bPuertoId === puertoId),
+    );
+  }
+
+  /** Detalle de puertos + ocupación de un activo (para la ficha). */
+  portsDetail(activoId: string) {
+    const asset = this.assets.find((a) => a.id === activoId);
+    if (!asset) throw new NotFoundException('Activo no encontrado.');
+    const ports = this.listPorts(activoId);
+    const stats = connPortStats(ports as PortLike[]);
+    return {
+      activoId,
+      stats: { ...stats, semaforo: connPortSemaphore(stats) },
+      puertos: ports.map((p) => {
+        const conn = this.connectionOfPort(p.id);
+        return {
+          id: p.id,
+          numero: p.numero,
+          rol: p.rol,
+          estado: p.estado,
+          etiqueta: p.etiqueta ?? null,
+          conexion: conn
+            ? {
+                id: conn.id,
+                servicioId: conn.servicioId ?? null,
+                bPuertoId: conn.bPuertoId ?? null,
+                hilo: conn.hilo ?? null,
+                segmentoFibraId: conn.segmentoFibraId ?? null,
+              }
+            : null,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Genera puertos para un activo (NAP/OLT/Splitter). Idempotente por
+   * (activo, rol, número): crea solo los que falten hasta `total`. Útil al dar
+   * de alta una NAP de N puertos.
+   */
+  async generatePorts(
+    activoId: string,
+    total: number,
+    rol: PortRole = 'salida',
+  ): Promise<{ creados: number; total: number }> {
+    const asset = this.assets.find((a) => a.id === activoId);
+    if (!asset) throw new NotFoundException('Activo no encontrado.');
+    if (!Number.isInteger(total) || total < 1 || total > 1024) {
+      throw new BadRequestException('El total de puertos debe estar entre 1 y 1024.');
+    }
+    const existing = new Set(
+      this.ports.filter((p) => p.activoId === activoId && p.rol === rol).map((p) => p.numero),
+    );
+    let creados = 0;
+    for (let n = 1; n <= total; n++) {
+      if (existing.has(n)) continue;
+      const row = await this.prisma.puerto.create({
+        data: { activoId, numero: n, rol, estado: 'libre' },
+      });
+      this.ports.push(rowToPort(row));
+      creados++;
+    }
+    // Sincroniza el contador de atributos para compatibilidad con vistas antiguas.
+    asset.atributos = { ...(asset.atributos || {}), puertosTotal: this.listPorts(activoId).length };
+    await this.prisma.activo
+      .update({ where: { id: activoId }, data: { atributos: asset.atributos as any } })
+      .catch(() => undefined);
+    this.logger.log(`Puertos generados en ${activoId}: +${creados} (total ${this.listPorts(activoId).length})`);
+    return { creados, total: this.listPorts(activoId).length };
+  }
+
+  /**
+   * Conecta un puerto a un servicio (cliente terminal) o a otro puerto
+   * (cadena Splitter→NAP / OLT→Splitter). Marca el puerto como ocupado.
+   */
+  async connectPort(
+    puertoId: string,
+    input: { servicioId?: string; bPuertoId?: string; hilo?: number; segmentoFibraId?: string; creadoPor?: string },
+  ): Promise<Connection> {
+    const port = this.ports.find((p) => p.id === puertoId);
+    if (!port) throw new NotFoundException('Puerto no encontrado.');
+    if (port.estado === 'ocupado') {
+      throw new BadRequestException(`El puerto ${port.numero} ya está ocupado.`);
+    }
+    if (port.estado === 'dañado') {
+      throw new BadRequestException(`El puerto ${port.numero} está marcado como dañado.`);
+    }
+    if (!input.servicioId && !input.bPuertoId) {
+      throw new BadRequestException('Indica un servicio (cliente) o un puerto destino para conectar.');
+    }
+    if (input.bPuertoId) {
+      const b = this.ports.find((p) => p.id === input.bPuertoId);
+      if (!b) throw new BadRequestException('El puerto destino no existe.');
+      if (b.id === port.id) throw new BadRequestException('Un puerto no puede conectarse a sí mismo.');
+    }
+
+    const row = await this.prisma.conexion.create({
+      data: {
+        aPuertoId: puertoId,
+        bPuertoId: input.bPuertoId ?? null,
+        servicioId: input.servicioId ?? null,
+        hilo: input.hilo ?? null,
+        segmentoFibraId: input.segmentoFibraId ?? null,
+        estado: 'activa',
+        creadoPor: input.creadoPor ?? null,
+      },
+    });
+    const conn = rowToConnection(row);
+    this.connections.push(conn);
+
+    // Ambos extremos quedan ocupados.
+    await this.setPortState(port.id, 'ocupado');
+    if (input.bPuertoId) await this.setPortState(input.bPuertoId, 'ocupado');
+
+    // Si terminó en un servicio, deja la traza en el servicio (napId/puerto).
+    if (input.servicioId) {
+      await this.prisma.servicio
+        .update({
+          where: { id: input.servicioId },
+          data: { activoNapId: port.activoId, napId: port.activoId, puerto: port.numero },
+        })
+        .catch(() => undefined);
+    }
+    this.logger.log(`Puerto ${port.activoId}#${port.numero} conectado (${input.servicioId ? 'servicio' : 'puerto'}).`);
+    return conn;
+  }
+
+  /** Libera un puerto: desactiva su conexión y vuelve a 'libre' (ambos extremos). */
+  async disconnectPort(puertoId: string): Promise<{ id: string }> {
+    const port = this.ports.find((p) => p.id === puertoId);
+    if (!port) throw new NotFoundException('Puerto no encontrado.');
+    const conn = this.connectionOfPort(puertoId);
+    if (conn) {
+      await this.prisma.conexion.delete({ where: { id: conn.id } }).catch(() => undefined);
+      this.connections = this.connections.filter((c) => c.id !== conn.id);
+      if (conn.servicioId) {
+        await this.prisma.servicio
+          .update({ where: { id: conn.servicioId }, data: { puerto: null } })
+          .catch(() => undefined);
+      }
+      await this.setPortState(conn.aPuertoId, 'libre');
+      if (conn.bPuertoId) await this.setPortState(conn.bPuertoId, 'libre');
+    } else {
+      await this.setPortState(puertoId, 'libre');
+    }
+    return { id: puertoId };
+  }
+
+  /** Cambia el estado de un puerto (cache + BD). */
+  private async setPortState(puertoId: string, estado: PortState) {
+    const p = this.ports.find((x) => x.id === puertoId);
+    if (!p) return;
+    p.estado = estado;
+    await this.prisma.puerto.update({ where: { id: puertoId }, data: { estado } }).catch(() => undefined);
+  }
+
+  /**
+   * Trazado óptico: desde un activo (o el NAP de un servicio) hasta la raíz
+   * (POP/OLT), anotando el puerto e hilo usados en cada salto. Combina la cadena
+   * topológica (ancestros por padreId) con las conexiones puerto↔puerto.
+   */
+  tracePath(assetId: string) {
+    const start = this.assets.find((a) => a.id === assetId);
+    if (!start) throw new NotFoundException('Activo no encontrado.');
+    const chain = [start.id, ...this.ancestors(assetId).map((a) => a.id)];
+
+    const portsByAsset = new Map<string, PortLike[]>();
+    for (const id of chain) {
+      portsByAsset.set(id, this.listPorts(id) as PortLike[]);
+    }
+    const hops = connTracePath(chain, portsByAsset, this.connections as ConnLike[]);
+    const byId = new Map(this.assets.map((a) => [a.id, a]));
+    return {
+      origen: { id: start.id, nombre: start.nombre, tipo: start.tipo },
+      saltos: hops.map((h) => {
+        const a = byId.get(h.activoId);
+        return {
+          id: h.activoId,
+          nombre: a?.nombre ?? h.activoId,
+          tipo: a?.tipo ?? '?',
+          lng: a?.lng,
+          lat: a?.lat,
+          puerto: h.puertoNumero ?? null,
+          hilo: h.hilo ?? null,
+          segmentoFibraId: h.segmentoFibraId ?? null,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Exporta la red en el formato OFDS (Open Fibre Data Standard): activos →
+   * `nodes` (Point) y segmentos de fibra → `spans` (LineString). Habilita
+   * interoperabilidad con herramientas que consumen el estándar abierto.
+   */
+  exportOfds() {
+    return {
+      networks: [
+        {
+          id: 'cicanet',
+          name: 'CICANET',
+          nodes: this.assets.map((a) => ({
+            id: a.id,
+            name: a.nombre,
+            // Mapeo de tipo CICANET → fenómeno físico OFDS (aproximado).
+            physicalInfrastructureProvider: a.propio ? 'CICANET' : a.regimen || 'Tercero',
+            type: a.tipo,
+            status: a.estado,
+            location: { type: 'Point', coordinates: [a.lng, a.lat] },
+          })),
+          spans: this.fiber.map((f) => ({
+            id: f.id,
+            name: f.nombre ?? f.id,
+            start: f.origenId ?? null,
+            end: f.destinoId ?? null,
+            physicalInfrastructureProvider: 'CICANET',
+            fibreCount: f.hilos ?? null,
+            fibreType: f.tipoFibra ?? null,
+            route: { type: 'LineString', coordinates: f.trazado },
+          })),
+        },
+      ],
     };
   }
 
@@ -554,7 +862,6 @@ export class InfraService implements OnModuleInit {
 
   /** Resuelve un punto desde coordenada explícita o geocodificando la dirección. */
   private async resolvePoint(
-    lng?: number,
     lat?: number,
     direccion?: string,
   ): Promise<{ lng: number; lat: number; direccion?: string }> {
@@ -722,6 +1029,32 @@ function siteToRow(s: Site): any {
     lat: s.lat,
     activosIds: (s.activosIds ?? []) as any,
     ...(s.creadoEn ? { creadoEn: new Date(s.creadoEn) } : {}),
+  };
+}
+
+function rowToPort(r: any): Port {
+  return {
+    id: r.id,
+    activoId: r.activoId,
+    numero: r.numero,
+    rol: (r.rol as PortRole) ?? 'salida',
+    estado: (r.estado as PortState) ?? 'libre',
+    etiqueta: r.etiqueta ?? undefined,
+    creadoEn: (r.creadoEn instanceof Date ? r.creadoEn.toISOString() : r.creadoEn) ?? new Date().toISOString(),
+  };
+}
+
+function rowToConnection(r: any): Connection {
+  return {
+    id: r.id,
+    aPuertoId: r.aPuertoId,
+    bPuertoId: r.bPuertoId ?? null,
+    servicioId: r.servicioId ?? null,
+    hilo: r.hilo ?? null,
+    segmentoFibraId: r.segmentoFibraId ?? null,
+    estado: (r.estado as 'activa' | 'inactiva') ?? 'activa',
+    creadoPor: r.creadoPor ?? undefined,
+    creadoEn: (r.creadoEn instanceof Date ? r.creadoEn.toISOString() : r.creadoEn) ?? new Date().toISOString(),
   };
 }
 

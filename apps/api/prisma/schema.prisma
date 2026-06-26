@@ -1043,3 +1043,66 @@ model Presupuesto {
   @@index([cuentaCodigo])
   @@map("presupuesto")
 }
+
+// ============================================================
+//  Capa de CONECTIVIDAD del Gemelo Digital (network-digital-twin · Fase puerto).
+//
+//  Eleva el modelo de "árbol padre→hijo" (Activo.padreId) a un grafo de
+//  conectividad a NIVEL DE PUERTO, habilitando ocupación REAL (no un contador
+//  manual), asignación puerto↔cliente y TRAZADO ÓPTICO OLT→cliente.
+//
+//  Patrón inspirado en NetBox (front/rear port + trace) y en la separación
+//  route-network vs connectivity de OpenFTTH. Referencias por id-string laxo
+//  (igual que `padreId`/`napId` en el resto del esquema): la integridad la
+//  garantiza el servicio, no FKs físicas, para no acoplar con `Activo`.
+// ============================================================
+
+/// Puerto físico de un activo (NAP/OLT/Splitter). La capacidad real se DERIVA
+/// contando puertos por estado (no del contador `atributos.puertosUsados`).
+model Puerto {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Activo dueño del puerto (NAP-001, OLT-001, SPL-001). Ref. laxa como padreId.
+  activoId  String   @map("activo_id")
+  /// Número de puerto visible (1..N).
+  numero    Int
+  /// Rol del puerto en el flujo óptico: 'entrada' (uplink/feeder) | 'salida' (drop).
+  rol       String   @default("salida")
+  /// libre | ocupado | reservado | dañado.
+  estado    String   @default("libre")
+  etiqueta  String?
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  @@unique([activoId, rol, numero])
+  @@index([activoId])
+  @@index([estado])
+  @@map("puerto")
+}
+
+/// Conexión (arista del grafo de conectividad). Enlaza un puerto de origen con:
+///  - otro puerto (cadena Splitter→NAP, OLT→Splitter), vía `bPuertoId`; o
+///  - un servicio/cliente terminal, vía `servicioId` (drop final).
+/// Habilita el trazado óptico y el cálculo de ocupación. `hilo` y
+/// `segmentoFibraId` documentan, cuando se conoce, qué hilo de qué cable la lleva
+/// (compatible con el modelo "cable profile" de NetBox para trazado por hilo).
+model Conexion {
+  id              String   @id @default(uuid()) @db.Uuid
+  /// Puerto de origen (aguas arriba). Ref. laxa a Puerto.id.
+  aPuertoId       String   @map("a_puerto_id")
+  /// Puerto de destino (aguas abajo) si es enlace puerto↔puerto.
+  bPuertoId       String?  @map("b_puerto_id")
+  /// Servicio/cliente terminal si el puerto alimenta directamente a un abonado.
+  servicioId      String?  @map("servicio_id") @db.Uuid
+  /// Nº de hilo de fibra que transporta la conexión (opcional, trazado por hilo).
+  hilo            Int?
+  /// Segmento de fibra que la transporta (FIB-001), si se conoce.
+  segmentoFibraId String?  @map("segmento_fibra_id")
+  /// activa | inactiva.
+  estado          String   @default("activa")
+  creadoPor       String?  @map("creado_por")
+  creadoEn        DateTime @default(now()) @map("creado_en")
+
+  @@index([aPuertoId])
+  @@index([bPuertoId])
+  @@index([servicioId])
+  @@map("conexion")
+}

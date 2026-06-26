@@ -266,6 +266,38 @@ export interface Site {
   creadoEn: string;
 }
 
+// ---- Conectividad a nivel de puerto (Fase puerto) ----
+
+export type PortRole = 'entrada' | 'salida';
+export const PORT_ROLES: PortRole[] = ['entrada', 'salida'];
+
+export type PortState = 'libre' | 'ocupado' | 'reservado' | 'dañado';
+export const PORT_STATES: PortState[] = ['libre', 'ocupado', 'reservado', 'dañado'];
+
+/** Puerto físico de un activo (NAP/OLT/Splitter). */
+export interface Port {
+  id: string;
+  activoId: string;
+  numero: number;
+  rol: PortRole;
+  estado: PortState;
+  etiqueta?: string;
+  creadoEn: string;
+}
+
+/** Conexión (arista) puerto↔puerto o puerto↔servicio. */
+export interface Connection {
+  id: string;
+  aPuertoId: string;
+  bPuertoId?: string | null;
+  servicioId?: string | null;
+  hilo?: number | null;
+  segmentoFibraId?: string | null;
+  estado: 'activa' | 'inactiva';
+  creadoPor?: string;
+  creadoEn: string;
+}
+
 /** Área de cobertura (polígono donde la ISP puede ofrecer servicio). */
 export interface CoverageArea {
   id: string;

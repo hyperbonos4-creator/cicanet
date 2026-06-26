@@ -13,6 +13,9 @@ import {
   mediaUrl,
   streetViewMeta,
   streetViewImageUrl,
+  connectPort,
+  disconnectPort,
+  generateAssetPorts,
   type StreetViewMeta,
   type AssetPhoto,
   type PhotoCategory,
@@ -402,6 +405,24 @@ function AssetDetail({
               <div className="mt-1 text-right text-[10px] text-cica-muted">{d.capacidad.libres} puerto(s) libre(s)</div>
             </div>
           )}
+
+          {/* Grilla de puertos físicos (ocupación real) — NAP/OLT/Splitter */}
+          {d.puertos?.puertos?.length > 0 && (
+            <PuertosSection
+              activoId={d.id}
+              detail={d.puertos}
+              canEdit={canEdit}
+              onChanged={() => { load(); onInfraChanged?.(); }}
+            />
+          )}
+
+          {/* Generar puertos si la NAP aún no los tiene materializados */}
+          {canEdit && d.tipo === "NAP" && (!d.puertos?.puertos || d.puertos.puertos.length === 0) && (
+            <GenerarPuertos activoId={d.id} onChanged={() => { load(); onInfraChanged?.(); }} />
+          )}
+
+          {/* Trazado óptico hacia la raíz (POP/OLT) */}
+          {d.trazado?.saltos?.length > 1 && <TrazadoSection trazado={d.trazado} onFocus={onFocus} />}
 
           {/* Street View (solo aparece donde Google tiene panorámica) */}
           <StreetViewSection lat={d.lat} lng={d.lng} nombre={d.nombre} />
@@ -997,6 +1018,166 @@ function MiniStat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-cica-border/60 bg-cica-navy/40 px-2 py-1.5 text-center">
       <div className="text-sm font-extrabold text-cica-silver">{value}</div>
       <div className="text-[9px] text-cica-muted">{label}</div>
+    </div>
+  );
+}
+
+/* =================== Puertos físicos (ocupación real) =================== */
+
+function PuertosSection({
+  activoId,
+  detail,
+  canEdit,
+  onChanged,
+}: {
+  activoId: string;
+  detail: import("../../lib/api").PortsDetail;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
+  const [sel, setSel] = useState<string | null>(null);
+  const [servicioId, setServicioId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const stats = detail.stats;
+  const selPort = detail.puertos.find((p) => p.id === sel) || null;
+
+  const portColor = (estado: string) =>
+    estado === "ocupado" ? "#FF4D6D" : estado === "reservado" ? "#FFB02E" : estado === "dañado" ? "#8B96AC" : "#22E0A1";
+
+  async function liberar(puertoId: string) {
+    setBusy(true); setErr(null);
+    try { await disconnectPort(puertoId); setSel(null); onChanged(); }
+    catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function conectar(puertoId: string) {
+    if (servicioId.trim().length < 8) { setErr("Indica el ID del servicio (cliente) a conectar."); return; }
+    setBusy(true); setErr(null);
+    try { await connectPort(puertoId, { servicioId: servicioId.trim() }); setSel(null); setServicioId(""); onChanged(); }
+    catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="rounded-lg border border-cica-border/60 bg-cica-navy/30 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-cica-muted">
+          Puertos · {stats.libres} libre(s) de {stats.total}
+        </span>
+        <span className="rounded px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: `${SEMAFORO_COLOR[stats.semaforo]}22`, color: SEMAFORO_COLOR[stats.semaforo] }}>
+          {SEMAFORO_LABEL[stats.semaforo]}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-8 gap-1.5">
+        {detail.puertos.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => { setSel(sel === p.id ? null : p.id); setErr(null); }}
+            title={`Puerto ${p.numero} · ${p.estado}`}
+            className="flex aspect-square items-center justify-center rounded-md border text-[10px] font-bold transition-transform hover:scale-105"
+            style={{
+              borderColor: sel === p.id ? "#fff" : `${portColor(p.estado)}66`,
+              background: `${portColor(p.estado)}22`,
+              color: portColor(p.estado),
+            }}
+          >
+            {p.numero}
+          </button>
+        ))}
+      </div>
+
+      {selPort && (
+        <div className="mt-2 rounded-lg border border-cica-border/60 bg-cica-navy/50 p-2">
+          <div className="mb-1 text-[11px] font-semibold text-cica-silver">
+            Puerto {selPort.numero} · <span style={{ color: portColor(selPort.estado) }}>{selPort.estado}</span>
+          </div>
+          {selPort.conexion?.servicioId && (
+            <div className="mb-1 text-[10px] text-cica-muted">Servicio: {selPort.conexion.servicioId}</div>
+          )}
+          {err && <div className="mb-1 text-[10px] text-status-sin">{err}</div>}
+          {canEdit && selPort.estado === "ocupado" && (
+            <button onClick={() => liberar(selPort.id)} disabled={busy} className="w-full rounded-lg border border-status-sin/40 bg-status-sin/10 px-2 py-1.5 text-[10px] font-semibold text-status-sin hover:bg-status-sin/20 disabled:opacity-50">
+              {busy ? "…" : "Liberar puerto"}
+            </button>
+          )}
+          {canEdit && selPort.estado === "libre" && (
+            <div className="flex gap-1.5">
+              <input value={servicioId} onChange={(e) => setServicioId(e.target.value)} placeholder="ID servicio (cliente)" className={inputCls + " flex-1"} />
+              <button onClick={() => conectar(selPort.id)} disabled={busy} className="btn-cica px-3 py-1.5 text-[10px] disabled:opacity-50">
+                {busy ? "…" : "Conectar"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GenerarPuertos({ activoId, onChanged }: { activoId: string; onChanged: () => void }) {
+  const [total, setTotal] = useState("16");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function generar() {
+    setBusy(true); setErr(null);
+    try { await generateAssetPorts(activoId, parseInt(total, 10) || 0); onChanged(); }
+    catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="rounded-lg border border-cica-border/60 bg-cica-navy/30 p-3">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-cica-muted">Materializar puertos</div>
+      {err && <div className="mb-1 text-[10px] text-status-sin">{err}</div>}
+      <div className="flex gap-1.5">
+        <input type="number" min={1} max={1024} value={total} onChange={(e) => setTotal(e.target.value)} className={inputCls + " flex-1"} />
+        <button onClick={generar} disabled={busy} className="btn-cica px-3 py-1.5 text-[10px] disabled:opacity-50">
+          {busy ? "…" : "Generar"}
+        </button>
+      </div>
+      <p className="mt-1 text-[9px] text-cica-muted">Crea los puertos físicos para derivar la ocupación real.</p>
+    </div>
+  );
+}
+
+/* =================== Trazado óptico (OLT → cliente) =================== */
+
+function TrazadoSection({
+  trazado,
+  onFocus,
+}: {
+  trazado: import("../../lib/api").TraceResult;
+  onFocus: (lng: number, lat: number, color?: string) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-cica-glow/30 bg-cica-navy/30 p-3">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-cica-muted">
+        Trazado óptico hacia la raíz
+      </div>
+      <div className="flex flex-col gap-1">
+        {trazado.saltos.map((s, i) => (
+          <button
+            key={s.id}
+            onClick={() => (s.lng != null && s.lat != null ? onFocus(s.lng, s.lat, dotColor(s.tipo)) : undefined)}
+            className="flex items-center gap-2 rounded-lg border border-cica-border/50 bg-cica-navy/40 px-2 py-1.5 text-left transition-colors hover:border-cica-glow/40"
+          >
+            <span className="text-[10px] text-cica-muted">{i === 0 ? "◉" : "↑"}</span>
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dotColor(s.tipo), boxShadow: `0 0 6px ${dotColor(s.tipo)}` }} />
+            <span className="flex-1 truncate text-[11px] font-semibold text-cica-silver">{s.nombre}</span>
+            <span className="text-[9px] text-cica-muted">{s.tipo}</span>
+            {s.puerto != null && (
+              <span className="rounded bg-cica-glow/15 px-1.5 py-0.5 text-[9px] font-semibold text-cica-glow">
+                p{s.puerto}{s.hilo != null ? `·h${s.hilo}` : ""}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
