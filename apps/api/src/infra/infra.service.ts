@@ -862,6 +862,7 @@ export class InfraService implements OnModuleInit {
 
   /** Resuelve un punto desde coordenada explícita o geocodificando la dirección. */
   private async resolvePoint(
+    lng?: number,
     lat?: number,
     direccion?: string,
   ): Promise<{ lng: number; lat: number; direccion?: string }> {
