@@ -58,6 +58,13 @@ export const config = {
     medellinTilesUrl:
       process.env.GEOMEDELLIN_TILES_URL ||
       'https://www.medellin.gov.co/servidormapas/rest/services/ServiciosCiudad/IMAGEN_WEBM/MapServer/tile/{z}/{y}/{x}',
+    // Ortofoto oficial de Bello (AMVA · IDE Metropolitana del Valle de Aburrá).
+    // Mismo patrón que Medellín (proxied + cacheado en disco). Vacío por defecto:
+    // si no se configura, el satélite de Google (que cubre Bello/Zamora/Santa Rita
+    // a nivel de poste) hace de base. Para activar la ortofoto municipal define
+    // GEOBELLO_TILES_URL con el template ArcGIS tile/{z}/{y}/{x} del servicio de
+    // imagen del AMVA (portalidem.metropol.gov.co).
+    belloTilesUrl: process.env.GEOBELLO_TILES_URL || '',
     // Catastro vectorial del AMVA (predios/manzanas/construcciones) por municipio.
     // Servicios dinámicos ArcGIS (export). El backend los cachea por bbox.
     catastro: {

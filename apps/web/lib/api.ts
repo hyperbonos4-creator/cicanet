@@ -325,6 +325,8 @@ export function createInfraFiber(input: {
   destinoDireccion?: string;
   origen?: { lng: number; lat: number };
   destino?: { lng: number; lat: number };
+  /** Trazado real poste a poste: arreglo de [lng,lat]. */
+  trazado?: number[][];
 }): Promise<InfraFiber> {
   return authFetch("/infra/fiber", { method: "POST", body: JSON.stringify(input) });
 }
@@ -394,7 +396,7 @@ export function getAssetTrace(id: string): Promise<TraceResult> {
 }
 
 // ---- Evidencia fotográfica georreferenciada (vista de calle propia) ----
-export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion";
+export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion" | "pano360";
 
 export type AssetPhoto = {
   id: string;

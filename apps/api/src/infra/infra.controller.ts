@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
+  IsArray,
   IsIn,
   IsInt,
   IsNumber,
@@ -26,7 +27,7 @@ import { JwtAuthGuard, Roles, RolesGuard } from '../auth/guards';
 
 const ASSET_TYPES = [
   'POP', 'OLT', 'Switch', 'Router', 'NAP', 'Splitter',
-  'UPS', 'Servidor', 'Camara', 'Fibra', 'Empalme', 'ONU', 'Cliente',
+  'UPS', 'Servidor', 'Camara', 'Fibra', 'Empalme', 'Poste', 'ONU', 'Cliente',
 ];
 
 class CreateAssetDto {
@@ -66,6 +67,8 @@ class CreateFiberDto {
   @IsOptional() @IsString() destinoDireccion?: string;
   @IsOptional() origen?: { lng: number; lat: number };
   @IsOptional() destino?: { lng: number; lat: number };
+  /** Trazado real poste a poste: arreglo de [lng,lat]. */
+  @IsOptional() @IsArray() trazado?: number[][];
 }
 
 class GeneratePortsDto {
@@ -163,7 +166,8 @@ export class InfraController {
   @Roles('admin', 'operador', 'tecnico')
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 8 * 1024 * 1024 },
+      // 25 MB: las panorámicas equirectangulares (360°) pesan bastante más que una foto normal.
+      limits: { fileSize: 25 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const ok = /^image\/(jpe?g|png|webp)$/i.test(file.mimetype);
         cb(ok ? null : new Error('Formato no soportado. Usa JPG, PNG o WebP.'), ok);

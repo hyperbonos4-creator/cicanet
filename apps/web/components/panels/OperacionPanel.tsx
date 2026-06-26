@@ -51,7 +51,8 @@ export default function OperacionPanel({
           </span>
         </button>
         <p className="mt-2 text-[10px] leading-relaxed text-cica-muted">
-          El mapa muestra únicamente tu infraestructura real (equipos y fibra que registras en Infraestructura). Sin datos de demostración.
+          El mapa muestra únicamente tu infraestructura real (lo que registras en el <strong className="text-cica-silver">Editor de Red</strong>). Usa el panel
+          <strong className="text-cica-silver"> ⚙ Capas de red</strong> sobre el mapa para elegir qué mostrar (fibra, NAP, postes, empalmes, clientes…).
         </p>
       </div>
 

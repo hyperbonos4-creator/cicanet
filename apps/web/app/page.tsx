@@ -31,6 +31,8 @@ import {
   infraBundle,
   clientesStats,
   evaluateConstruction,
+  createInfraAsset,
+  createInfraFiber,
   listTickets,
   ticketStats,
   whatsappHandoffsResumen,
@@ -77,6 +79,14 @@ export default function Page() {
   const [soportePend, setSoportePend] = useState(0);
   const [drawing, setDrawing] = useState(false);
   const [drawPoints, setDrawPoints] = useState<[number, number][]>([]);
+  // Trazado de fibra poste a poste (polilínea abierta).
+  const [routing, setRouting] = useState(false);
+  const [routePoints, setRoutePoints] = useState<[number, number][]>([]);
+  // Id del activo al que hizo snap cada vértice (para conectar la fibra a la topología).
+  const [routeSnaps, setRouteSnaps] = useState<(string | null)[]>([]);
+  // Modo "colocar activo": el siguiente clic en el mapa ubica un activo de este tipo.
+  const [placeTipo, setPlaceTipo] = useState<string | null>(null);
+  const [placeBusy, setPlaceBusy] = useState(false);
   const [ipLoc, setIpLoc] = useState<IpLocation | null>(null);
   // Modo construcción / simulador de venta
   const [buildMode, setBuildMode] = useState(false);
@@ -186,6 +196,7 @@ export default function Page() {
   function verEnMapa(lng: number, lat: number) {
     setSection("red");
     setDrawing(false); setBuildMode(false); setBuildResult(null);
+    setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null);
     setCoverage(null); setPin(null); setPinAddress(null);
     setFocusPoint({ lng, lat, color: "#22E0A1" });
   }
@@ -221,10 +232,70 @@ export default function Page() {
     try { await createZone(nombre, drawPoints); setDrawing(false); setDrawPoints([]); await refreshBundle(); }
     catch (e: any) { setError(e.message); }
   }
-  function onMapClickRouter(lng: number, lat: number) {
+  function onMapClickRouter(lng: number, lat: number, snappedId?: string | null) {
     if (drawing) { setDrawPoints((pts) => [...pts, [lng, lat]]); return; }
+    if (routing) { setRoutePoints((pts) => [...pts, [lng, lat]]); setRouteSnaps((s) => [...s, snappedId ?? null]); return; }
+    if (placeTipo) { placeAssetAt(lng, lat, placeTipo); return; }
     if (section === "infra") { if (buildMode) runBuild(lng, lat); return; }
     placePin(lng, lat);
+  }
+
+  // ---- Trazado de fibra poste a poste ----
+  function startRoute() {
+    setSection("infra");
+    setRouting(true); setRoutePoints([]); setRouteSnaps([]);
+    setDrawing(false); setPlaceTipo(null);
+    setBuildMode(false); setBuildResult(null);
+    setFocusPoint(null); setCoverage(null); setPin(null);
+  }
+  function undoRoutePoint() { setRoutePoints((pts) => pts.slice(0, -1)); setRouteSnaps((s) => s.slice(0, -1)); }
+  function cancelRoute() { setRouting(false); setRoutePoints([]); setRouteSnaps([]); }
+  async function finishRoute(opts: { nombre?: string; tipoFibra?: "monomodo" | "multimodo"; hilos?: number }) {
+    if (routePoints.length < 2) return;
+    // Si el primer/último vértice hizo snap a un activo, la fibra queda conectada a él.
+    const origenId = routeSnaps[0] || undefined;
+    const destinoId = routeSnaps[routeSnaps.length - 1] || undefined;
+    try {
+      await createInfraFiber({ trazado: routePoints, origenId, destinoId, ...opts });
+      setRouting(false); setRoutePoints([]); setRouteSnaps([]);
+      await refreshInfra();
+    } catch (e: any) { setError(e.message); }
+  }
+
+  // ---- Atajos de teclado del editor (estilo iD) ----
+  function onEditorShortcut(action: "poste" | "nap" | "empalme" | "splitter" | "cable" | "cancel" | "undo") {
+    switch (action) {
+      case "poste": startPlace("Poste"); break;
+      case "nap": startPlace("NAP"); break;
+      case "empalme": startPlace("Empalme"); break;
+      case "splitter": startPlace("Splitter"); break;
+      case "cable": startRoute(); break;
+      case "undo": if (routing) undoRoutePoint(); break;
+      case "cancel": setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null); if (drawing) cancelDraw(); break;
+    }
+  }
+
+  // ---- Colocar activo (poste/NAP) con un clic en el mapa ----
+  function startPlace(tipo: string) {
+    setSection("infra");
+    setPlaceTipo(tipo);
+    setRouting(false); setRoutePoints([]); setDrawing(false);
+    setBuildMode(false); setBuildResult(null);
+    setFocusPoint(null); setCoverage(null); setPin(null);
+  }
+  function stopPlace() { setPlaceTipo(null); }
+  async function placeAssetAt(lng: number, lat: number, tipo: string) {
+    if (placeBusy) return;
+    setPlaceBusy(true);
+    try {
+      await createInfraAsset({
+        tipo, lng, lat,
+        puertosTotal: tipo === "NAP" ? 16 : undefined,
+        puertosUsados: tipo === "NAP" ? 0 : undefined,
+      });
+      await refreshInfra(); // el nuevo activo aparece donde hiciste clic; el modo sigue activo para ubicar más.
+    } catch (e: any) { setError(e.message); }
+    finally { setPlaceBusy(false); }
   }
 
   function changeSection(s: Section) {
@@ -232,6 +303,7 @@ export default function Page() {
     setFocusPoint(null);
     if (s !== "infra" && drawing) cancelDraw();
     if (s !== "infra" && buildMode) { setBuildMode(false); setBuildResult(null); }
+    if (s !== "infra") { setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null); }
   }
   function logout() { socketRef.current?.disconnect(); clearSession(); router.replace("/login"); }
 
@@ -313,6 +385,9 @@ export default function Page() {
                 onStartDraw={startDraw} onUndoPoint={undoPoint} onCancelDraw={cancelDraw} onSaveZone={saveZone}
                 infra={infra} onInfraChanged={refreshInfra}
                 buildMode={buildMode} buildResult={buildResult} onToggleBuild={toggleBuildMode}
+                routing={routing} routePointsCount={routePoints.length}
+                onStartRoute={startRoute} onUndoRoutePoint={undoRoutePoint} onCancelRoute={cancelRoute} onFinishRoute={finishRoute}
+                placeTipo={placeTipo} onStartPlace={startPlace} onStopPlace={stopPlace}
               />
             )}
           </aside>
@@ -331,6 +406,10 @@ export default function Page() {
                   onMapClick={onMapClickRouter}
                   drawing={drawing}
                   drawPoints={drawPoints}
+                  routing={routing}
+                  routePoints={routePoints}
+                  placing={!!placeTipo}
+                  onShortcut={onEditorShortcut}
                   draggablePin={pin}
                   pinColor={pinColor}
                   onPinMove={placePin}

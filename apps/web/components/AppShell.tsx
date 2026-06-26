@@ -22,11 +22,11 @@ const NAV: { key: Section; label: string; sub: string; roles: string[]; icon: JS
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><circle cx="12" cy="8" r="3.2" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></svg>),
   },
   {
-    key: "red", label: "Red & Mapa", sub: "Operación · cobertura", roles: ["admin", "operador"],
+    key: "red", label: "Mapa", sub: "Red en vivo · cobertura", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M9 3 4 6v15l5-3 6 3 5-3V3l-5 3-6-3Z" /><path d="M9 3v15M15 6v15" /></svg>),
   },
   {
-    key: "infra", label: "Infraestructura", sub: "Activos · topología", roles: ["admin", "operador"],
+    key: "infra", label: "Editor de Red", sub: "Construir · topología · GIS", roles: ["admin", "operador"],
     icon: (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M12 21V9M7 21V13M17 21V13M5 9l7-5 7 5" /><circle cx="12" cy="6.5" r="1" /></svg>),
   },
   {

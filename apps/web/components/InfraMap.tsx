@@ -28,9 +28,16 @@ type Props = {
   selectedId?: string | null;
   focusPoint?: { lng: number; lat: number; color?: string } | null;
   // Interacciones (modo Vender / dibujo de zonas en la pestaña Cobertura).
-  onMapClick?: (lng: number, lat: number) => void;
+  onMapClick?: (lng: number, lat: number, snappedId?: string | null) => void;
   drawing?: boolean;
   drawPoints?: [number, number][];
+  // Trazado de fibra poste a poste (polilínea ABIERTA — nunca se cierra en polígono).
+  routing?: boolean;
+  routePoints?: [number, number][];
+  // Modo "colocar activo": clic en el mapa = ubicar un poste/NAP donde quieras.
+  placing?: boolean;
+  // Atajos de teclado del editor (estilo iD): P/N/E/S/C, Esc, Backspace.
+  onShortcut?: (action: "poste" | "nap" | "empalme" | "splitter" | "cable" | "cancel" | "undo") => void;
   draggablePin?: { lng: number; lat: number } | null;
   pinColor?: string;
   onPinMove?: (lng: number, lat: number) => void;
@@ -44,6 +51,32 @@ function drawFC(points: [number, number][]): FC {
   return { type: "FeatureCollection", features: feats };
 }
 
+/** FeatureCollection del trazado de fibra: vértices (postes) + polilínea ABIERTA. Nunca polígono. */
+function routeFC(points: [number, number][]): FC {
+  const feats: any[] = points.map((p, i) => ({
+    type: "Feature",
+    geometry: { type: "Point", coordinates: p },
+    properties: { idx: i, head: i === points.length - 1 },
+  }));
+  if (points.length >= 2) feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: points }, properties: {} });
+  return { type: "FeatureCollection", features: feats };
+}
+
+/** Busca el activo más cercano al punto de pantalla dentro de un umbral en píxeles (snapping). */
+function findSnap(map: MlMap, assets: FC, pt: { x: number; y: number }, maxPx = 16):
+  { lng: number; lat: number; id: string; tipo: string } | null {
+  let best: { lng: number; lat: number; id: string; tipo: string } | null = null;
+  let bestD = maxPx;
+  for (const f of assets.features) {
+    const c = f.geometry?.coordinates;
+    if (!c) continue;
+    const p = map.project(c as [number, number]);
+    const d = Math.hypot(p.x - pt.x, p.y - pt.y);
+    if (d <= bestD) { bestD = d; best = { lng: c[0], lat: c[1], id: f.properties.id, tipo: f.properties.tipo }; }
+  }
+  return best;
+}
+
 /** Estilo visual por tipo de activo (color + radio del punto + etiqueta legible). */
 const TIPO: Record<string, { color: string; r: number; label: string }> = {
   POP: { color: "#22D3EE", r: 9, label: "POP / Central" },
@@ -54,6 +87,7 @@ const TIPO: Record<string, { color: string; r: number; label: string }> = {
   CTO: { color: "#22E0A1", r: 6.5, label: "CTO" },
   Splitter: { color: "#38BDF8", r: 5.5, label: "Splitter" },
   Empalme: { color: "#A3E635", r: 5, label: "Empalme" },
+  Poste: { color: "#D6A35C", r: 4.5, label: "Poste" },
   Camara: { color: "#F472B6", r: 5, label: "Cámara" },
   UPS: { color: "#FBBF24", r: 5, label: "UPS" },
   Servidor: { color: "#FBBF24", r: 5, label: "Servidor" },
@@ -113,7 +147,7 @@ const BLUEPRINT: maplibregl.StyleSpecification = {
   ],
 };
 
-export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, draggablePin, pinColor, onPinMove }: Props) {
+export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const labelsRef = useRef<Marker[]>([]);
@@ -126,6 +160,14 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   onSelectRef.current = onSelect;
   onMapClickRef.current = onMapClick;
   onPinMoveRef.current = onPinMove;
+  // Refs espejo para los handlers registrados una sola vez en el init.
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
+  const modeRef = useRef({ drawing, routing, placing });
+  modeRef.current = { drawing: !!drawing, routing: !!routing, placing: !!placing };
+  const snapRef = useRef<{ lng: number; lat: number; id: string } | null>(null);
+  const onShortcutRef = useRef(onShortcut);
+  onShortcutRef.current = onShortcut;
 
   const [basemap, setBasemap] = useState<Basemap>("blueprint");
   const [show, setShow] = useState({ enlaces: true, fibra: true, clientes: true, etiquetas: true });
@@ -149,18 +191,36 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     map.on("load", () => {
       loadedRef.current = true;
 
-      // Imagen satelital de respaldo (Esri, sin token — fiable) + ortofoto Medellin.
-      map.addSource("sat", {
+      // ===== Imágenes satelitales (cubren TODO; nunca se ponen negras) =====
+      // Capa base global de respaldo: Esri World Imagery (sin token, fiable).
+      map.addSource("sat-esri", {
         type: "raster",
         tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
         tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri, Maxar",
       });
-      map.addLayer({ id: "sat", type: "raster", source: "sat", layout: { visibility: "none" }, paint: { "raster-opacity": 1, "raster-saturation": -0.1 } });
+      map.addLayer({ id: "sat-esri", type: "raster", source: "sat-esri", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } });
+      // Satélite de Google (Map Tiles API) — imagen MÁS ACTUALIZADA, cubre Medellín y Bello,
+      // permite acercar a nivel de poste (z22). Va ENCIMA de Esri (que rellena cualquier hueco).
+      map.addSource("sat-gsat", {
+        type: "raster",
+        tiles: [`${API_URL}/tiles/gsat/{z}/{x}/{y}`],
+        tileSize: 256, minzoom: 0, maxzoom: 22, attribution: "Imagery © Google",
+      });
+      map.addLayer({ id: "sat-gsat", type: "raster", source: "sat-gsat", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } });
+      // Ortofoto oficial de Medellín 2024 (CC) — máximo detalle SOLO en Medellín.
+      // Va encima del satélite; donde no existe (Bello), se ve Google/Esri debajo.
       map.addSource("ortofoto", {
         type: "raster", tiles: [`${API_URL}/tiles/medellin/{z}/{y}/{x}`], tileSize: 256, minzoom: 0, maxzoom: 22,
         attribution: "Ortofoto 2024 © Alcaldía de Medellín (CC)",
       });
       map.addLayer({ id: "ortofoto", type: "raster", source: "ortofoto", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } });
+      // Ortofoto oficial de Bello (AMVA) — se activa al configurar GEOBELLO_TILES_URL.
+      // Si no, responde vacío y queda el satélite de Google debajo (que cubre Bello).
+      map.addSource("ortofoto-bello", {
+        type: "raster", tiles: [`${API_URL}/tiles/bello/{z}/{y}/{x}`], tileSize: 256, minzoom: 0, maxzoom: 22,
+        attribution: "Ortofoto © AMVA · IDE Metropolitana del Valle de Aburrá",
+      });
+      map.addLayer({ id: "ortofoto-bello", type: "raster", source: "ortofoto-bello", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } });
 
       // Contexto: barrios (sutil) y zonas de cobertura dibujadas.
       map.addSource("infra-barrios", { type: "geojson", data: (barrios as any) || emptyFC() });
@@ -218,6 +278,9 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
 
       // Interacciones: clic en un activo -> popup + onSelect.
       map.on("click", "infra-assets-dot", (e) => {
+        // En modo edición (trazar/colocar/dibujar), el clic lo gestiona el handler
+        // general con snapping; no seleccionamos ni abrimos popup.
+        if (modeRef.current.routing || modeRef.current.placing || modeRef.current.drawing) return;
         const f = e.features?.[0]; if (!f) return;
         const p: any = f.properties;
         onSelectRef.current?.(p);
@@ -237,11 +300,49 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       map.addLayer({ id: "infra-draw-line", type: "line", source: "infra-draw", paint: { "line-color": "#22D3EE", "line-width": 2, "line-dasharray": [2, 1] } });
       map.addLayer({ id: "infra-draw-vtx", type: "circle", source: "infra-draw", filter: ["==", "$type", "Point"], paint: { "circle-radius": 5, "circle-color": "#22D3EE", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
 
-      // Clic en zona vacía -> enrutado (modo Vender / dibujo de zona).
+      // Capa del TRAZADO de fibra poste a poste (polilínea abierta + postes numerados).
+      map.addSource("infra-route", { type: "geojson", data: emptyFC() });
+      map.addLayer({ id: "infra-route-glow", type: "line", source: "infra-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#FFB02E", "line-width": 8, "line-opacity": 0.25, "line-blur": 3 } });
+      map.addLayer({ id: "infra-route-line", type: "line", source: "infra-route", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#FFB02E", "line-width": 2.6 } });
+      map.addLayer({ id: "infra-route-vtx", type: "circle", source: "infra-route", filter: ["==", "$type", "Point"], paint: { "circle-radius": ["case", ["==", ["get", "head"], true], 7, 5], "circle-color": "#FFB02E", "circle-stroke-width": 2, "circle-stroke-color": "#060B16" } });
+
+      // Indicador de SNAPPING: anillo sobre el activo al que el clic se va a "pegar".
+      map.addSource("infra-snap", { type: "geojson", data: emptyFC() });
+      map.addLayer({
+        id: "infra-snap", type: "circle", source: "infra-snap",
+        paint: { "circle-radius": 11, "circle-color": "rgba(255,176,46,0.12)", "circle-stroke-width": 2.5, "circle-stroke-color": "#FFB02E", "circle-stroke-opacity": 0.95 },
+      });
+
+      // Clic en zona vacía -> enrutado (modo Vender / dibujo de zona / trazado / colocar).
+      // En modo trazar/colocar aplica SNAPPING: si hay un activo cercano, el punto
+      // se "pega" a su coordenada exacta y se reporta su id (para conectar la fibra).
       map.on("click", (e) => {
+        const m = modeRef.current;
+        if (m.routing || m.placing) {
+          const snap = findSnap(map, assetsRef.current, e.point);
+          if (snap) onMapClickRef.current?.(snap.lng, snap.lat, snap.id);
+          else onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
+          return;
+        }
         const hits = map.queryRenderedFeatures(e.point, { layers: ["infra-assets-dot"] });
         if (hits.length) return; // fue clic en un activo
-        onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
+        onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
+      });
+
+      // Mientras se traza/coloca, resalta el activo al que el clic haría snap.
+      map.on("mousemove", (e) => {
+        const m = modeRef.current;
+        const src = map.getSource("infra-snap") as any;
+        if (!src) return;
+        if (!m.routing && !m.placing) {
+          if (snapRef.current) { snapRef.current = null; src.setData(emptyFC()); }
+          return;
+        }
+        const snap = findSnap(map, assetsRef.current, e.point);
+        snapRef.current = snap;
+        src.setData(snap
+          ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [snap.lng, snap.lat] } }] }
+          : emptyFC());
       });
 
       rebuildLabels(map, assets, labelsRef, show.etiquetas);
@@ -297,9 +398,16 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
     const setV = (id: string, on: boolean) => { if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); };
+    // Esquema (CARTO oscuro) para vista de ingeniería.
     setV("carto", basemap === "blueprint");
-    setV("sat", basemap === "satelite");
+    // Satélite: Google (cubre TODO el Valle de Aburrá incl. Bello/Zamora a z22),
+    // con Esri World Imagery debajo como respaldo si Google no está disponible.
+    setV("sat-esri", basemap !== "blueprint");
+    setV("sat-gsat", basemap !== "blueprint");
+    // Ortofoto oficial de Medellín ENCIMA del satélite: máximo detalle donde existe;
+    // donde no (Bello), el tile sale vacío y se ve el satélite de Google debajo.
     setV("ortofoto", basemap === "ortofoto");
+    setV("ortofoto-bello", basemap === "ortofoto");
   }, [basemap]);
 
   // ---- punto enfocado (desde el panel "Ver en el mapa") ----
@@ -321,6 +429,47 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     if (!map || !loadedRef.current) return;
     (map.getSource("infra-draw") as any)?.setData(drawing && drawPoints ? drawFC(drawPoints) : emptyFC());
   }, [drawing, drawPoints]);
+
+  // ---- trazado de fibra poste a poste (polilínea abierta) ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    (map.getSource("infra-route") as any)?.setData(routing && routePoints ? routeFC(routePoints) : emptyFC());
+  }, [routing, routePoints]);
+
+  // ---- cursor de precisión cuando se está trazando o colocando un activo ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    map.getCanvas().style.cursor = drawing || routing || placing ? "crosshair" : "";
+  }, [drawing, routing, placing]);
+
+  // ---- atajos de teclado del editor (estilo iD): P/N/E/S/C, Esc, Backspace ----
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const k = ev.key.toLowerCase();
+      if (k === "escape") { onShortcutRef.current?.("cancel"); return; }
+      if (k === "backspace") { ev.preventDefault(); onShortcutRef.current?.("undo"); return; }
+      const keymap: Record<string, "poste" | "nap" | "empalme" | "splitter" | "cable"> =
+        { p: "poste", n: "nap", e: "empalme", s: "splitter", c: "cable" };
+      if (keymap[k]) onShortcutRef.current?.(keymap[k]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ---- limpiar el indicador de snap al salir del modo edición ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    if (!routing && !placing) {
+      snapRef.current = null;
+      (map.getSource("infra-snap") as any)?.setData(emptyFC());
+    }
+  }, [routing, placing]);
 
   // ---- pin arrastrable (modo Vender / consulta) ----
   useEffect(() => {

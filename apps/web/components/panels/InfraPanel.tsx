@@ -25,10 +25,10 @@ import {
   type ConstructionResult,
 } from "../../lib/api";
 
-const ASSET_TYPES = ["POP", "OLT", "Switch", "Router", "NAP", "Splitter", "UPS", "Servidor", "Camara", "Empalme", "ONU", "Cliente"];
+const ASSET_TYPES = ["POP", "OLT", "Switch", "Router", "NAP", "Splitter", "UPS", "Servidor", "Camara", "Empalme", "Poste", "ONU", "Cliente"];
 const TIPO_COLOR: Record<string, string> = {
   POP: "#22D3EE", OLT: "#3B82F6", NAP: "#22E0A1", CTO: "#22E0A1",
-  Splitter: "#38BDF8", Cliente: "#38BDF8",
+  Splitter: "#38BDF8", Cliente: "#38BDF8", Poste: "#D6A35C", Empalme: "#A3E635",
 };
 const dotColor = (tipo: string) => TIPO_COLOR[tipo] || "#8B96AC";
 
@@ -41,7 +41,7 @@ const SEMAFORO_LABEL: Record<string, string> = {
 const money = (n: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
 
-type Tab = "activos" | "topologia" | "cobertura" | "construccion";
+type Tab = "activos" | "trazar" | "topologia" | "cobertura" | "construccion";
 
 type AssetFeature = {
   properties: {
@@ -69,6 +69,15 @@ export default function InfraPanel({
   buildMode,
   buildResult,
   onToggleBuild,
+  routing,
+  routePointsCount,
+  onStartRoute,
+  onUndoRoutePoint,
+  onCancelRoute,
+  onFinishRoute,
+  placeTipo,
+  onStartPlace,
+  onStopPlace,
 }: {
   naps: NapRecord[];
   zones: ZoneRecord[];
@@ -86,6 +95,15 @@ export default function InfraPanel({
   buildMode: boolean;
   buildResult: ConstructionResult | null;
   onToggleBuild: () => void;
+  routing: boolean;
+  routePointsCount: number;
+  onStartRoute: () => void;
+  onUndoRoutePoint: () => void;
+  onCancelRoute: () => void;
+  onFinishRoute: (opts: { nombre?: string; tipoFibra?: "monomodo" | "multimodo"; hilos?: number }) => void;
+  placeTipo: string | null;
+  onStartPlace: (tipo: string) => void;
+  onStopPlace: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("activos");
   const [netErr, setNetErr] = useState<string | null>(null);
@@ -124,8 +142,9 @@ export default function InfraPanel({
       </div>
 
       {/* ===== Tabs ===== */}
-      <div className="glass animate-fadeUp grid grid-cols-4 gap-1 p-1">
+      <div className="glass animate-fadeUp grid grid-cols-5 gap-1 p-1">
         <TabButton active={tab === "activos"} onClick={() => setTab("activos")}>Activos</TabButton>
+        <TabButton active={tab === "trazar"} onClick={() => setTab("trazar")}>Trazar</TabButton>
         <TabButton active={tab === "topologia"} onClick={() => setTab("topologia")}>Topología</TabButton>
         <TabButton active={tab === "cobertura"} onClick={() => setTab("cobertura")}>Cobertura</TabButton>
         <TabButton active={tab === "construccion"} onClick={() => setTab("construccion")}>Vender</TabButton>
@@ -134,7 +153,24 @@ export default function InfraPanel({
       {netErr && <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-xs text-status-sin">{netErr}</div>}
 
       {tab === "activos" && (
-        <ActivosView assets={assets} canEdit={canEdit} naps={naps} onFocus={onFocus} onInfraChanged={onInfraChanged} setNetErr={setNetErr} />
+        <ActivosView
+          assets={assets} canEdit={canEdit} naps={naps} onFocus={onFocus} onInfraChanged={onInfraChanged} setNetErr={setNetErr}
+          placeTipo={placeTipo} onStartPlace={onStartPlace} onStopPlace={onStopPlace}
+        />
+      )}
+      {tab === "trazar" && (
+        <TrazarView
+          canEdit={canEdit}
+          routing={routing}
+          routePointsCount={routePointsCount}
+          onStartRoute={onStartRoute}
+          onUndoRoutePoint={onUndoRoutePoint}
+          onCancelRoute={onCancelRoute}
+          onFinishRoute={onFinishRoute}
+          placeTipo={placeTipo}
+          onStartPlace={onStartPlace}
+          onStopPlace={onStopPlace}
+        />
       )}
       {tab === "topologia" && (
         <TopologiaView assets={assets} fibras={fibras} canEdit={canEdit} onFocus={onFocus} onInfraChanged={onInfraChanged} setNetErr={setNetErr} />
@@ -163,10 +199,12 @@ export default function InfraPanel({
 
 function ActivosView({
   assets, canEdit, naps, onFocus, onInfraChanged, setNetErr,
+  placeTipo, onStartPlace, onStopPlace,
 }: {
   assets: AssetFeature[]; canEdit: boolean; naps: NapRecord[];
   onFocus: (lng: number, lat: number, color?: string) => void;
   onInfraChanged: () => void; setNetErr: (s: string | null) => void;
+  placeTipo: string | null; onStartPlace: (tipo: string) => void; onStopPlace: () => void;
 }) {
   const [showNew, setShowNew] = useState(false);
   const [tipo, setTipo] = useState("NAP");
@@ -225,6 +263,36 @@ function ActivosView({
 
   return (
     <div className="flex flex-col gap-3">
+      {canEdit && (
+        <div className="glass animate-fadeUp p-4">
+          <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cica-gold">Colocar en el mapa</div>
+          <p className="mb-2 text-[11px] leading-relaxed text-cica-muted">
+            Elige el tipo y haz clic en el poste exacto del mapa. Puedes ubicar varios seguidos.
+          </p>
+          {!placeTipo ? (
+            <div className="grid grid-cols-2 gap-2">
+              {["NAP", "Poste", "Empalme", "Splitter"].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => onStartPlace(t)}
+                  className="flex items-center gap-2 rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-2 text-xs font-semibold text-cica-silver transition-colors hover:border-cica-gold/40"
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ background: dotColor(t), boxShadow: `0 0 6px ${dotColor(t)}` }} />
+                  {t}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-3 py-2 text-[11px]">
+              <span className="text-cica-silver">
+                Clic en el mapa para ubicar <strong className="text-cica-gold">{placeTipo}</strong>…
+              </span>
+              <button onClick={onStopPlace} className="shrink-0 font-semibold text-cica-muted hover:text-status-sin">Terminar</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {canEdit && (
         <div className="glass animate-fadeUp p-4">
           {!showNew ? (
@@ -428,7 +496,7 @@ function AssetDetail({
           <StreetViewSection lat={d.lat} lng={d.lng} nombre={d.nombre} />
 
           {/* Evidencia fotográfica georreferenciada — la "vista de calle" propia */}
-          <EvidenciaSection assetId={d.id} fotos={d.fotos || []} canEdit={canEdit} onChanged={() => { load(); onInfraChanged?.(); }} />
+          <EvidenciaSection assetId={d.id} nombre={d.nombre} fotos={d.fotos || []} canEdit={canEdit} onChanged={() => { load(); onInfraChanged?.(); }} />
 
           <button onClick={() => onFocus(d.lng, d.lat, dotColor(d.tipo))} className="rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-1.5 text-[11px] text-cica-silver transition-colors hover:border-cica-gold/40">
             Ver en el mapa
@@ -534,6 +602,7 @@ function SvBtn({ onClick, children }: { onClick: () => void; children: React.Rea
 /* =================== Evidencia fotográfica (vista de calle propia) =================== */
 
 const PHOTO_CATS: { id: PhotoCategory; label: string; icon: string }[] = [
+  { id: "pano360", label: "Foto 360°", icon: "🌐" },
   { id: "vista_general", label: "Vista general", icon: "🏠" },
   { id: "frontal", label: "Frontal", icon: "📸" },
   { id: "placa_serial", label: "Placa / serial", icon: "🔖" },
@@ -542,14 +611,15 @@ const PHOTO_CATS: { id: PhotoCategory; label: string; icon: string }[] = [
 const CAT_LABEL: Record<string, string> = Object.fromEntries(PHOTO_CATS.map((c) => [c.id, c.label]));
 
 function EvidenciaSection({
-  assetId, fotos, canEdit, onChanged,
+  assetId, nombre, fotos, canEdit, onChanged,
 }: {
-  assetId: string; fotos: AssetPhoto[]; canEdit: boolean; onChanged: () => void;
+  assetId: string; nombre?: string; fotos: AssetPhoto[]; canEdit: boolean; onChanged: () => void;
 }) {
   const [cat, setCat] = useState<PhotoCategory>("vista_general");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<AssetPhoto | null>(null);
+  const [pano, setPano] = useState<AssetPhoto | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const camRef = useRef<HTMLInputElement>(null);
 
@@ -596,9 +666,12 @@ function EvidenciaSection({
                 src={mediaUrl(f.url)}
                 alt={CAT_LABEL[f.categoria] || f.categoria}
                 loading="lazy"
-                onClick={() => setLightbox(f)}
+                onClick={() => (f.categoria === "pano360" ? setPano(f) : setLightbox(f))}
                 className="h-full w-full cursor-zoom-in object-cover transition-transform duration-300 group-hover:scale-110"
               />
+              {f.categoria === "pano360" && (
+                <span className="pointer-events-none absolute left-1 top-1 rounded bg-cica-glow/90 px-1.5 py-0.5 text-[8px] font-bold text-black shadow">360°</span>
+              )}
               <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-3 text-[8px] font-semibold text-white">
                 {CAT_LABEL[f.categoria] || f.categoria}
               </span>
@@ -673,6 +746,84 @@ function EvidenciaSection({
           </div>
         </div>
       )}
+
+      {/* Visor 360° (panorámica equirectangular con marcador del activo) */}
+      {pano && <Pano360Viewer photo={pano} nombre={nombre || "Activo"} onClose={() => setPano(null)} />}
+    </div>
+  );
+}
+
+/* =================== Visor 360° (Photo Sphere Viewer) =================== */
+
+function Pano360Viewer({ photo, nombre, onClose }: { photo: AssetPhoto; nombre: string; onClose: () => void }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const safeName = nombre.replace(/</g, "&lt;");
+
+  useEffect(() => {
+    let viewer: any = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        // CSS de la librería (el bundler la inyecta del lado del cliente).
+        // @ts-ignore — import de hoja de estilos sin tipos.
+        await import("@photo-sphere-viewer/core/index.css");
+        // @ts-ignore — import de hoja de estilos sin tipos.
+        await import("@photo-sphere-viewer/markers-plugin/index.css");
+        const core = await import("@photo-sphere-viewer/core");
+        const markers = await import("@photo-sphere-viewer/markers-plugin");
+        if (cancelled || !hostRef.current) return;
+        viewer = new core.Viewer({
+          container: hostRef.current,
+          panorama: mediaUrl(photo.url),
+          caption: safeName,
+          navbar: ["zoom", "caption", "fullscreen"],
+          defaultZoomLvl: 0,
+          plugins: [
+            [markers.MarkersPlugin, {
+              markers: [
+                {
+                  id: "activo",
+                  position: { yaw: 0, pitch: -0.15 },
+                  html:
+                    `<div style="display:flex;flex-direction:column;align-items:center;font-family:system-ui">` +
+                    `<div style="font-size:26px;line-height:1">📍</div>` +
+                    `<div style="background:#22E0A1;color:#04261b;font-size:11px;font-weight:800;padding:1px 7px;border-radius:6px;white-space:nowrap">${safeName}</div>` +
+                    `</div>`,
+                  anchor: "bottom center",
+                  tooltip: { content: `Ubicación de ${safeName}`, position: "top center" },
+                },
+              ],
+            }],
+          ],
+        });
+        if (!cancelled) setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+    return () => { cancelled = true; try { viewer?.destroy(); } catch { /* noop */ } };
+  }, [photo, safeName]);
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm">
+      <div className="relative h-[80vh] w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="flex items-center gap-2 text-sm font-extrabold text-white">
+            🌐 {nombre} <span className="text-[11px] font-normal text-cica-muted">· vista 360°</span>
+          </span>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black shadow-lg">✕</button>
+        </div>
+        <div ref={hostRef} className="h-[calc(80vh-2.5rem)] w-full overflow-hidden rounded-lg border border-white/10 bg-black" />
+        {status === "loading" && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-cica-muted">Cargando visor 360°…</div>
+        )}
+        {status === "error" && (
+          <div className="absolute inset-x-0 bottom-4 mx-auto w-fit rounded-lg bg-black/80 px-3 py-2 text-[11px] text-cica-silver">
+            No se pudo iniciar el visor 360°. <a href={mediaUrl(photo.url)} target="_blank" rel="noreferrer" className="text-cica-glow underline">Abrir imagen</a>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -875,6 +1026,121 @@ function CoberturaView({
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* =================== Vista: Trazar (ruta de fibra poste a poste) =================== */
+
+function TrazarView({
+  canEdit, routing, routePointsCount, onStartRoute, onUndoRoutePoint, onCancelRoute, onFinishRoute,
+  placeTipo, onStartPlace, onStopPlace,
+}: {
+  canEdit: boolean;
+  routing: boolean;
+  routePointsCount: number;
+  onStartRoute: () => void;
+  onUndoRoutePoint: () => void;
+  onCancelRoute: () => void;
+  onFinishRoute: (opts: { nombre?: string; tipoFibra?: "monomodo" | "multimodo"; hilos?: number }) => void;
+  placeTipo: string | null;
+  onStartPlace: (tipo: string) => void;
+  onStopPlace: () => void;
+}) {
+  const [nombre, setNombre] = useState("");
+  const [tipoFibra, setTipoFibra] = useState<"monomodo" | "multimodo">("monomodo");
+  const [hilos, setHilos] = useState("12");
+
+  if (!canEdit) {
+    return (
+      <div className="glass animate-fadeUp p-4">
+        <p className="text-[11px] text-cica-muted">Solo administradores u operadores pueden trazar la red.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Paso 1: postes */}
+      <div className="glass animate-fadeUp p-4">
+        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cica-gold">1 · Ubica tus postes</div>
+        <p className="mb-2 text-[11px] leading-relaxed text-cica-muted">
+          Marca el poste donde irá cada NAP/empalme. Haz clic en el punto exacto del mapa (usa la base
+          <strong className="text-cica-silver"> Ortofoto/Satélite</strong> para verlos).
+        </p>
+        {!placeTipo ? (
+          <div className="grid grid-cols-2 gap-2">
+            {["Poste", "NAP", "Empalme", "Splitter"].map((t) => (
+              <button
+                key={t}
+                onClick={() => onStartPlace(t)}
+                className="flex items-center gap-2 rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-2 text-xs font-semibold text-cica-silver transition-colors hover:border-cica-gold/40"
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: dotColor(t), boxShadow: `0 0 6px ${dotColor(t)}` }} />
+                {t}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-3 py-2 text-[11px]">
+            <span className="text-cica-silver">Clic en el mapa para ubicar <strong className="text-cica-gold">{placeTipo}</strong>…</span>
+            <button onClick={onStopPlace} className="shrink-0 font-semibold text-cica-muted hover:text-status-sin">Terminar</button>
+          </div>
+        )}
+      </div>
+
+      {/* Paso 2: trazar la fibra */}
+      <div className="glass animate-fadeUp p-4">
+        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cica-gold">2 · Traza la fibra</div>
+        {!routing ? (
+          <>
+            <p className="mb-3 text-[11px] leading-relaxed text-cica-muted">
+              Dibuja el recorrido real de la fibra poste a poste. Cada clic agrega un quiebre; la línea
+              <strong className="text-cica-silver"> nunca se cierra</strong> (no es una zona). Si pasas cerca de un activo,
+              el punto se <strong className="text-cica-amber">pega (snap)</strong> a él y la fibra queda conectada a ese activo.
+            </p>
+            <div className="mb-2 flex gap-2">
+              <select value={tipoFibra} onChange={(e) => setTipoFibra(e.target.value as any)} className={inputCls + " flex-1"}>
+                <option value="monomodo">Monomodo</option>
+                <option value="multimodo">Multimodo</option>
+              </select>
+              <select value={hilos} onChange={(e) => setHilos(e.target.value)} className={inputCls + " flex-1"}>
+                {["6", "12", "24", "48", "96", "144"].map((h) => <option key={h} value={h}>{h} hilos</option>)}
+              </select>
+            </div>
+            <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre del tramo (ej. Troncal Zamora)" className={inputCls + " mb-2"} />
+            <button onClick={onStartRoute} className="btn-cica w-full text-xs">✏️ Iniciar trazado en el mapa</button>
+          </>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="rounded-lg border border-cica-amber/40 bg-cica-amber/10 px-3 py-2 text-[11px] text-cica-silver">
+              Haz clic poste a poste. <strong>{routePointsCount}</strong> punto(s) · mínimo 2. El anillo naranja indica el activo al que se conectará.
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={onUndoRoutePoint} disabled={routePointsCount === 0} className="rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-1.5 text-xs text-cica-silver transition-colors hover:border-cica-gold/40 disabled:opacity-40">Deshacer</button>
+              <button onClick={onCancelRoute} className="rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-1.5 text-xs text-cica-muted transition-colors hover:text-status-sin">Cancelar</button>
+              <button
+                onClick={() => { onFinishRoute({ nombre: nombre.trim() || undefined, tipoFibra, hilos: parseInt(hilos, 10) || undefined }); setNombre(""); }}
+                disabled={routePointsCount < 2}
+                className="btn-cica px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >Guardar</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Atajos de teclado (estilo iD) */}
+      <div className="glass animate-fadeUp p-4">
+        <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Atajos de teclado</div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-cica-silver">
+          {[["P", "Poste"], ["N", "NAP"], ["E", "Empalme"], ["S", "Splitter"], ["C", "Cable / trazar"], ["Esc", "Cancelar"], ["⌫", "Deshacer punto"]].map(([k, l]) => (
+            <div key={k} className="flex items-center gap-2">
+              <kbd className="rounded border border-cica-border bg-cica-navy/70 px-1.5 py-0.5 font-mono text-[10px] text-cica-gold">{k}</kbd>
+              <span className="text-cica-muted">{l}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

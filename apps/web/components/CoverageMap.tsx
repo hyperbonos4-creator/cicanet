@@ -86,6 +86,48 @@ const COVERAGE_COLORS: Record<string, string> = {
   sin: "#FF4D6D",
 };
 
+// Estilo de los activos de infraestructura (color y radio por tipo) — fuente única `infra`.
+const INFRA_TIPO: Record<string, { color: string; r: number }> = {
+  POP: { color: "#22D3EE", r: 7 }, OLT: { color: "#3B82F6", r: 6 },
+  Switch: { color: "#6366F1", r: 5 }, Router: { color: "#8B5CF6", r: 5 },
+  NAP: { color: "#22E0A1", r: 5.5 }, CTO: { color: "#22E0A1", r: 5.5 },
+  Splitter: { color: "#38BDF8", r: 4.5 }, Empalme: { color: "#A3E635", r: 4 },
+  Poste: { color: "#D6A35C", r: 4 }, Camara: { color: "#F472B6", r: 4 },
+  Servidor: { color: "#FBBF24", r: 4.5 }, UPS: { color: "#FBBF24", r: 4.5 },
+  Cliente: { color: "#38BDF8", r: 3.4 }, ONU: { color: "#94A3B8", r: 3.4 },
+};
+function infraColorExpr(): any {
+  const e: any[] = ["match", ["get", "tipo"]];
+  for (const [t, v] of Object.entries(INFRA_TIPO)) e.push(t, v.color);
+  e.push("#8B96AC");
+  return e;
+}
+function infraRadiusExpr(scale = 1): any {
+  const e: any[] = ["match", ["get", "tipo"]];
+  for (const [t, v] of Object.entries(INFRA_TIPO)) e.push(t, v.r * scale);
+  e.push(4.5 * scale);
+  return e;
+}
+const infraTipoColor = (t: string) => INFRA_TIPO[t]?.color ?? "#8B96AC";
+
+/** Enlaces de topología (línea de cada activo a su padre) a partir del bundle infra. */
+function buildInfraLinks(assets: FC): FC {
+  const pos = new Map<string, [number, number]>();
+  for (const f of assets.features) pos.set(f.properties.id, f.geometry.coordinates);
+  const feats: any[] = [];
+  for (const f of assets.features) {
+    const parent = f.properties.padreId && pos.get(f.properties.padreId);
+    if (parent) {
+      feats.push({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: [f.geometry.coordinates, parent] },
+      });
+    }
+  }
+  return { type: "FeatureCollection", features: feats };
+}
+
 function napClass(used: number, total: number, estado: string): string {
   if (estado === "degradado") return "nap-marker nap-near";
   const ratio = total > 0 ? used / total : 1;
@@ -113,8 +155,15 @@ export default function CoverageMap({
   const mapRef = useRef<MlMap | null>(null);
   const [basemap, setBasemap] = useState<Basemap>("dark");
   const [catastro, setCatastro] = useState(false);
+  // Panel de capas: qué de la infraestructura guardada se muestra en el mapa vivo.
+  const [layers, setLayers] = useState({
+    fibra: true, enlaces: true, nucleo: true, nap: true, splitter: true,
+    empalme: true, poste: true, clientes: true, etiquetas: true, zonas: true,
+  });
+  const [layersOpen, setLayersOpen] = useState(false);
   const markersRef = useRef<Marker[]>([]);
   const labelsRef = useRef<Marker[]>([]);
+  const infraLabelsRef = useRef<Marker[]>([]);
   const checkMarkerRef = useRef<Marker | null>(null);
   const focusMarkerRef = useRef<Marker | null>(null);
   const pinMarkerRef = useRef<Marker | null>(null);
@@ -127,6 +176,9 @@ export default function CoverageMap({
   onMapClickRef.current = onMapClick;
   onNodeSelectRef.current = onNodeSelect;
   onPinMoveRef.current = onPinMove;
+  // Ref espejo del estado de capas para leerlo dentro del init (que corre una vez).
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
 
   // Init del mapa (una vez)
   useEffect(() => {
@@ -398,18 +450,25 @@ export default function CoverageMap({
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#6366F1", "line-width": 2.4, "line-opacity": 0.95 },
       });
+      // Enlaces de topología (activo → padre): el esqueleto lógico de la red.
+      map.addSource("infra-links", { type: "geojson", data: emptyFC() });
+      map.addLayer({
+        id: "infra-links",
+        type: "line",
+        source: "infra-links",
+        layout: { "line-cap": "round" },
+        paint: { "line-color": "#2DD4BF", "line-width": 1.1, "line-opacity": 0.45, "line-dasharray": [2, 1.5] },
+      });
       map.addSource("infra-assets", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
         id: "infra-assets-glow",
         type: "circle",
         source: "infra-assets",
         paint: {
-          "circle-radius": ["match", ["get", "tipo"], "POP", 13, 8],
+          "circle-radius": infraRadiusExpr(1.7),
           "circle-blur": 1,
           "circle-opacity": 0.45,
-          "circle-color": ["match", ["get", "tipo"],
-            "POP", "#22D3EE", "OLT", "#3B82F6", "NAP", "#22E0A1", "CTO", "#22E0A1",
-            "Splitter", "#38BDF8", "Cliente", "#38BDF8", "#8B96AC"],
+          "circle-color": infraColorExpr(),
         },
       });
       map.addLayer({
@@ -417,11 +476,9 @@ export default function CoverageMap({
         type: "circle",
         source: "infra-assets",
         paint: {
-          "circle-radius": ["match", ["get", "tipo"], "POP", 7, 4.5],
-          "circle-color": ["match", ["get", "tipo"],
-            "POP", "#22D3EE", "OLT", "#3B82F6", "NAP", "#22E0A1", "CTO", "#22E0A1",
-            "Splitter", "#38BDF8", "Cliente", "#38BDF8", "#E9EDF5"],
-          "circle-stroke-width": 2,
+          "circle-radius": infraRadiusExpr(1),
+          "circle-color": infraColorExpr(),
+          "circle-stroke-width": 1.6,
           "circle-stroke-color": "#04060C",
         },
       });
@@ -455,10 +512,30 @@ export default function CoverageMap({
           .addTo(map);
       });
 
+      // Clic en un activo de infraestructura → popup con su ficha rápida.
+      map.on("click", "infra-assets-dot", (e) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        const p = f.properties as any;
+        onNodeSelectRef.current?.(p);
+        const cap = p.puertosTotal != null
+          ? `<div style="display:flex;justify-content:space-between;gap:14px"><span style="color:#8B96AC">Puertos</span><strong style="color:#fff">${p.puertosUsados ?? 0}/${p.puertosTotal}</strong></div>`
+          : "";
+        const cli = (p.clientesDependientes ?? 0) > 0
+          ? `<div style="display:flex;justify-content:space-between;gap:14px"><span style="color:#8B96AC">Clientes</span><strong style="color:#22E0A1">${p.clientesDependientes}</strong></div>`
+          : "";
+        new Popup({ offset: 14, closeButton: false })
+          .setLngLat((f.geometry as any).coordinates)
+          .setHTML(`<div style="font-size:12px;min-width:150px"><strong style="color:#fff;font-size:13px">${p.nombre ?? p.id}</strong><div style="color:#8B96AC;margin:2px 0 6px">${p.tipo} · ${p.id}</div>${cap}${cli}</div>`)
+          .addTo(map);
+      });
+      map.on("mouseenter", "infra-assets-dot", () => (map.getCanvas().style.cursor = "pointer"));
+      map.on("mouseleave", "infra-assets-dot", () => (map.getCanvas().style.cursor = "crosshair"));
+
       // Clic en zona vacía del mapa → consultar cobertura
       map.on("click", (e) => {
-        const hits = map.queryRenderedFeatures(e.point, { layers: ["clients-dot"] });
-        if (hits.length) return; // fue clic en un cliente
+        const hits = map.queryRenderedFeatures(e.point, { layers: ["clients-dot", "infra-assets-dot"] });
+        if (hits.length) return; // fue clic en un cliente o activo
         onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat);
       });
 
@@ -466,7 +543,9 @@ export default function CoverageMap({
 
       buildNodeMarkers(map, data.nodes, markersRef, onNodeSelectRef);
       buildBarrioLabels(map, data.comuna1, labelsRef);
+      buildInfraLabels(map, infra?.assets, infraLabelsRef);
       applyVisibility(map, visibility, markersRef.current, labelsRef.current);
+      applyInfraLayers(map, layersRef.current, infraLabelsRef.current);
 
       // Enmarca el polígono real del barrio Popular
       if (data.meta.bbox) {
@@ -480,6 +559,8 @@ export default function CoverageMap({
       markersRef.current = [];
       labelsRef.current.forEach((m) => m.remove());
       labelsRef.current = [];
+      infraLabelsRef.current.forEach((m) => m.remove());
+      infraLabelsRef.current = [];
       checkMarkerRef.current?.remove();
       checkMarkerRef.current = null;
       focusMarkerRef.current?.remove();
@@ -605,15 +686,26 @@ export default function CoverageMap({
     }
   }, [draggablePin, pinColor]);
 
-  // Red real (infra) → refrescar fuentes
+  // Red real (infra) → refrescar fuentes, enlaces y etiquetas
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
     const fs = map.getSource("infra-fiber") as any;
     const as = map.getSource("infra-assets") as any;
+    const ls = map.getSource("infra-links") as any;
     if (fs) fs.setData(infra?.fiber || emptyFC());
     if (as) as.setData(infra?.assets || emptyFC());
+    if (ls) ls.setData(infra?.assets ? buildInfraLinks(infra.assets) : emptyFC());
+    buildInfraLabels(map, infra?.assets, infraLabelsRef);
+    applyInfraLayers(map, layersRef.current, infraLabelsRef.current);
   }, [infra]);
+
+  // Panel de capas → mostrar/ocultar cada tipo de la infraestructura
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    applyInfraLayers(map, layers, infraLabelsRef.current);
+  }, [layers]);
 
   // Modo "solo mi red": oculta el demo (cobertura/clientes/nodos/fibra base) y deja la red real + barrios.
   useEffect(() => {
@@ -670,6 +762,21 @@ export default function CoverageMap({
     { id: "ortofoto", label: "🏙️ Ortofoto Medellín", show: true },
   ];
 
+  // Filas del panel de capas (lo construido y guardado en Infraestructura).
+  const LAYER_ROWS: { k: keyof typeof layers; label: string; color?: string }[] = [
+    { k: "fibra", label: "Fibra / troncal", color: "#6366F1" },
+    { k: "enlaces", label: "Enlaces topología", color: "#2DD4BF" },
+    { k: "nucleo", label: "POP · OLT · core", color: "#22D3EE" },
+    { k: "nap", label: "NAP / CTO", color: "#22E0A1" },
+    { k: "splitter", label: "Splitter", color: "#38BDF8" },
+    { k: "empalme", label: "Empalme", color: "#A3E635" },
+    { k: "poste", label: "Postes", color: "#D6A35C" },
+    { k: "clientes", label: "Clientes / ONU", color: "#38BDF8" },
+    { k: "zonas", label: "Zonas cobertura", color: "#22E0A1" },
+    { k: "etiquetas", label: "Etiquetas" },
+  ];
+  const tog = (k: keyof typeof layers) => setLayers((s) => ({ ...s, [k]: !s[k] }));
+
   return (
     <div ref={containerRef} className="absolute inset-0">
       {/* Selector de base: oscuro operativo + imágenes (satélite/ortofoto) */}
@@ -694,6 +801,38 @@ export default function CoverageMap({
         >
           🧩 Catastro
         </button>
+      </div>
+
+      {/* Panel de capas: enciende/apaga TODO lo construido y guardado en Infraestructura */}
+      <div className="pointer-events-auto absolute left-3 top-14 z-10 w-52 overflow-hidden rounded-lg border border-white/10 bg-black/65 text-[11px] shadow-lg backdrop-blur">
+        <button
+          onClick={() => setLayersOpen((o) => !o)}
+          className="flex w-full items-center justify-between px-3 py-2 font-bold uppercase tracking-wider text-cica-silver transition-colors hover:bg-white/5"
+        >
+          <span>⚙ Capas de red</span>
+          <span className="text-cica-muted">{layersOpen ? "▾" : "▸"}</span>
+        </button>
+        {layersOpen && (
+          <div className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto border-t border-white/10 p-2">
+            {LAYER_ROWS.map(({ k, label, color }) => (
+              <button
+                key={k}
+                onClick={() => tog(k)}
+                className="flex items-center justify-between gap-2 rounded px-2 py-1 text-left text-cica-silver transition-colors hover:bg-white/5"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  {color
+                    ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+                    : <span className="h-2 w-2 shrink-0" />}
+                  {label}
+                </span>
+                <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${layers[k] ? "bg-gradient-to-r from-cica-amber to-cica-gold" : "bg-cica-border"}`}>
+                  <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${layers[k] ? "left-[14px]" : "left-0.5"}`} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -808,5 +947,65 @@ function applyVisibility(map: MlMap, v: LayerVisibility, markers: Marker[], labe
   });
   labels.forEach((m) => {
     m.getElement().style.display = v.barrios ? "" : "none";
+  });
+}
+
+type InfraLayers = {
+  fibra: boolean; enlaces: boolean; nucleo: boolean; nap: boolean; splitter: boolean;
+  empalme: boolean; poste: boolean; clientes: boolean; etiquetas: boolean; zonas: boolean;
+};
+
+/** Etiquetas tipo "pill" de los nodos de infraestructura (no clientes/ONU). */
+function buildInfraLabels(map: MlMap, assets: FC | undefined, ref: React.MutableRefObject<Marker[]>) {
+  ref.current.forEach((m) => m.remove());
+  ref.current = [];
+  if (!assets) return;
+  for (const f of assets.features) {
+    const p: any = f.properties;
+    if (p.tipo === "Cliente" || p.tipo === "ONU") continue;
+    const el = document.createElement("div");
+    el.textContent = p.nombre ?? p.id;
+    const color = infraTipoColor(p.tipo);
+    el.style.cssText =
+      `transform:translateY(-14px);font-size:9.5px;font-weight:700;color:#E9EDF5;white-space:nowrap;pointer-events:none;` +
+      `padding:1px 5px;border-radius:5px;background:rgba(4,6,12,0.72);border:1px solid ${color}55;box-shadow:0 0 8px rgba(0,0,0,0.6);letter-spacing:0.2px;`;
+    const m = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat(f.geometry.coordinates).addTo(map);
+    (m as any).__tipo = p.tipo;
+    ref.current.push(m);
+  }
+}
+
+/** Aplica el panel de capas a la red real: fibra, enlaces, tipos de activo, etiquetas y zonas. */
+function applyInfraLayers(map: MlMap, L: InfraLayers, infraLabels: Marker[]) {
+  const set = (id: string, on: boolean) => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  };
+  set("infra-fiber-glow", L.fibra);
+  set("infra-fiber-line", L.fibra);
+  set("infra-links", L.enlaces);
+  set("zones-fill", L.zonas);
+  set("zones-line", L.zonas);
+
+  const enabled: string[] = [];
+  if (L.nucleo) enabled.push("POP", "OLT", "Switch", "Router", "Servidor", "UPS");
+  if (L.nap) enabled.push("NAP", "CTO");
+  if (L.splitter) enabled.push("Splitter");
+  if (L.empalme) enabled.push("Empalme");
+  if (L.poste) enabled.push("Poste");
+  if (L.clientes) enabled.push("Cliente", "ONU", "Camara");
+
+  const typeFilter: any = ["in", ["get", "tipo"], ["literal", enabled]];
+  for (const id of ["infra-assets-glow", "infra-assets-dot"]) {
+    if (map.getLayer(id)) map.setFilter(id, typeFilter);
+  }
+  // El badge de cámara conserva su condición (tiene fotos) + el filtro por tipo.
+  if (map.getLayer("infra-assets-cam")) {
+    map.setFilter("infra-assets-cam", ["all", [">", ["coalesce", ["get", "fotosCount"], 0], 0], typeFilter]);
+  }
+
+  const enabledSet = new Set(enabled);
+  infraLabels.forEach((m) => {
+    const t = (m as any).__tipo as string;
+    m.getElement().style.display = L.etiquetas && enabledSet.has(t) ? "" : "none";
   });
 }

@@ -32,7 +32,7 @@ const MODULES: { key: ModuleKey; label: string; icon: JSX.Element }[] = [
   },
   {
     key: "infra",
-    label: "Infraestructura",
+    label: "Editor de Red",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
         <path d="M12 21V9" />

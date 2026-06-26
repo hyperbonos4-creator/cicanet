@@ -50,6 +50,7 @@ const PREFIX: Record<string, string> = {
   Camara: 'CAM',
   Fibra: 'FIB',
   Empalme: 'EMP',
+  Poste: 'PST',
   ONU: 'ONU',
   Cliente: 'CL',
 };
@@ -167,6 +168,26 @@ export class InfraService implements OnModuleInit {
   }
   listSites() {
     return this.sites;
+  }
+
+  /**
+   * NAP/CTO del inventario (fuente de verdad del editor GIS) con su capacidad
+   * real, para que la consulta de cobertura y el "NAP más cercano" del Mapa
+   * reflejen lo que se construye en Infraestructura. No fabrica nada: deriva de
+   * los activos registrados y su ocupación de puertos.
+   */
+  getNapPoints(): { id: string; nombre: string; lng: number; lat: number; total: number; usados: number; libres: number }[] {
+    const out: { id: string; nombre: string; lng: number; lat: number; total: number; usados: number; libres: number }[] = [];
+    for (const a of this.assets) {
+      const t = a.tipo as string;
+      if (t !== 'NAP' && t !== 'CTO') continue;
+      const cap = this.capacityOf(a);
+      out.push({
+        id: a.id, nombre: a.nombre, lng: a.lng, lat: a.lat,
+        total: cap?.total ?? 0, usados: cap?.usados ?? 0, libres: cap?.libres ?? 0,
+      });
+    }
+    return out;
   }
 
   /** Proyección a nodos de topología (grafo padreId) para los helpers de dominio. */
@@ -503,12 +524,36 @@ export class InfraService implements OnModuleInit {
     destinoDireccion?: string;
     origen?: { lng: number; lat: number };
     destino?: { lng: number; lat: number };
+    /** Trazado real poste a poste [[lng,lat], ...]. Si llega, manda sobre los extremos rectos. */
+    trazado?: number[][];
     creadoPor?: string;
   }): Promise<FiberSegment> {
-    const o = await this.resolveEndpoint(input.origenId, input.origenDireccion, input.origen);
-    const d = await this.resolveEndpoint(input.destinoId, input.destinoDireccion, input.destino);
+    // Polilínea trazada en el mapa (poste a poste). Sanitiza y descarta duplicados consecutivos.
+    const path = sanitizePath(input.trazado);
 
-    if (o.lng === d.lng && o.lat === d.lat) {
+    let o: { lng: number; lat: number; direccion?: string };
+    let d: { lng: number; lat: number; direccion?: string };
+    let coords: number[][];
+
+    if (path.length >= 2) {
+      // Trazado real: los extremos son el primer y último vértice. Si además se
+      // referencia un activo en un extremo, se "pega" (snap) a su coordenada exacta.
+      o = { lng: path[0][0], lat: path[0][1], direccion: input.origenDireccion };
+      d = { lng: path[path.length - 1][0], lat: path[path.length - 1][1], direccion: input.destinoDireccion };
+      if (input.origenId) { const e = await this.resolveEndpoint(input.origenId); o = e; path[0] = [e.lng, e.lat]; }
+      if (input.destinoId) { const e = await this.resolveEndpoint(input.destinoId); d = e; path[path.length - 1] = [e.lng, e.lat]; }
+      coords = path;
+    } else {
+      // Modo clásico: dos extremos (activo / dirección / coordenada) unidos por una recta.
+      o = await this.resolveEndpoint(input.origenId, input.origenDireccion, input.origen);
+      d = await this.resolveEndpoint(input.destinoId, input.destinoDireccion, input.destino);
+      coords = [
+        [o.lng, o.lat],
+        [d.lng, d.lat],
+      ];
+    }
+
+    if (o.lng === d.lng && o.lat === d.lat && coords.length < 2) {
       throw new BadRequestException('El origen y el destino de la fibra no pueden ser el mismo punto.');
     }
 
@@ -524,17 +569,15 @@ export class InfraService implements OnModuleInit {
       destinoDireccion: d.direccion,
       origen: { lng: o.lng, lat: o.lat },
       destino: { lng: d.lng, lat: d.lat },
-      trazado: [
-        [o.lng, o.lat],
-        [d.lng, d.lat],
-      ],
-      longitud: Math.round(haversine(o.lat, o.lng, d.lat, d.lng)),
+      trazado: coords,
+      // Longitud REAL = suma de los tramos de la polilínea (no la recta extremo-a-extremo).
+      longitud: Math.round(pathLength(coords)),
       creadoPor: input.creadoPor,
       creadoEn: new Date().toISOString(),
     };
     await this.prisma.segmentoFibra.create({ data: fiberToRow(seg) });
     this.fiber.push(seg);
-    this.logger.log(`Fibra creada ${id} (${seg.longitud} m)`);
+    this.logger.log(`Fibra creada ${id} (${seg.longitud} m · ${coords.length} vértices)`);
     return seg;
   }
 
@@ -1086,4 +1129,36 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/**
+ * Sanitiza una polilínea trazada en el mapa: conserva solo pares [lng,lat]
+ * numéricos y finitos, y elimina vértices repetidos consecutivos (un doble clic
+ * en el mismo poste no debe inflar el conteo ni romper la longitud).
+ */
+function sanitizePath(raw?: number[][]): number[][] {
+  if (!Array.isArray(raw)) return [];
+  const out: number[][] = [];
+  for (const p of raw) {
+    if (!Array.isArray(p) || p.length < 2) continue;
+    const lng = Number(p[0]);
+    const lat = Number(p[1]);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+    if (Math.abs(lng) > 180 || Math.abs(lat) > 90) continue;
+    const prev = out[out.length - 1];
+    if (prev && prev[0] === lng && prev[1] === lat) continue;
+    out.push([lng, lat]);
+  }
+  return out;
+}
+
+/** Longitud real (metros) de una polilínea sumando la distancia de cada tramo. */
+function pathLength(coords: number[][]): number {
+  let total = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const [aLng, aLat] = coords[i - 1];
+    const [bLng, bLat] = coords[i];
+    total += haversine(aLat, aLng, bLat, bLng);
+  }
+  return total;
 }

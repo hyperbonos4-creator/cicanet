@@ -30,7 +30,11 @@ export class TilesController {
   private readonly logger = new Logger('TilesController');
   /** Caché en disco de la ortofoto de Medellín (independencia del servidor municipal). */
   private readonly medellinCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'medellin');
+  /** Caché en disco de la ortofoto de Bello (AMVA), si se configura GEOBELLO_TILES_URL. */
+  private readonly belloCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'bello');
   private readonly catastroCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'catastro');
+  /** Session token del Google Map Tiles API (satélite). Se renueva al expirar. */
+  private gsat: { session: string; expiry: number } | null = null;
 
   /**
    * Ortofoto oficial de Medellín 2024 (GeoMedellín, Creative Commons) con CACHÉ.
@@ -101,6 +105,69 @@ export class TilesController {
       res.end(buf);
     } catch (e: any) {
       this.logger.warn(`Ortofoto Medellín ${z}/${y}/${x} falló: ${e.message}`);
+      res.status(204).end();
+    }
+  }
+
+  /**
+   * Ortofoto oficial de Bello (AMVA) con CACHÉ — mismo mecanismo que Medellín.
+   * Solo opera si GEOBELLO_TILES_URL está configurada; de lo contrario responde
+   * 204 y MapLibre cae al satélite de Google (que ya cubre Bello). MapLibre pide
+   * `/api/tiles/bello/{z}/{y}/{x}`.
+   */
+  @Get('bello/:z/:y/:x')
+  async bello(
+    @Param('z') z: string,
+    @Param('y') y: string,
+    @Param('x') x: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    if (![z, y, x].every((v) => /^\d+$/.test(v))) {
+      res.status(400).end();
+      return;
+    }
+    const template = config.geo.belloTilesUrl;
+    // Sin servicio oficial configurado: no hay ortofoto municipal de Bello todavía.
+    if (!template) {
+      res.status(204).end();
+      return;
+    }
+
+    const dir = resolve(this.belloCacheDir, z, y);
+    const file = resolve(dir, `${x}.jpg`);
+
+    if (existsSync(file)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      res.setHeader('X-Tile-Cache', 'HIT');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(readFileSync(file));
+      return;
+    }
+
+    const url = template.replace('{z}', z).replace('{y}', y).replace('{x}', x);
+    try {
+      // El portal del AMVA presenta una cadena TLS incompleta (válida en Windows,
+      // rechazada por Alpine); se descarga con verificación relajada igual que el
+      // catastro. Fuente pública de solo lectura.
+      const r = await getInsecureImage(url, BROWSER_HEADERS);
+      if (!r.ok || !r.buf) {
+        res.status(204).end();
+        return;
+      }
+      try {
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(file, r.buf);
+      } catch (e: any) {
+        this.logger.warn(`No se pudo cachear Bello ${z}/${y}/${x}: ${e.message}`);
+      }
+      res.setHeader('Content-Type', r.contentType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      res.setHeader('X-Tile-Cache', 'MISS');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(r.buf);
+    } catch (e: any) {
+      this.logger.warn(`Ortofoto Bello ${z}/${y}/${x} falló: ${e.message}`);
       res.status(204).end();
     }
   }
@@ -204,6 +271,80 @@ export class TilesController {
     } catch (e: any) {
       this.logger.warn(`Tile satélite ${Z}/${X}/${Y} falló: ${e.message}`);
       res.status(204).end();
+    }
+  }
+
+  /**
+   * Satélite de Google (Map Tiles API · ortofotografía). Es la imagen MÁS
+   * ACTUALIZADA y cubre TODO (Medellín, Bello, etc.); base recomendada para
+   * ubicar postes/NAP. La clave vive en el servidor; el token de sesión se crea
+   * una vez y se renueva al expirar. Si el Map Tiles API no está habilitado o no
+   * hay clave, responde 404 (el cliente cae a Esri/Mapbox). La web pide
+   * `/api/tiles/gsat/{z}/{x}/{y}`.
+   */
+  @Get('gsat/:z/:x/:y')
+  async gsatTile(
+    @Param('z') z: string,
+    @Param('x') x: string,
+    @Param('y') y: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const key = config.geo.googleKey;
+    if (!key) { res.status(404).end(); return; }
+    const Z = String(z).replace(/\D.*$/, '');
+    const X = String(x).replace(/\D.*$/, '');
+    const Y = String(y).replace(/\D.*$/, '');
+
+    const session = await this.googleSatSession(key);
+    if (!session) { res.status(404).end(); return; }
+
+    const tileUrl = (s: string) =>
+      `https://tile.googleapis.com/v1/2dtiles/${Z}/${X}/${Y}?session=${encodeURIComponent(s)}&key=${encodeURIComponent(key)}`;
+    try {
+      let upstream = await fetch(tileUrl(session), { signal: AbortSignal.timeout(12000) });
+      if (upstream.status === 401 || upstream.status === 403) {
+        this.gsat = null; // token expirado/inválido -> regenerar y reintentar una vez
+        const fresh = await this.googleSatSession(key);
+        if (fresh) upstream = await fetch(tileUrl(fresh), { signal: AbortSignal.timeout(12000) });
+      }
+      if (!upstream.ok) {
+        res.status(upstream.status === 404 ? 204 : upstream.status).end();
+        return;
+      }
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // ToS: sin caché persistente en disco
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(buf);
+    } catch (e: any) {
+      this.logger.warn(`Google sat ${Z}/${X}/${Y} falló: ${e.message}`);
+      res.status(204).end();
+    }
+  }
+
+  /** Crea/reutiliza el session token del Map Tiles API (satélite). null si falla. */
+  private async googleSatSession(key: string): Promise<string | null> {
+    const now = Math.floor(Date.now() / 1000);
+    if (this.gsat && this.gsat.expiry - 60 > now) return this.gsat.session;
+    try {
+      const r = await fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapType: 'satellite', language: 'es-CO', region: 'CO' }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!r.ok) {
+        this.logger.warn(`createSession (Map Tiles API) HTTP ${r.status} — ¿habilitaste "Map Tiles API" en GCP?`);
+        return null;
+      }
+      const j: any = await r.json();
+      if (!j?.session) return null;
+      this.gsat = { session: j.session, expiry: Number(j.expiry) || now + 1209600 };
+      this.logger.log('Google Map Tiles: session token de satélite creado.');
+      return this.gsat.session;
+    } catch (e: any) {
+      this.logger.warn(`createSession (Map Tiles API) falló: ${e.message}`);
+      return null;
     }
   }
 

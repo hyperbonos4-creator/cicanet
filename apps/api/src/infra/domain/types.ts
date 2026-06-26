@@ -13,12 +13,13 @@ export type AssetType =
   | 'Camara'
   | 'Fibra'
   | 'Empalme'
+  | 'Poste'
   | 'ONU'
   | 'Cliente';
 
 export const ASSET_TYPES: AssetType[] = [
   'POP', 'OLT', 'Switch', 'Router', 'NAP', 'Splitter', 'UPS',
-  'Servidor', 'Camara', 'Fibra', 'Empalme', 'ONU', 'Cliente',
+  'Servidor', 'Camara', 'Fibra', 'Empalme', 'Poste', 'ONU', 'Cliente',
 ];
 
 export type AssetStatus =
@@ -73,9 +74,14 @@ export interface Management {
 
 // ---- Evidencia (fotos / documentos) ----
 
-export type PhotoCategory = 'vista_general' | 'frontal' | 'placa_serial' | 'instalacion';
+export type PhotoCategory =
+  | 'vista_general'
+  | 'frontal'
+  | 'placa_serial'
+  | 'instalacion'
+  | 'pano360';
 export const PHOTO_CATEGORIES: PhotoCategory[] = [
-  'vista_general', 'frontal', 'placa_serial', 'instalacion',
+  'vista_general', 'frontal', 'placa_serial', 'instalacion', 'pano360',
 ];
 
 export interface PhotoRef {
@@ -192,7 +198,7 @@ export type TypeAttributes =
   | ({ tipo: 'Fibra' } & FibraAttributes)
   | ({ tipo: 'Empalme' } & EmpalmeAttributes)
   | ({ tipo: 'NAP' } & NapAttributes)
-  | { tipo: 'POP' | 'Splitter' | 'Camara' | 'ONU' | 'Cliente' };
+  | { tipo: 'POP' | 'Splitter' | 'Camara' | 'Poste' | 'ONU' | 'Cliente' };
 
 /** Ficha universal: todos los activos heredan estos campos. */
 export interface Asset {

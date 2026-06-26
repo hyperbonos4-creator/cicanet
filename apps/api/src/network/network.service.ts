@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { point } from '@turf/helpers';
 import { config } from '../config';
+import { InfraService } from '../infra/infra.service';
 // Dataset generado a partir del GeoJSON OFICIAL de GeoMedellín (Comuna 1).
 // Ver apps/api/scripts/build-geodata.mjs
 import geo from './popular2.geo.json';
@@ -48,6 +49,11 @@ export type ZoneRecord = {
 @Injectable()
 export class NetworkService implements OnModuleInit {
   private readonly logger = new Logger('NetworkService');
+
+  // El inventario "fuente de verdad" vive en InfraService (editor GIS). Lo
+  // inyectamos para que la consulta de cobertura del Mapa reconozca las NAP
+  // reales que se construyen ahí (no solo el store heredado de naps.json).
+  constructor(private readonly infra: InfraService) {}
 
   // La red arranca VACÍA: nodos, cobertura y fibra se construyen con la
   // infraestructura REAL que el operador registra (no hay datos demo).
@@ -148,6 +154,8 @@ export class NetworkService implements OnModuleInit {
   checkCoverage(lng: number, lat: number) {
     const pt = point([lng, lat]);
     const prioridad = ['ftth', 'parcial', 'sin'];
+
+    // 1) Cobertura por polígonos (zonas dibujadas / círculos del store heredado).
     const matches = this.coverage.features.filter((f) =>
       booleanPointInPolygon(pt as any, f as any),
     );
@@ -157,10 +165,29 @@ export class NetworkService implements OnModuleInit {
         prioridad.indexOf(b.properties.estado),
     );
     const best = matches[0];
+    const polyEstado: string | null = best ? best.properties.estado : null;
+
+    // 2) Cobertura por CERCANÍA a una NAP real del editor GIS (fuente de verdad).
+    //    Si el punto está dentro del radio de tendido de una NAP con puertos
+    //    libres → FTTH; si la NAP está saturada → parcial.
+    const RADIO_TENDIDO = 250; // m
+    let infraEstado: string | null = null;
+    for (const n of this.infra.getNapPoints()) {
+      if (haversine(lat, lng, n.lat, n.lng) <= RADIO_TENDIDO) {
+        const est = n.libres > 0 ? 'ftth' : 'parcial';
+        if (!infraEstado || prioridad.indexOf(est) < prioridad.indexOf(infraEstado)) infraEstado = est;
+      }
+    }
+
+    // 3) Mejor estado entre ambas fuentes (ftth > parcial > sin).
+    const estado = [polyEstado, infraEstado]
+      .filter((e): e is string => !!e)
+      .sort((a, b) => prioridad.indexOf(a) - prioridad.indexOf(b))[0] ?? null;
 
     const dentroDelBarrio = this.isInServiceArea(lng, lat);
+    const napCercano = this.nearestNap(lng, lat);
 
-    if (!best) {
+    if (!estado) {
       return {
         cobertura: false,
         estado: dentroDelBarrio ? 'sin' : 'fuera_de_zona',
@@ -168,44 +195,39 @@ export class NetworkService implements OnModuleInit {
           ? 'En tu zona aún no hay red, pero está en el plan de expansión.'
           : 'El punto está fuera de tu zona de servicio.',
         dentroDelBarrio,
-        napCercano: this.nearestNode(lng, lat),
+        napCercano,
         lng,
         lat,
       };
     }
 
     return {
-      cobertura: best.properties.estado !== 'sin',
-      estado: best.properties.estado,
-      tecnologia: best.properties.tecnologia,
-      area: best.properties.nombre,
-      mensaje: ESTADO_LABEL[best.properties.estado] || best.properties.estado,
+      cobertura: estado !== 'sin',
+      estado,
+      tecnologia: best?.properties.tecnologia || (estado === 'sin' ? 'FTTH (planeado)' : 'FTTH'),
+      area: best?.properties.nombre,
+      mensaje: ESTADO_LABEL[estado] || estado,
       dentroDelBarrio,
-      napCercano: this.nearestNode(lng, lat),
+      napCercano,
       lng,
       lat,
     };
   }
 
-  private nearestNode(lng: number, lat: number) {
-    let best: {
-      id: string;
-      nombre: string;
-      metros: number;
-      libres: number;
-    } | null = null;
+  /** NAP más cercana considerando AMBAS fuentes: el store heredado y el editor GIS (infra). */
+  private nearestNap(lng: number, lat: number): { id: string; nombre: string; metros: number; libres: number } | null {
+    let best: { id: string; nombre: string; metros: number; libres: number } | null = null;
+    const consider = (id: string, nombre: string, nlng: number, nlat: number, libres: number) => {
+      const metros = haversine(lat, lng, nlat, nlng);
+      if (!best || metros < best.metros) best = { id, nombre, metros: Math.round(metros), libres };
+    };
     for (const f of this.nodes.features) {
       if (!['NAP', 'CTO'].includes(f.properties.tipo)) continue;
       const [nlng, nlat] = f.geometry.coordinates;
-      const metros = haversine(lat, lng, nlat, nlng);
-      if (!best || metros < best.metros) {
-        best = {
-          id: f.properties.id,
-          nombre: f.properties.nombre,
-          metros: Math.round(metros),
-          libres: f.properties.puertos_total - f.properties.puertos_usados,
-        };
-      }
+      consider(f.properties.id, f.properties.nombre, nlng, nlat, f.properties.puertos_total - f.properties.puertos_usados);
+    }
+    for (const n of this.infra.getNapPoints()) {
+      consider(n.id, n.nombre, n.lng, n.lat, n.libres);
     }
     return best;
   }

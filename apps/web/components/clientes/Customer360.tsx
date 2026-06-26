@@ -281,7 +281,7 @@ export default function Customer360({
                   )}
                 </div>
               ) : (
-                <div className="text-xs text-cica-muted">Este servicio aún no tiene una NAP de red asignada en el inventario. Asigna una NAP desde la edición del cliente o el módulo Infraestructura.</div>
+                <div className="text-xs text-cica-muted">Este servicio aún no tiene una NAP de red asignada en el inventario. Asigna una NAP desde la edición del cliente o el Editor de Red.</div>
               )}
             </Card>
           )}
@@ -483,7 +483,7 @@ function CampoView({
       <Card title={`Evidencia del sitio${napNombre ? ` · ${napNombre}` : ""}`}>
         {fotos.length === 0 ? (
           <div className="text-xs text-cica-muted">
-            Sin fotos de la NAP de este cliente. Sube evidencia desde Infraestructura → ficha de la NAP
+            Sin fotos de la NAP de este cliente. Sube evidencia desde el Editor de Red → ficha de la NAP
             (desde el móvil se abre la cámara).
           </div>
         ) : (
