@@ -40,7 +40,9 @@ param(
   [switch]$NoPush
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
+# Nota: validamos cada paso por su codigo de salida ($LASTEXITCODE), no por stderr.
+# git/npm/tsc escriben avisos (warnings) a stderr que NO deben abortar el flujo.
 
 # ---- helpers de salida ----
 function Hd($t){ Write-Host "`n========== $t ==========" -ForegroundColor Cyan }
@@ -130,12 +132,15 @@ if (Test-Path $tokFile) {
   $tok = (Get-Content $tokFile -Raw).Trim()
   $pushUrl = $origin.Replace("https://", "https://$tok@")
   $out = (& $GitExe -C $RepoRoot push $pushUrl "HEAD:$Branch" 2>&1) -join "`n"
+  $code = $LASTEXITCODE
   $out = $out.Replace($tok, "***TOKEN***")
 } else {
   $out = (& $GitExe -C $RepoRoot push origin "HEAD:$Branch" 2>&1) -join "`n"
+  $code = $LASTEXITCODE
 }
 Write-Host $out
-if ($out -match "rejected|error:|fatal:") { Die "git push fallo (revisa el mensaje de arriba)." }
+# git escribe avisos (LFS, CRLF) a stderr aunque el push tenga exito: validamos por codigo de salida.
+if ($code -ne 0 -or $out -match "\[rejected\]|! \[remote rejected\]|fatal:") { Die "git push fallo (exit $code; revisa el mensaje de arriba)." }
 Ok "Push a $Branch completado."
 
 if ($NoServer) { Write-Host "`n-NoServer: termino aqui (no toco el server)." -ForegroundColor Cyan; exit 0 }

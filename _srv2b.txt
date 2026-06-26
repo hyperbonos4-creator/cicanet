@@ -1,2 +1,0 @@
-USING: ssh-key-server2.key (1675 b)
-RESULT: AUTH_OK || uid=1001(ubuntu) gid=1001(ubuntu) groups=1001(ubuntu),4(adm),24(cdrom),27(sudo),30(dip),105(lxd),988(docker) || server2

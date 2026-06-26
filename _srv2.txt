@@ -1,4 +1,0 @@
-
-USING: Z:\ssh-key-server2.key (1675 bytes)
-RESULT: AUTH_OK || ubuntu || server2 || cicanet-web || cicanet-evolution || cicanet-api || cicanet-martin || cicanet-evolution-db || cicanet-redis || cicanet-evolution-redis || cicanet-minio || cicanet-postgres
-DONE

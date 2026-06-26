@@ -53,3 +53,9 @@ scripts/.gh-token
 
 # Credenciales Cloudflare del asistente (tokens en texto plano — NUNCA subir)
 cuentas/
+
+# Archivos scratch / temporales de diagnóstico y despliegue (NUNCA versionar)
+_*.txt
+/c.txt
+/counts.txt
+.claude/

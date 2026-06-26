@@ -1,6 +1,0 @@
-
-ssh-key-2026-06-11 (1).key  (1679 bytes)
-ssh-key-2026-06-11.key.pub  (399 bytes)
-PRIV_CANDIDATE=Z:\ssh-key-2026-06-11 (1).key
-FIRSTLINE_OK=True
-DONE
