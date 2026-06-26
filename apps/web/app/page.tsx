@@ -46,6 +46,7 @@ import {
 } from "../lib/api";
 
 const CoverageMap = dynamic(() => import("../components/CoverageMap"), { ssr: false });
+const InfraMap = dynamic(() => import("../components/InfraMap"), { ssr: false });
 
 type LayerKey = "barrios" | "cobertura" | "fibra" | "nodos" | "clientes";
 
@@ -62,6 +63,7 @@ export default function Page() {
     barrios: true, cobertura: true, fibra: true, nodos: true, clientes: true,
   });
   const [selectedNode, setSelectedNode] = useState<Record<string, any> | null>(null);
+  const [infraSelId, setInfraSelId] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<CoverageResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [pin, setPin] = useState<{ lng: number; lat: number } | null>(null);
@@ -317,14 +319,32 @@ export default function Page() {
 
           <div className="relative min-w-0 flex-1">
             {data ? (
-              <CoverageMap
-                data={data} visibility={visibility} onNodeSelect={setSelectedNode}
-                onMapClick={onMapClickRouter}
-                focusPoint={focusPoint} drawing={drawing} drawPoints={drawPoints}
-                draggablePin={pin} pinColor={pinColor} onPinMove={placePin}
-                infra={infra ? { assets: infra.assets, fiber: infra.fiber } : null}
-                showOnlyInfra={true}
-              />
+              section === "infra" ? (
+                <InfraMap
+                  assets={infra?.assets ?? { type: "FeatureCollection", features: [] }}
+                  fiber={infra?.fiber ?? { type: "FeatureCollection", features: [] }}
+                  barrios={data.comuna1}
+                  zones={data.zones}
+                  onSelect={(p) => setInfraSelId(p.id)}
+                  selectedId={infraSelId}
+                  focusPoint={focusPoint}
+                  onMapClick={onMapClickRouter}
+                  drawing={drawing}
+                  drawPoints={drawPoints}
+                  draggablePin={pin}
+                  pinColor={pinColor}
+                  onPinMove={placePin}
+                />
+              ) : (
+                <CoverageMap
+                  data={data} visibility={visibility} onNodeSelect={setSelectedNode}
+                  onMapClick={onMapClickRouter}
+                  focusPoint={focusPoint} drawing={drawing} drawPoints={drawPoints}
+                  draggablePin={pin} pinColor={pinColor} onPinMove={placePin}
+                  infra={infra ? { assets: infra.assets, fiber: infra.fiber } : null}
+                  showOnlyInfra={true}
+                />
+              )
             ) : (
               <div className="absolute inset-0 grid place-items-center text-cica-muted">
                 <div className="flex flex-col items-center gap-3">
@@ -336,18 +356,36 @@ export default function Page() {
 
             {/* Leyenda */}
             <div className="glass-soft absolute bottom-5 left-5 z-10 px-4 py-3">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Estado de cobertura</div>
-              <div className="flex flex-col gap-1.5 text-xs text-cica-silver">
-                <LegendDot color="#22E0A1" label="FTTH disponible" />
-                <LegendDot color="#FFB02E" label="Cobertura parcial / NAP saturada" />
-                <LegendDot color="#FF4D6D" label="Sin cobertura / suspendido" />
-                <LegendDot color="#22D3EE" label="Fibra troncal" />
-                <LegendDot color="#3B82F6" label="Cliente activo" />
-              </div>
+              {section === "infra" ? (
+                <>
+                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Infraestructura</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-cica-silver">
+                    <LegendDot color="#22D3EE" label="POP / Central" />
+                    <LegendDot color="#3B82F6" label="OLT" />
+                    <LegendDot color="#22E0A1" label="NAP / Caja" />
+                    <LegendDot color="#38BDF8" label="Splitter" />
+                    <LegendDot color="#A3E635" label="Empalme" />
+                    <LegendDot color="#818CF8" label="Fibra" />
+                    <LegendDot color="#2DD4BF" label="Enlace topología" />
+                    <LegendDot color="#38BDF8" label="Cliente" />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Estado de cobertura</div>
+                  <div className="flex flex-col gap-1.5 text-xs text-cica-silver">
+                    <LegendDot color="#22E0A1" label="FTTH disponible" />
+                    <LegendDot color="#FFB02E" label="Cobertura parcial / NAP saturada" />
+                    <LegendDot color="#FF4D6D" label="Sin cobertura / suspendido" />
+                    <LegendDot color="#22D3EE" label="Fibra troncal" />
+                    <LegendDot color="#3B82F6" label="Cliente activo" />
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Detalle de nodo */}
-            {selectedNode && (
+            {/* Detalle de nodo (solo en Red & Mapa; Infra usa su propio popup/ficha) */}
+            {section === "red" && selectedNode && (
               <div className="glass absolute bottom-5 right-5 z-10 w-[260px] animate-fadeUp p-4">
                 <div className="flex items-start justify-between">
                   <div>
