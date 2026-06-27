@@ -28,6 +28,15 @@ export type IpLocation = {
 @Injectable()
 export class GeoService {
   private readonly logger = new Logger('GeoService');
+  /** Se activa si la Geocoding API de Google responde "no habilitada/denegada":
+   *  a partir de ahí se usa Mapbox/OSM sin reintentar Google en cada llamada. */
+  private googleGeoDenied = false;
+
+  private isGoogleAuthError(msg: string): boolean {
+    return /REQUEST_DENIED|API key|not authorized|not been used|is disabled|API project|PERMISSION_DENIED/i.test(
+      msg || '',
+    );
+  }
 
   /** ¿La coordenada cae dentro del polígono real del barrio Popular? */
   dentroDelBarrio(lng: number, lat: number): boolean {
@@ -50,17 +59,28 @@ export class GeoService {
 
     const collected: GeocodeCandidate[] = [];
 
-    // 1) Proveedor comercial (el MISMO que usa el mapa para el reverse del clic:
-    //    Mapbox/Google). Así la búsqueda por texto y el puntero hablan el mismo
-    //    idioma de direcciones.
-    try {
-      if (config.geo.geocoder === 'google' && config.geo.googleKey) {
+    // 1) Proveedor preferido: GOOGLE (idéntico a Google Maps, mejor cobertura de
+    //    nomenclatura colombiana y números de casa). Mapbox como alterno. Así el
+    //    forward de la búsqueda y el reverse del clic hablan el MISMO idioma.
+    const tryGoogle = !!config.geo.googleKey && !this.googleGeoDenied;
+    if (tryGoogle) {
+      try {
         collected.push(...(await this.googleForward(raw)));
-      } else if (config.geo.geocoder === 'mapbox' && config.geo.mapboxToken) {
-        collected.push(...(await this.mapboxForward(raw)));
+      } catch (e: any) {
+        if (this.isGoogleAuthError(e.message)) {
+          this.googleGeoDenied = true;
+          this.logger.warn('Google Geocoding API no habilitada/denegada — uso Mapbox/OSM. Habilítala en GCP para máxima precisión.');
+        } else {
+          this.logger.warn(`Google forward falló (${raw}): ${e.message}`);
+        }
       }
-    } catch (e: any) {
-      this.logger.warn(`Forward proveedor falló (${raw}): ${e.message} — sigo con OSM`);
+    }
+    if (!collected.length && config.geo.mapboxToken) {
+      try {
+        collected.push(...(await this.mapboxForward(raw)));
+      } catch (e: any) {
+        this.logger.warn(`Mapbox forward falló (${raw}): ${e.message}`);
+      }
     }
 
     // Si el proveedor ya acertó la VÍA pedida, eso es lo más fiable: devuélvelo
@@ -170,6 +190,9 @@ export class GeoService {
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      throw new Error(`Google: ${data.status} ${data.error_message || ''}`);
+    }
     return data.results?.[0]?.formatted_address || null;
   }
 
@@ -318,15 +341,20 @@ export class GeoService {
 
   /** Geocodificación inversa: coordenadas -> dirección legible. */
   async reverse(lat: number, lng: number): Promise<string | null> {
-    if (config.geo.geocoder === 'google' && config.geo.googleKey) {
+    if (config.geo.googleKey && !this.googleGeoDenied) {
       try {
         const a = await this.googleReverse(lat, lng);
         if (a) return a;
       } catch (e: any) {
-        this.logger.warn(`Google reverse falló: ${e.message} — uso OSM`);
+        if (this.isGoogleAuthError(e.message)) {
+          this.googleGeoDenied = true;
+          this.logger.warn('Google Geocoding API no habilitada/denegada (reverse) — uso Mapbox/OSM.');
+        } else {
+          this.logger.warn(`Google reverse falló: ${e.message} — uso Mapbox/OSM`);
+        }
       }
     }
-    if (config.geo.geocoder === 'mapbox' && config.geo.mapboxToken) {
+    if (config.geo.mapboxToken) {
       try {
         const a = await this.mapboxReverse(lat, lng);
         if (a) return a;
