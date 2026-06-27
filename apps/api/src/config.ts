@@ -65,6 +65,14 @@ export const config = {
     // GEOBELLO_TILES_URL con el template ArcGIS tile/{z}/{y}/{x} del servicio de
     // imagen del AMVA (portalidem.metropol.gov.co).
     belloTilesUrl: process.env.GEOBELLO_TILES_URL || '',
+    // Ortofoto a COLOR del Valle de Aburrá (AMVA · SIM ArcGIS). Servicio dinámico
+    // que reproyecta a Web Mercator al vuelo (export con bboxSR/imageSR=3857).
+    // Cubre TODO el área metropolitana — incl. Bello/Zamora/Santa Rita — con la
+    // ortofoto oficial. El backend la cachea por bbox (como el catastro). Es la
+    // base nítida y SIN clave equivalente a la de GeoMedellín, pero para Bello.
+    amvaOrtofotoUrl:
+      process.env.AMVA_ORTOFOTO_URL ||
+      'https://sim.metropol.gov.co/arcgis/rest/services/Ortofotos/Mosaico_Ortofotos_Color/MapServer/export',
     // Catastro vectorial del AMVA (predios/manzanas/construcciones) por municipio.
     // Servicios dinámicos ArcGIS (export). El backend los cachea por bbox.
     catastro: {

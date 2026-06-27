@@ -259,6 +259,24 @@ export default function CoverageMap({
         layout: { visibility: "none" },
         paint: { "raster-opacity": 1 },
       });
+      // 2c) Ortofoto oficial del Valle de Aburrá (AMVA) por bbox, reproyectada a
+      //     Web Mercator y cacheada por el backend. Cubre TODO el metro incl.
+      //     Bello/Zamora/Santa Rita — la base nítida y SIN clave para Bello.
+      map.addSource("ortofoto-amva", {
+        type: "raster",
+        tiles: [`${API_URL}/tiles/ortofoto-amva?bbox={bbox-epsg-3857}`],
+        tileSize: 512,
+        minzoom: 12,
+        maxzoom: 22,
+        attribution: "Ortofoto © AMVA · Área Metropolitana del Valle de Aburrá",
+      });
+      map.addLayer({
+        id: "ortofoto-amva",
+        type: "raster",
+        source: "ortofoto-amva",
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 1 },
+      });
       // 3) Ortofoto oficial Medellín 2024 (CC) vía proxy cacheado del backend.
       //    Va encima de Esri; si una tesela no llega, se ve Esri debajo.
       map.addSource("ortofoto", {
@@ -764,7 +782,9 @@ export default function CoverageMap({
     // Google (la imagen más nítida y actual, incl. Bello a z22) cuando hay clave;
     // sin clave responde 204 y queda Esri debajo. Va en Satélite y Ortofoto.
     show("sat-gsat", sat);
-    // Ortofoto oficial de Medellín encima de todo; donde no existe (Bello) queda Google/Esri.
+    // Ortofoto oficial del AMVA (TODO el metro, incl. Bello) en modo Ortofoto.
+    show("ortofoto-amva", basemap === "ortofoto");
+    // Ortofoto oficial de Medellín encima de todo; donde no existe (Bello) queda AMVA/Google/Esri.
     show("ortofoto", basemap === "ortofoto");
     if (map.getLayer("coverage-fill")) {
       map.setPaintProperty("coverage-fill", "fill-opacity", sat ? 0.08 : 0.18);
@@ -784,7 +804,7 @@ export default function CoverageMap({
     { id: "dark", label: "◑ Mapa", show: true },
     { id: "satelite", label: "🛰️ Satélite HD", show: true },
     { id: "esri", label: "🌎 Esri", show: true },
-    { id: "ortofoto", label: "🏙️ Ortofoto Medellín", show: true },
+    { id: "ortofoto", label: "🏙️ Ortofoto", show: true },
   ];
 
   // Filas del panel de capas (lo construido y guardado en Infraestructura).

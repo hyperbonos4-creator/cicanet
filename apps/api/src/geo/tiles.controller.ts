@@ -32,6 +32,8 @@ export class TilesController {
   private readonly medellinCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'medellin');
   /** Caché en disco de la ortofoto de Bello (AMVA), si se configura GEOBELLO_TILES_URL. */
   private readonly belloCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'bello');
+  /** Caché en disco de la ortofoto a color del Valle de Aburrá (AMVA, por bbox). */
+  private readonly amvaOrtoCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'amva-orto');
   private readonly catastroCacheDir = resolve(process.cwd(), config.geo.dataDir, 'tiles', 'catastro');
   /** Session token del Google Map Tiles API (satélite). Se renueva al expirar. */
   private gsat: { session: string; expiry: number } | null = null;
@@ -230,6 +232,59 @@ export class TilesController {
       res.end(r.buf);
     } catch (e: any) {
       this.logger.warn(`Catastro ${muni} falló: ${e.message}`);
+      res.status(204).end();
+    }
+  }
+
+  /**
+   * Ortofoto a color del Valle de Aburrá (AMVA · SIM) por bbox, con CACHÉ en
+   * disco. Reproyecta a Web Mercator al vuelo (bboxSR/imageSR=3857). Cubre TODO
+   * el área metropolitana incl. Bello/Zamora/Santa Rita. MapLibre la pide como
+   * fuente raster con `/tiles/ortofoto-amva?bbox={bbox-epsg-3857}` (tileSize 512).
+   */
+  @Get('ortofoto-amva')
+  async ortofotoAmva(@Query('bbox') bbox: string, @Res() res: Response): Promise<void> {
+    if (!bbox || !/^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3}$/.test(bbox)) {
+      res.status(400).end();
+      return;
+    }
+    const k = createHash('sha1').update(bbox).digest('hex');
+    const dir = this.amvaOrtoCacheDir;
+    const file = resolve(dir, `${k}.jpg`);
+
+    if (existsSync(file)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      res.setHeader('X-Tile-Cache', 'HIT');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(readFileSync(file));
+      return;
+    }
+
+    const url =
+      `${config.geo.amvaOrtofotoUrl}?bbox=${encodeURIComponent(bbox)}` +
+      `&bboxSR=3857&imageSR=3857&size=512,512&format=jpg&transparent=false&f=image`;
+    try {
+      // sim.metropol.gov.co presenta cadena TLS que Alpine rechaza → verificación relajada
+      // (fuente pública de solo lectura, igual que el catastro).
+      const r = await getInsecureImage(url, BROWSER_HEADERS);
+      if (!r.ok || !r.buf) {
+        res.status(204).end();
+        return;
+      }
+      try {
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(file, r.buf);
+      } catch (e: any) {
+        this.logger.warn(`No se pudo cachear ortofoto AMVA: ${e.message}`);
+      }
+      res.setHeader('Content-Type', r.contentType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+      res.setHeader('X-Tile-Cache', 'MISS');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.end(r.buf);
+    } catch (e: any) {
+      this.logger.warn(`Ortofoto AMVA falló: ${e.message}`);
       res.status(204).end();
     }
   }

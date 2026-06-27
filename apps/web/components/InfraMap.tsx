@@ -214,13 +214,14 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         attribution: "Ortofoto 2024 © Alcaldía de Medellín (CC)",
       });
       map.addLayer({ id: "ortofoto", type: "raster", source: "ortofoto", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } });
-      // Ortofoto oficial de Bello (AMVA) — se activa al configurar GEOBELLO_TILES_URL.
-      // Si no, responde vacío y queda el satélite de Google debajo (que cubre Bello).
-      map.addSource("ortofoto-bello", {
-        type: "raster", tiles: [`${API_URL}/tiles/bello/{z}/{y}/{x}`], tileSize: 256, minzoom: 0, maxzoom: 22,
-        attribution: "Ortofoto © AMVA · IDE Metropolitana del Valle de Aburrá",
+      // Ortofoto oficial del Valle de Aburrá (AMVA · SIM) por bbox, reproyectada a
+      // Web Mercator y cacheada por el backend. Cubre TODO el metro incl. Bello/
+      // Zamora/Santa Rita — la base nítida y SIN clave para Bello.
+      map.addSource("ortofoto-amva", {
+        type: "raster", tiles: [`${API_URL}/tiles/ortofoto-amva?bbox={bbox-epsg-3857}`], tileSize: 512, minzoom: 12, maxzoom: 22,
+        attribution: "Ortofoto © AMVA · Área Metropolitana del Valle de Aburrá",
       });
-      map.addLayer({ id: "ortofoto-bello", type: "raster", source: "ortofoto-bello", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } });
+      map.addLayer({ id: "ortofoto-amva", type: "raster", source: "ortofoto-amva", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } }, "ortofoto");
 
       // Contexto: barrios (sutil) y zonas de cobertura dibujadas.
       map.addSource("infra-barrios", { type: "geojson", data: (barrios as any) || emptyFC() });
@@ -405,9 +406,9 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     setV("sat-esri", basemap !== "blueprint");
     setV("sat-gsat", basemap !== "blueprint");
     // Ortofoto oficial de Medellín ENCIMA del satélite: máximo detalle donde existe;
-    // donde no (Bello), el tile sale vacío y se ve el satélite de Google debajo.
+    // donde no (Bello), debajo queda la ortofoto AMVA (todo el metro) y el satélite.
     setV("ortofoto", basemap === "ortofoto");
-    setV("ortofoto-bello", basemap === "ortofoto");
+    setV("ortofoto-amva", basemap === "ortofoto");
   }, [basemap]);
 
   // ---- punto enfocado (desde el panel "Ver en el mapa") ----
