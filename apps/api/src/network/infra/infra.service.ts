@@ -477,7 +477,7 @@ export class InfraService implements OnModuleInit {
     atributos?: Record<string, any>;
     creadoPor?: string;
   }): Promise<Asset> {
-    const { lng, lat, direccion } = await this.resolvePoint(input.lng, input.lat, input.direccion);
+    const { lng, lat, direccion, barrio, comuna, ciudad } = await this.resolvePoint(input.lng, input.lat, input.direccion);
 
     const id = this.nextId(PREFIX[input.tipo] || 'AST');
     const asset: Asset = {
@@ -488,6 +488,9 @@ export class InfraService implements OnModuleInit {
       modelo: input.modelo,
       serie: input.serie,
       direccion,
+      barrio,
+      comuna,
+      ciudad,
       lng,
       lat,
       estado: (input.estado as any) || 'Activo',
@@ -1098,14 +1101,33 @@ export class InfraService implements OnModuleInit {
     lng?: number,
     lat?: number,
     direccion?: string,
-  ): Promise<{ lng: number; lat: number; direccion?: string }> {
+  ): Promise<{
+    lng: number;
+    lat: number;
+    direccion?: string;
+    barrio?: string;
+    comuna?: string;
+    ciudad?: string;
+  }> {
     if (typeof lng === 'number' && typeof lat === 'number') {
       // Posición EXACTA del clic. Si el operador no escribió dirección, se captura
-      // automáticamente por reverse-geocoding del punto exacto (Google/Mapbox/OSM).
-      let dir = direccion && direccion.trim() ? direccion.trim() : undefined;
+      // automáticamente por reverse-geocoding DETALLADO del punto (calle + barrio
+      // + comuna + ciudad), igual que el autocompletado del formulario de cliente.
+      const dir = direccion && direccion.trim() ? direccion.trim() : undefined;
       if (!dir) {
-        try { dir = (await this.geo.reverse(lat, lng)) ?? undefined; }
-        catch { /* sin dirección si el reverse falla; las coordenadas mandan */ }
+        try {
+          const det = await this.geo.reverseDetailed(lat, lng);
+          return {
+            lng,
+            lat,
+            direccion: det.direccion ?? undefined,
+            barrio: det.barrio ?? undefined,
+            comuna: det.comuna ?? undefined,
+            ciudad: det.ciudad ?? undefined,
+          };
+        } catch {
+          /* sin dirección si el reverse falla; las coordenadas mandan */
+        }
       }
       return { lng, lat, direccion: dir };
     }
