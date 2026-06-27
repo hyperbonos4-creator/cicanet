@@ -58,4 +58,6 @@ cuentas/
 _*.txt
 /c.txt
 /counts.txt
+/.diag.txt
+/.deploy_check.txt
 .claude/
