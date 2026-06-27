@@ -66,6 +66,7 @@ export default function AssetInspector({
   onPlaceChild,
   onSelect,
   onChainFrom,
+  onImpact,
 }: {
   assetId: string | null;
   infra: InfraBundle | null;
@@ -76,6 +77,8 @@ export default function AssetInspector({
   onPlaceChild: (tipo: string, parentId: string) => void;
   onSelect?: (id: string) => void;
   onChainFrom?: (id: string, lng: number, lat: number, nombre: string) => void;
+  /** Reporta los activos afectados al simular una falla (cascada en el mapa). */
+  onImpact?: (ids: string[]) => void;
 }) {
   const [ports, setPorts] = useState<PortsDetail | null>(null);
   const [trace, setTrace] = useState<TraceResult | null>(null);
@@ -375,7 +378,7 @@ export default function AssetInspector({
       {/* ── Pestaña Ingeniería (Motor de Red) ── */}
       {tab === "ingenieria" && (
         <div className="flex flex-col gap-3">
-          <EngineInsights assetId={assetId} />
+          <EngineInsights assetId={assetId} onImpact={onImpact} />
 
           {/* Trazado óptico a la raíz (saltos lógicos) */}
           {trace && trace.saltos.length > 0 && (

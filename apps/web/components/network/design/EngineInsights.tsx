@@ -38,7 +38,7 @@ const cop = (n: number) =>
  * para ver el impacto aguas abajo (clientes e ingresos en riesgo). Es la capa
  * "nivel operador" que valida la red más allá de dibujarla.
  */
-export default function EngineInsights({ assetId }: { assetId: string | null }) {
+export default function EngineInsights({ assetId, onImpact }: { assetId: string | null; onImpact?: (ids: string[]) => void }) {
   const [budget, setBudget] = useState<OpticalBudget | null>(null);
   const [loadingB, setLoadingB] = useState(false);
   const [errB, setErrB] = useState<string | null>(null);
@@ -52,6 +52,7 @@ export default function EngineInsights({ assetId }: { assetId: string | null }) 
     setImpact(null);
     setErrB(null);
     setShowBreakdown(false);
+    onImpact?.([]); // limpia la cascada del mapa al cambiar de activo
     if (!assetId) return;
     let cancelled = false;
     setLoadingB(true);
@@ -65,10 +66,14 @@ export default function EngineInsights({ assetId }: { assetId: string | null }) 
   const simulate = useCallback(async () => {
     if (!assetId || loadingS) return;
     setLoadingS(true);
-    try { setImpact(await engineSimulateFailure(assetId)); }
+    try {
+      const r = await engineSimulateFailure(assetId);
+      setImpact(r);
+      onImpact?.(r.activosAfectados); // pinta la cascada en el mapa
+    }
     catch { /* silencioso: el panel sigue usable */ }
     finally { setLoadingS(false); }
-  }, [assetId, loadingS]);
+  }, [assetId, loadingS, onImpact]);
 
   if (!assetId) return null;
 
@@ -189,7 +194,7 @@ export default function EngineInsights({ assetId }: { assetId: string | null }) 
               </div>
             </div>
             <button
-              onClick={() => setImpact(null)}
+              onClick={() => { setImpact(null); onImpact?.([]); }}
               className="self-start text-[10px] text-cica-muted hover:text-white"
             >
               Limpiar simulación

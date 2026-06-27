@@ -26,6 +26,8 @@ type Props = {
   zones?: FC | null;
   onSelect?: (props: Record<string, any>) => void;
   selectedId?: string | null;
+  /** Ids de activos a resaltar como AFECTADOS (cascada de simulación de falla). */
+  highlightIds?: string[];
   focusPoint?: { lng: number; lat: number; color?: string } | null;
   // Interacciones (modo Vender / dibujo de zonas en la pestaña Cobertura).
   onMapClick?: (lng: number, lat: number, snappedId?: string | null) => void;
@@ -175,7 +177,7 @@ const BLUEPRINT: maplibregl.StyleSpecification = {
   ],
 };
 
-export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber, onDeleteFiber, chaining }: Props) {
+export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, highlightIds, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber, onDeleteFiber, chaining }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const labelsRef = useRef<Marker[]>([]);
@@ -497,6 +499,22 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
           "circle-stroke-color": "#060B16",
         },
       });
+      // Resaltado de AFECTADOS (cascada de simulación de falla): halo rojo de
+      // alarma sobre los activos que perderían servicio. Va bajo la selección.
+      map.addLayer({
+        id: "infra-assets-affected",
+        type: "circle",
+        source: "infra-assets",
+        filter: ["in", ["get", "id"], ["literal", highlightIds ?? []]],
+        paint: {
+          "circle-radius": 16,
+          "circle-color": "rgba(255,77,109,0.18)",
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#FF4D6D",
+          "circle-stroke-opacity": 0.95,
+        },
+      });
+
       // Resaltado del activo seleccionado.
       map.addLayer({
         id: "infra-assets-sel", type: "circle", source: "infra-assets",
@@ -647,6 +665,15 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     if (!map || !loadedRef.current) return;
     if (map.getLayer("infra-assets-sel")) map.setFilter("infra-assets-sel", ["==", ["get", "id"], selectedId ?? "__none__"]);
   }, [selectedId]);
+
+  // ---- cascada de afectados (simulación de falla) ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    if (map.getLayer("infra-assets-affected")) {
+      map.setFilter("infra-assets-affected", ["in", ["get", "id"], ["literal", highlightIds ?? []]]);
+    }
+  }, [highlightIds]);
 
   // ---- toggles de capas ----
   useEffect(() => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
 import type { MapData } from "./CoverageMap";
 import NetworkModeSwitch from "./NetworkModeSwitch";
@@ -122,6 +123,9 @@ export interface NetworkWorkspaceProps {
  */
 export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
   const isDesign = p.mode === "design";
+  // Cascada de afectados al simular una falla (estado local: el mapa y el
+  // inspector viven aquí, no hace falta subirlo al orquestador page.tsx).
+  const [affectedIds, setAffectedIds] = useState<string[]>([]);
 
   return (
     <div className="flex h-full flex-col">
@@ -165,18 +169,23 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
                   {p.placeTipo && <div className="mt-1 text-[10px] text-cica-gold">Haz clic en el mapa para ubicar: {p.placeTipo}</div>}
                 </div>
               )}
-              {/* Inspector contextual del activo seleccionado (Packet Tracer). */}
-              <AssetInspector
-                assetId={p.infraSelId}
-                infra={p.infra}
-                canEdit={p.canEdit}
-                onInfraChanged={p.onInfraChanged}
-                onFocus={p.onFocus}
-                onClear={() => p.onInfraSelect(null)}
-                onPlaceChild={p.onPlaceChild}
-                onSelect={(id) => p.onInfraSelect(id)}
-                onChainFrom={p.onChainFrom}
-              />
+              {/* Inspector contextual del activo seleccionado (Packet Tracer).
+                  En md+ se muestra en el RAIL DERECHO (ver más abajo); en móvil
+                  se muestra aquí, en la columna, donde sí hay espacio vertical. */}
+              <div className="md:hidden">
+                <AssetInspector
+                  assetId={p.infraSelId}
+                  infra={p.infra}
+                  canEdit={p.canEdit}
+                  onInfraChanged={p.onInfraChanged}
+                  onFocus={p.onFocus}
+                  onClear={() => p.onInfraSelect(null)}
+                  onPlaceChild={p.onPlaceChild}
+                  onSelect={(id) => p.onInfraSelect(id)}
+                  onChainFrom={p.onChainFrom}
+                  onImpact={setAffectedIds}
+                />
+              </div>
               <InfraPanel
                 tabs={["activos", "trazar", "topologia"]}
                 naps={p.naps} zones={p.zones} canEdit={p.canEdit} onFocus={p.onFocus} onChanged={p.onBundleChanged}
@@ -224,6 +233,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
               zones={p.data.zones}
               onSelect={(f: any) => p.onInfraSelect(f.id)}
               selectedId={p.infraSelId}
+              highlightIds={affectedIds}
               focusPoint={p.focusPoint}
               onMapClick={p.onMapClick}
               drawing={p.drawing}
@@ -317,6 +327,27 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
             </div>
           )}
         </div>
+
+        {/* ── Rail derecho: Inspector contextual (Packet Tracer) ──
+            Separa "inspeccionar lo seleccionado" de "construir/inventario"
+            (columna izquierda) y del lienzo (centro). Solo en Diseño y cuando
+            hay un activo seleccionado; en móvil el inspector vive en la columna. */}
+        {isDesign && p.infraSelId && (
+          <aside className="hidden shrink-0 overflow-y-auto border-l border-cica-border/70 bg-cica-navy/40 p-4 md:block md:w-[360px]">
+            <AssetInspector
+              assetId={p.infraSelId}
+              infra={p.infra}
+              canEdit={p.canEdit}
+              onInfraChanged={p.onInfraChanged}
+              onFocus={p.onFocus}
+              onClear={() => p.onInfraSelect(null)}
+              onPlaceChild={p.onPlaceChild}
+              onSelect={(id) => p.onInfraSelect(id)}
+              onChainFrom={p.onChainFrom}
+              onImpact={setAffectedIds}
+            />
+          </aside>
+        )}
       </div>
     </div>
   );
