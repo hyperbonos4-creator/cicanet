@@ -240,6 +240,25 @@ export default function CoverageMap({
         // Realce sutil para que la ladera (Bello/Zamora/Santa Rita) no se vea apagada.
         paint: { "raster-opacity": 1, "raster-contrast": 0.12, "raster-saturation": 0.12, "raster-brightness-min": 0.04 },
       });
+      // 2b) Satélite de Google (Map Tiles API) — imagen MÁS ACTUALIZADA y nítida,
+      //     cubre TODO el Valle de Aburrá incl. Bello/Zamora/Santa Rita a z22.
+      //     Requiere GOOGLE_MAPS_KEY en el server; sin clave el proxy responde 204
+      //     y queda Esri/Mapbox debajo (no satura la consola).
+      map.addSource("sat-gsat", {
+        type: "raster",
+        tiles: [`${API_URL}/tiles/gsat/{z}/{x}/{y}`],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 22,
+        attribution: "Imagery © Google",
+      });
+      map.addLayer({
+        id: "sat-gsat",
+        type: "raster",
+        source: "sat-gsat",
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 1 },
+      });
       // 3) Ortofoto oficial Medellín 2024 (CC) vía proxy cacheado del backend.
       //    Va encima de Esri; si una tesela no llega, se ve Esri debajo.
       map.addSource("ortofoto", {
@@ -742,7 +761,10 @@ export default function CoverageMap({
     // Mapbox HD solo añade nitidez extra si hay token; sin token responde 204 y
     // queda Esri debajo (no satura la consola).
     show("sat-hd", basemap === "satelite");
-    // Ortofoto oficial de Medellín encima de Esri; donde no existe (Bello) queda Esri.
+    // Google (la imagen más nítida y actual, incl. Bello a z22) cuando hay clave;
+    // sin clave responde 204 y queda Esri debajo. Va en Satélite y Ortofoto.
+    show("sat-gsat", sat);
+    // Ortofoto oficial de Medellín encima de todo; donde no existe (Bello) queda Google/Esri.
     show("ortofoto", basemap === "ortofoto");
     if (map.getLayer("coverage-fill")) {
       map.setPaintProperty("coverage-fill", "fill-opacity", sat ? 0.08 : 0.18);
