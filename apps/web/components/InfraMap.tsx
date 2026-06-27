@@ -218,7 +218,7 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       // Web Mercator y cacheada por el backend. Cubre TODO el metro incl. Bello/
       // Zamora/Santa Rita — la base nítida y SIN clave para Bello.
       map.addSource("ortofoto-amva", {
-        type: "raster", tiles: [`${API_URL}/tiles/ortofoto-amva?bbox={bbox-epsg-3857}`], tileSize: 512, minzoom: 12, maxzoom: 22,
+        type: "raster", tiles: [`${API_URL}/tiles/ortofoto-amva?bbox={bbox-epsg-3857}`], tileSize: 512, minzoom: 12, maxzoom: 19,
         attribution: "Ortofoto © AMVA · Área Metropolitana del Valle de Aburrá",
       });
       map.addLayer({ id: "ortofoto-amva", type: "raster", source: "ortofoto-amva", layout: { visibility: "none" }, paint: { "raster-opacity": 1 } }, "ortofoto");

@@ -267,7 +267,10 @@ export default function CoverageMap({
         tiles: [`${API_URL}/tiles/ortofoto-amva?bbox={bbox-epsg-3857}`],
         tileSize: 512,
         minzoom: 12,
-        maxzoom: 22,
+        // La ortofoto AMVA tiene resolución nativa ~25 cm/px (≈ z19). Capamos aquí
+        // para que MapLibre ESTIRE el último nivel nítido al acercar (z20-22) en
+        // vez de pedir bboxes diminutos que el servicio devuelve en blanco.
+        maxzoom: 19,
         attribution: "Ortofoto © AMVA · Área Metropolitana del Valle de Aburrá",
       });
       map.addLayer({

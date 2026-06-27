@@ -263,7 +263,7 @@ export class TilesController {
 
     const url =
       `${config.geo.amvaOrtofotoUrl}?bbox=${encodeURIComponent(bbox)}` +
-      `&bboxSR=3857&imageSR=3857&size=512,512&format=jpg&transparent=false&f=image`;
+      `&bboxSR=3857&imageSR=3857&size=1024,1024&format=jpg&transparent=false&f=image`;
     try {
       // sim.metropol.gov.co presenta cadena TLS que Alpine rechaza → verificación relajada
       // (fuente pública de solo lectura, igual que el catastro).
