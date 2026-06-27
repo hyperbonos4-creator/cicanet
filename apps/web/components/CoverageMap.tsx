@@ -735,11 +735,14 @@ export default function CoverageMap({
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     };
     show("carto", basemap === "dark");
-    // Esri solo en su modo; Mapbox HD (brillante, global) es la base en Satélite
-    // y TAMBIÉN bajo la Ortofoto → Bello (Zamora/Santa Rita) se ve nítido y la
-    // ortofoto 2024 de Medellín queda encima solo donde existe.
-    show("sat-base", basemap === "esri");
-    show("sat-hd", basemap === "satelite" || basemap === "ortofoto");
+    // Esri World Imagery (SIN clave) es la base bajo CUALQUIER imagen: garantiza
+    // cobertura keyless en TODO el Valle de Aburrá (incl. Bello/Zamora/Santa Rita),
+    // aunque no haya token de Mapbox ni clave de Google.
+    show("sat-base", sat);
+    // Mapbox HD solo añade nitidez extra si hay token; sin token responde 204 y
+    // queda Esri debajo (no satura la consola).
+    show("sat-hd", basemap === "satelite");
+    // Ortofoto oficial de Medellín encima de Esri; donde no existe (Bello) queda Esri.
     show("ortofoto", basemap === "ortofoto");
     if (map.getLayer("coverage-fill")) {
       map.setPaintProperty("coverage-fill", "fill-opacity", sat ? 0.08 : 0.18);

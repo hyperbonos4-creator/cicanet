@@ -243,7 +243,9 @@ export class TilesController {
   ): Promise<void> {
     const token = config.geo.mapboxToken;
     if (!token) {
-      res.status(404).end();
+      // Sin token de Mapbox: 204 (tesela vacía) en vez de 404, para que MapLibre
+      // no registre errores en consola y muestre la base de respaldo (Esri) debajo.
+      res.status(204).end();
       return;
     }
 
@@ -290,13 +292,13 @@ export class TilesController {
     @Res() res: Response,
   ): Promise<void> {
     const key = config.geo.googleKey;
-    if (!key) { res.status(404).end(); return; }
+    if (!key) { res.status(204).end(); return; }
     const Z = String(z).replace(/\D.*$/, '');
     const X = String(x).replace(/\D.*$/, '');
     const Y = String(y).replace(/\D.*$/, '');
 
     const session = await this.googleSatSession(key);
-    if (!session) { res.status(404).end(); return; }
+    if (!session) { res.status(204).end(); return; }
 
     const tileUrl = (s: string) =>
       `https://tile.googleapis.com/v1/2dtiles/${Z}/${X}/${Y}?session=${encodeURIComponent(s)}&key=${encodeURIComponent(key)}`;
