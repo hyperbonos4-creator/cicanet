@@ -83,6 +83,9 @@ export default function Page() {
   // Trazado de fibra poste a poste (polilínea abierta).
   const [routing, setRouting] = useState(false);
   const [routePoints, setRoutePoints] = useState<[number, number][]>([]);
+  // Modo "Conectar postes": clic en poste tras poste crea tramos (A→B, B→C…).
+  const [chaining, setChaining] = useState(false);
+  const [chainFrom, setChainFrom] = useState<{ id: string; lng: number; lat: number; nombre: string } | null>(null);
   // Id del activo al que hizo snap cada vértice (para conectar la fibra a la topología).
   const [routeSnaps, setRouteSnaps] = useState<(string | null)[]>([]);
   // Modo "colocar activo": el siguiente clic en el mapa ubica un activo de este tipo.
@@ -268,6 +271,7 @@ export default function Page() {
   function changeNetworkMode(mode: NetworkMode) {
     setNetworkMode(mode);
     if (mode !== "coverage") setReachArea(null);
+    if (mode !== "design") { setChaining(false); setChainFrom(null); }
   }
 
   const pinColor = buildResult
@@ -330,6 +334,7 @@ export default function Page() {
     catch (e: any) { setError(e.message); }
   }
   function onMapClickRouter(lng: number, lat: number, snappedId?: string | null) {
+    if (chaining) { chainClick(lng, lat, snappedId ?? null); return; }
     if (drawing) { setDrawPoints((pts) => [...pts, [lng, lat]]); return; }
     if (routing) { setRoutePoints((pts) => [...pts, [lng, lat]]); setRouteSnaps((s) => [...s, snappedId ?? null]); return; }
     if (placeTipo) { placeAssetAt(lng, lat, placeTipo); return; }
@@ -351,6 +356,37 @@ export default function Page() {
   }
   function undoRoutePoint() { setRoutePoints((pts) => pts.slice(0, -1)); setRouteSnaps((s) => s.slice(0, -1)); }
   function cancelRoute() { setRouting(false); setRoutePoints([]); setRouteSnaps([]); }
+
+  // ---- Conectar postes: clic poste A → clic poste B crea el tramo A-B, y sigue
+  // encadenando (B→C, C→D…). No toca los tramos ya guardados. Es el flujo simple
+  // de tendido pole-a-pole.
+  function startChain() {
+    setSection("red"); setNetworkMode("design");
+    setChaining(true); setChainFrom(null);
+    setRouting(false); setRoutePoints([]); setRouteSnaps([]);
+    setDrawing(false); setPlaceTipo(null); setBuildMode(false); setBuildResult(null);
+    setFocusPoint(null); setCoverage(null); setPin(null); setInfraSelId(null);
+  }
+  function cancelChain() { setChaining(false); setChainFrom(null); setInfraSelId(null); }
+  function startChainFrom(id: string, lng: number, lat: number, nombre: string) {
+    startChain();
+    setChainFrom({ id, lng, lat, nombre });
+    setInfraSelId(id);
+  }
+  async function chainClick(lng: number, lat: number, snappedId: string | null) {
+    if (!snappedId) { setError("Conectar postes: haz clic justo sobre un poste o NAP."); return; }
+    setError(null);
+    const feat = (infra?.assets.features as any[] | undefined)?.find((f) => f.properties.id === snappedId);
+    const nombre = feat?.properties?.nombre ?? snappedId;
+    if (!chainFrom) { setChainFrom({ id: snappedId, lng, lat, nombre }); setInfraSelId(snappedId); return; }
+    if (chainFrom.id === snappedId) return; // mismo poste: ignora
+    try {
+      await createInfraFiber({ origenId: chainFrom.id, destinoId: snappedId });
+      await refreshInfra();
+      setChainFrom({ id: snappedId, lng, lat, nombre }); // continúa desde el destino
+      setInfraSelId(snappedId);
+    } catch (e: any) { setError(e.message); }
+  }
   async function finishRoute(opts: { nombre?: string; tipoFibra?: "monomodo" | "multimodo"; hilos?: number }) {
     if (routePoints.length < 2) return;
     // Si el primer/último vértice hizo snap a un activo, la fibra queda conectada a él.
@@ -434,6 +470,7 @@ export default function Page() {
     if (s !== "red" && drawing) cancelDraw();
     if (s !== "red" && buildMode) { setBuildMode(false); setBuildResult(null); }
     if (s !== "red") { setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null); }
+    if (s !== "red") { setChaining(false); setChainFrom(null); }
     if (s !== "red") setReachArea(null);
   }
   function logout() { socketRef.current?.disconnect(); clearSession(); router.replace("/login"); }
@@ -520,6 +557,8 @@ export default function Page() {
             reachArea={reachArea} onShowReach={showReach}
             onInfraChanged={refreshInfra} onBundleChanged={refreshBundle}
             onSaveFiber={saveFiber} onDeleteFiber={removeFiber}
+            chaining={chaining} chainFromName={chainFrom?.nombre ?? null}
+            onStartChain={startChain} onCancelChain={cancelChain} onChainFrom={startChainFrom}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-cica-muted">

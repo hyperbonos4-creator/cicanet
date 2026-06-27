@@ -41,6 +41,8 @@ type Props = {
   draggablePin?: { lng: number; lat: number } | null;
   pinColor?: string;
   onPinMove?: (lng: number, lat: number) => void;
+  // Modo "Conectar postes": clic en poste tras poste crea tramos de fibra (A→B, B→C…).
+  chaining?: boolean;
   // Edición de fibra: clic en un tramo => arrastrar sus vértices y anclarlos a postes.
   canEdit?: boolean;
   onSaveFiber?: (
@@ -173,7 +175,7 @@ const BLUEPRINT: maplibregl.StyleSpecification = {
   ],
 };
 
-export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber, onDeleteFiber }: Props) {
+export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber, onDeleteFiber, chaining }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const labelsRef = useRef<Marker[]>([]);
@@ -191,8 +193,8 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   assetsRef.current = assets;
   const fiberRef = useRef(fiber);
   fiberRef.current = fiber;
-  const modeRef = useRef({ drawing, routing, placing });
-  modeRef.current = { drawing: !!drawing, routing: !!routing, placing: !!placing };
+  const modeRef = useRef({ drawing, routing, placing, chaining });
+  modeRef.current = { drawing: !!drawing, routing: !!routing, placing: !!placing, chaining: !!chaining };
   const snapRef = useRef<{ lng: number; lat: number; id: string } | null>(null);
   const onShortcutRef = useRef(onShortcut);
   onShortcutRef.current = onShortcut;
@@ -563,8 +565,8 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       // se "pega" a su coordenada exacta y se reporta su id (para conectar la fibra).
       map.on("click", (e) => {
         const m = modeRef.current;
-        if (m.routing || m.placing) {
-          const snap = findSnap(map, assetsRef.current, e.point);
+        if (m.routing || m.placing || m.chaining) {
+          const snap = findSnap(map, assetsRef.current, e.point, m.chaining ? 24 : 16);
           if (snap) onMapClickRef.current?.(snap.lng, snap.lat, snap.id);
           else onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
           return;
@@ -582,11 +584,6 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         }
         const hits = map.queryRenderedFeatures(e.point, { layers: ["infra-assets-dot"] });
         if (hits.length) return; // fue clic en un activo
-        // Clic en un tramo de fibra (si se puede editar) -> abre edición de vértices.
-        if (canEditRef.current && !m.drawing) {
-          const fib = map.queryRenderedFeatures(e.point, { layers: ["infra-fiber-hit"] });
-          if (fib.length) { startEditRef.current?.(fib[0].properties.id); return; }
-        }
         onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
       });
 
@@ -596,11 +593,11 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         const src = map.getSource("infra-snap") as any;
         if (!src) return;
         const extending = !!editRef.current && editRef.current.extendDir !== "off";
-        if (!m.routing && !m.placing && !extending) {
+        if (!m.routing && !m.placing && !m.chaining && !extending) {
           if (snapRef.current) { snapRef.current = null; src.setData(emptyFC()); }
           return;
         }
-        const snap = findSnap(map, assetsRef.current, e.point, extending ? 24 : 16);
+        const snap = findSnap(map, assetsRef.current, e.point, extending || m.chaining ? 24 : 16);
         snapRef.current = snap;
         src.setData(snap
           ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [snap.lng, snap.lat] } }] }
@@ -706,8 +703,8 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    map.getCanvas().style.cursor = drawing || routing || placing ? "crosshair" : "";
-  }, [drawing, routing, placing]);
+    map.getCanvas().style.cursor = drawing || routing || placing || chaining ? "crosshair" : "";
+  }, [drawing, routing, placing, chaining]);
 
   // ---- atajos de teclado del editor (estilo iD): P/N/E/S/C, Esc, Backspace ----
   useEffect(() => {
@@ -730,11 +727,11 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    if (!routing && !placing) {
+    if (!routing && !placing && !chaining) {
       snapRef.current = null;
       (map.getSource("infra-snap") as any)?.setData(emptyFC());
     }
-  }, [routing, placing]);
+  }, [routing, placing, chaining]);
 
   // ---- cancelar la edición de fibra si se entra a trazar/colocar/dibujar ----
   useEffect(() => {

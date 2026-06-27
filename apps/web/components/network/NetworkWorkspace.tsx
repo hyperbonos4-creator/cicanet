@@ -105,6 +105,13 @@ export interface NetworkWorkspaceProps {
   ) => Promise<void> | void;
   /** Elimina por completo un tramo de fibra desde la barra de edición. */
   onDeleteFiber: (id: string) => Promise<void> | void;
+
+  /** Conectar postes: crea tramos pole-a-pole con clics consecutivos. */
+  chaining: boolean;
+  chainFromName: string | null;
+  onStartChain: () => void;
+  onCancelChain: () => void;
+  onChainFrom: (id: string, lng: number, lat: number, nombre: string) => void;
 }
 
 /**
@@ -127,6 +134,26 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
         <aside className="max-h-[45%] w-full shrink-0 overflow-y-auto border-b border-cica-border/70 bg-cica-navy/40 p-4 md:max-h-none md:w-[336px] md:border-b-0 md:border-r">
           {p.mode === "design" && (
             <div className="flex flex-col gap-3">
+              {/* Conectar postes: el flujo simple de tendido pole-a-pole. */}
+              <div className={`rounded-xl border p-3 ${p.chaining ? "border-cica-glow/60 bg-cica-glow/10" : "border-cica-border/70 bg-cica-navy/40"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-cica-muted">Conectar postes</div>
+                  {p.chaining ? (
+                    <button onClick={p.onCancelChain} className="rounded-md border border-white/15 px-2 py-1 text-[10px] font-semibold text-cica-silver hover:bg-white/10">Terminar</button>
+                  ) : (
+                    <button onClick={p.onStartChain} disabled={!p.canEdit} className="rounded-md bg-cica-gold px-2.5 py-1 text-[10px] font-bold text-black hover:opacity-90 disabled:opacity-40">🔗 Iniciar</button>
+                  )}
+                </div>
+                {p.chaining ? (
+                  <div className="mt-1 text-[11px] text-cica-silver">
+                    {p.chainFromName
+                      ? <>Desde <strong className="text-cica-glow">{p.chainFromName}</strong> · haz clic en el siguiente poste para crear el tramo. Sigue encadenando.</>
+                      : "Haz clic en el primer poste para empezar."}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-[10px] text-cica-muted">Clic en un poste y luego en el siguiente: crea el tramo y continúa, sin tocar los ya guardados.</div>
+                )}
+              </div>
               {/* Sondeo de dirección del punto activo (clic en el mapa). */}
               {p.pin && (
                 <div className="glass-soft animate-fadeUp px-3 py-2 text-[11px]">
@@ -148,6 +175,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
                 onClear={() => p.onInfraSelect(null)}
                 onPlaceChild={p.onPlaceChild}
                 onSelect={(id) => p.onInfraSelect(id)}
+                onChainFrom={p.onChainFrom}
               />
               <InfraPanel
                 tabs={["activos", "trazar", "topologia"]}
@@ -210,6 +238,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
               canEdit={p.canEdit}
               onSaveFiber={p.onSaveFiber}
               onDeleteFiber={p.onDeleteFiber}
+              chaining={p.chaining}
             />
           ) : (
             <CoverageMap

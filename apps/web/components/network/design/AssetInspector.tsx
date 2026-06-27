@@ -64,6 +64,7 @@ export default function AssetInspector({
   onClear,
   onPlaceChild,
   onSelect,
+  onChainFrom,
 }: {
   assetId: string | null;
   infra: InfraBundle | null;
@@ -73,6 +74,7 @@ export default function AssetInspector({
   onClear: () => void;
   onPlaceChild: (tipo: string, parentId: string) => void;
   onSelect?: (id: string) => void;
+  onChainFrom?: (id: string, lng: number, lat: number, nombre: string) => void;
 }) {
   const [ports, setPorts] = useState<PortsDetail | null>(null);
   const [trace, setTrace] = useState<TraceResult | null>(null);
@@ -205,6 +207,16 @@ export default function AssetInspector({
       <div className="flex gap-2">
         <button onClick={() => onFocus(lng, lat, dot(tipo))} className="btn-cica-ghost flex-1 text-[11px]">Centrar en mapa</button>
       </div>
+
+      {canEdit && onChainFrom && (
+        <button
+          onClick={() => onChainFrom(assetId!, lng, lat, asset!.properties.nombre)}
+          className="rounded-lg border border-cica-glow/50 bg-cica-glow/10 px-3 py-1.5 text-[11px] font-semibold text-cica-glow hover:bg-cica-glow/20"
+          title="Crear un tramo de fibra desde este punto al siguiente poste"
+        >
+          🔗 Iniciar tramo de fibra desde aquí
+        </button>
+      )}
 
       {/* Activos apilados en este mismo punto (NAP sobre poste, etc.) */}
       {coLocated.length > 0 && (
