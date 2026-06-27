@@ -1,80 +1,105 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from './prisma/prisma.module';
-import { AuditModule } from './audit/audit.module';
-import { AuthModule } from './auth/auth.module';
-import { NetworkModule } from './network/network.module';
-import { GeoModule } from './geo/geo.module';
-import { InfraModule } from './infra/infra.module';
-import { ClientesModule } from './clientes/clientes.module';
-import { PaymentsModule } from './payments/payments.module';
-import { SupportModule } from './support/support.module';
-import { WhatsappModule } from './whatsapp/whatsapp.module';
-import { AssistantModule } from './assistant/assistant.module';
-import { TicketsModule } from './tickets/tickets.module';
-import { MeModule } from './me/me.module';
-import { Customer360Module } from './customer360/customer360.module';
-import { OrdenesModule } from './ordenes/ordenes.module';
-import { AccountingModule } from './accounting/accounting.module';
-import { InvoicingModule } from './invoicing/invoicing.module';
-import { CollectionsModule } from './collections/collections.module';
-import { BillingModule } from './billing/billing.module';
-import { BankingModule } from './banking/banking.module';
-import { DunningModule } from './dunning/dunning.module';
-import { PayablesModule } from './payables/payables.module';
-import { TaxesModule } from './taxes/taxes.module';
-import { AssetsModule } from './assets/assets.module';
-import { ExogenaModule } from './exogena/exogena.module';
-import { PayrollModule } from './payroll/payroll.module';
-import { CashModule } from './cash/cash.module';
-import { WorkbenchModule } from './workbench/workbench.module';
-import { TesoreriaModule } from './tesoreria/tesoreria.module';
-import { CarteraModule } from './cartera/cartera.module';
-import { DianModule } from './dian/dian.module';
-import { AssetRegistryModule } from './asset-registry/asset-registry.module';
-import { AnalyticsModule } from './analytics/analytics.module';
-import { DocumentosModule } from './documentos/documentos.module';
-import { PresupuestoModule } from './presupuesto/presupuesto.module';
-import { DemoModule } from './demo/demo.module';
+
+// ── platform ── cross-cutting technical foundation
+import { PrismaModule } from './platform/prisma/prisma.module';
+import { AuditModule } from './platform/audit/audit.module';
+import { AuthModule } from './platform/auth/auth.module';
+import { DocumentosModule } from './platform/documentos/documentos.module';
+import { DemoModule } from './platform/demo/demo.module';
+
+// ── network ── GIS / telco digital twin
+import { NetworkModule } from './network/topology/network.module';
+import { InfraModule } from './network/infra/infra.module';
+import { GeoModule } from './network/geo/geo.module';
+
+// ── crm ── customer relationship & self-service
+import { ClientesModule } from './crm/clientes/clientes.module';
+import { Customer360Module } from './crm/customer360/customer360.module';
+import { MeModule } from './crm/me/me.module';
+
+// ── operations ── field work & support
+import { OrdenesModule } from './operations/ordenes/ordenes.module';
+import { TicketsModule } from './operations/tickets/tickets.module';
+import { SupportModule } from './operations/support/support.module';
+import { WorkbenchModule } from './operations/workbench/workbench.module';
+
+// ── finance ── unified accounting kernel + financial modules
+import { AccountingModule } from './finance/accounting/accounting.module';
+import { BillingModule } from './finance/billing/billing.module';
+import { InvoicingModule } from './finance/invoicing/invoicing.module';
+import { CarteraModule } from './finance/cartera/cartera.module';
+import { CollectionsModule } from './finance/collections/collections.module';
+import { DunningModule } from './finance/dunning/dunning.module';
+import { PaymentsModule } from './finance/payments/payments.module';
+import { CashModule } from './finance/cash/cash.module';
+import { BankingModule } from './finance/banking/banking.module';
+import { TesoreriaModule } from './finance/tesoreria/tesoreria.module';
+import { PayablesModule } from './finance/payables/payables.module';
+import { PayrollModule } from './finance/payroll/payroll.module';
+import { TaxesModule } from './finance/taxes/taxes.module';
+import { PresupuestoModule } from './finance/presupuesto/presupuesto.module';
+import { AssetsModule } from './finance/assets/assets.module';
+import { AssetRegistryModule } from './finance/asset-registry/asset-registry.module';
+
+// ── compliance ── Colombian regulatory (DIAN)
+import { DianModule } from './compliance/dian/dian.module';
+import { ExogenaModule } from './compliance/exogena/exogena.module';
+
+// ── channels ── omnichannel + AI assistant
+import { WhatsappModule } from './channels/whatsapp/whatsapp.module';
+import { AssistantModule } from './channels/assistant/assistant.module';
+
+// ── insights ── analytics & BI
+import { AnalyticsModule } from './insights/analytics/analytics.module';
+
 import { HealthController } from './health.controller';
 
 @Module({
   imports: [
+    // platform
     PrismaModule,
     AuditModule,
     AuthModule,
+    DocumentosModule,
+    DemoModule,
+    // network
     NetworkModule,
-    GeoModule,
     InfraModule,
+    GeoModule,
+    // crm
     ClientesModule,
-    PaymentsModule,
+    Customer360Module,
+    MeModule,
+    // operations
+    OrdenesModule,
+    TicketsModule,
     SupportModule,
+    WorkbenchModule,
+    // finance
+    AccountingModule,
+    BillingModule,
+    InvoicingModule,
+    CarteraModule,
+    CollectionsModule,
+    DunningModule,
+    PaymentsModule,
+    CashModule,
+    BankingModule,
+    TesoreriaModule,
+    PayablesModule,
+    PayrollModule,
+    TaxesModule,
+    PresupuestoModule,
+    AssetsModule,
+    AssetRegistryModule,
+    // compliance
+    DianModule,
+    ExogenaModule,
+    // channels
     WhatsappModule,
     AssistantModule,
-    TicketsModule,
-    MeModule,
-    Customer360Module,
-    OrdenesModule,
-    AccountingModule,
-    InvoicingModule,
-    CollectionsModule,
-    BillingModule,
-    BankingModule,
-    DunningModule,
-    PayablesModule,
-    TaxesModule,
-    AssetsModule,
-    ExogenaModule,
-    PayrollModule,
-    CashModule,
-    WorkbenchModule,
-    TesoreriaModule,
-    CarteraModule,
-    DianModule,
-    AssetRegistryModule,
+    // insights
     AnalyticsModule,
-    DocumentosModule,
-    PresupuestoModule,
-    DemoModule,
   ],
   controllers: [HealthController],
 })

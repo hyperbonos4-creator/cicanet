@@ -1,21 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
-import type { MapData } from "../components/CoverageMap";
-import AppShell, { type Section } from "../components/AppShell";
-import OperacionPanel from "../components/panels/OperacionPanel";
-import ClientesPanel from "../components/panels/ClientesPanel";
-import InfraPanel from "../components/panels/InfraPanel";
-import OrdenesPanel from "../components/panels/OrdenesPanel";
-import ContabilidadModule from "../components/contabilidad/ContabilidadModule";
-import SoportePanel from "../components/panels/SoportePanel";
-import TicketsPanel from "../components/panels/TicketsPanel";
-import UsuariosPanel from "../components/panels/UsuariosPanel";
-import CicaAssistant from "../components/CicaAssistant";
-import ClientesModule from "../components/clientes/ClientesModule";
+import type { MapData } from "../components/network/CoverageMap";
+import AppShell, { type Section } from "../components/shell/AppShell";
+import NetworkWorkspace from "../components/network/NetworkWorkspace";
+import { type NetworkMode } from "../components/network/types";
+import OrdenesPanel from "../components/operations/OrdenesPanel";
+import ContabilidadModule from "../components/finance/ContabilidadModule";
+import SoportePanel from "../components/operations/SoportePanel";
+import TicketsPanel from "../components/operations/TicketsPanel";
+import UsuariosPanel from "../components/platform/UsuariosPanel";
+import CicaAssistant from "../components/channels/CicaAssistant";
+import ClientesModule from "../components/crm/ClientesModule";
 import {
   SOCKET_URL,
   getToken,
@@ -33,6 +31,7 @@ import {
   evaluateConstruction,
   createInfraAsset,
   createInfraFiber,
+  setAssetParent,
   listTickets,
   ticketStats,
   whatsappHandoffsResumen,
@@ -47,9 +46,6 @@ import {
   type TicketStats,
 } from "../lib/api";
 
-const CoverageMap = dynamic(() => import("../components/CoverageMap"), { ssr: false });
-const InfraMap = dynamic(() => import("../components/InfraMap"), { ssr: false });
-
 type LayerKey = "barrios" | "cobertura" | "fibra" | "nodos" | "clientes";
 
 export default function Page() {
@@ -61,6 +57,7 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null);
 
   const [section, setSection] = useState<Section>("dashboard");
+  const [networkMode, setNetworkMode] = useState<NetworkMode>("design");
   const [visibility, setVisibility] = useState<Record<LayerKey, boolean>>({
     barrios: true, cobertura: true, fibra: true, nodos: true, clientes: true,
   });
@@ -86,11 +83,15 @@ export default function Page() {
   const [routeSnaps, setRouteSnaps] = useState<(string | null)[]>([]);
   // Modo "colocar activo": el siguiente clic en el mapa ubica un activo de este tipo.
   const [placeTipo, setPlaceTipo] = useState<string | null>(null);
+  // Si está definido, el activo colocado se ancla a este padre (construcción jerárquica).
+  const [placeParentId, setPlaceParentId] = useState<string | null>(null);
   const [placeBusy, setPlaceBusy] = useState(false);
   const [ipLoc, setIpLoc] = useState<IpLocation | null>(null);
   // Modo construcción / simulador de venta
   const [buildMode, setBuildMode] = useState(false);
   const [buildResult, setBuildResult] = useState<ConstructionResult | null>(null);
+  // Mapa de calor de densidad de clientes (modo Cobertura).
+  const [heatmapOn, setHeatmapOn] = useState(true);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -168,6 +169,15 @@ export default function Page() {
 
   function onCheckAddress(lng: number, lat: number) { placePin(lng, lat); }
 
+  // Sondeo de punto en modo Diseño: solo dirección (sin verificación comercial).
+  function probePoint(lng: number, lat: number) {
+    setFocusPoint(null);
+    setCoverage(null);
+    setPin({ lng, lat });
+    setPinAddress(null);
+    reverseGeocode(lat, lng).then((r) => setPinAddress(r.direccion)).catch(() => {});
+  }
+
   // ---- Modo construcción (simulador de venta) ----
   async function runBuild(lng: number, lat: number) {
     setFocusPoint(null);
@@ -195,10 +205,17 @@ export default function Page() {
   // Abre el mapa centrado en un punto (desde el Customer 360 → "Ver en mapa").
   function verEnMapa(lng: number, lat: number) {
     setSection("red");
+    setNetworkMode("operations");
     setDrawing(false); setBuildMode(false); setBuildResult(null);
     setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null);
     setCoverage(null); setPin(null); setPinAddress(null);
     setFocusPoint({ lng, lat, color: "#22E0A1" });
+  }
+
+  // Navega al módulo de Red en un modo concreto (desde el Dashboard).
+  function goNetwork(mode: NetworkMode) {
+    setSection("red");
+    setNetworkMode(mode);
   }
 
   const pinColor = buildResult
@@ -223,8 +240,8 @@ export default function Page() {
   }
   function refreshCliStats() { clientesStats().then(setCliStats).catch(() => {}); ticketStats().then(setTickStats).catch(() => {}); }
 
-  // ---- Dibujo de zona ----
-  function startDraw() { setSection("infra"); setDrawing(true); setDrawPoints([]); setFocusPoint(null); setCoverage(null); }
+  // ---- Dibujo de zona (comercial → modo Cobertura) ----
+  function startDraw() { setSection("red"); setNetworkMode("coverage"); setDrawing(true); setDrawPoints([]); setFocusPoint(null); setCoverage(null); }
   function cancelDraw() { setDrawing(false); setDrawPoints([]); }
   function undoPoint() { setDrawPoints((pts) => pts.slice(0, -1)); }
   async function saveZone(nombre: string) {
@@ -236,13 +253,17 @@ export default function Page() {
     if (drawing) { setDrawPoints((pts) => [...pts, [lng, lat]]); return; }
     if (routing) { setRoutePoints((pts) => [...pts, [lng, lat]]); setRouteSnaps((s) => [...s, snappedId ?? null]); return; }
     if (placeTipo) { placeAssetAt(lng, lat, placeTipo); return; }
-    if (section === "infra") { if (buildMode) runBuild(lng, lat); return; }
+    // En Diseño, un clic en vacío sondea la dirección del punto (sin cobertura).
+    if (networkMode === "design") { probePoint(lng, lat); return; }
+    // En Cobertura con simulador de venta activo, evalúa la construcción.
+    if (networkMode === "coverage" && buildMode) { runBuild(lng, lat); return; }
+    // Operación / Cobertura: verifica cobertura en el punto.
     placePin(lng, lat);
   }
 
   // ---- Trazado de fibra poste a poste ----
   function startRoute() {
-    setSection("infra");
+    setSection("red"); setNetworkMode("design");
     setRouting(true); setRoutePoints([]); setRouteSnaps([]);
     setDrawing(false); setPlaceTipo(null);
     setBuildMode(false); setBuildResult(null);
@@ -277,23 +298,38 @@ export default function Page() {
 
   // ---- Colocar activo (poste/NAP) con un clic en el mapa ----
   function startPlace(tipo: string) {
-    setSection("infra");
+    setSection("red"); setNetworkMode("design");
     setPlaceTipo(tipo);
+    setPlaceParentId(null);
     setRouting(false); setRoutePoints([]); setDrawing(false);
     setBuildMode(false); setBuildResult(null);
     setFocusPoint(null); setCoverage(null); setPin(null);
   }
-  function stopPlace() { setPlaceTipo(null); }
+  // Coloca un activo y lo ancla a un padre con el siguiente clic (jerarquía).
+  function startPlaceChild(tipo: string, parentId: string) {
+    startPlace(tipo);
+    setPlaceParentId(parentId);
+  }
+  function stopPlace() { setPlaceTipo(null); setPlaceParentId(null); }
   async function placeAssetAt(lng: number, lat: number, tipo: string) {
     if (placeBusy) return;
     setPlaceBusy(true);
     try {
-      await createInfraAsset({
+      const child = await createInfraAsset({
         tipo, lng, lat,
-        puertosTotal: tipo === "NAP" ? 16 : undefined,
-        puertosUsados: tipo === "NAP" ? 0 : undefined,
+        puertosTotal: tipo === "NAP" ? 16 : tipo === "Splitter" ? 8 : undefined,
+        puertosUsados: tipo === "NAP" || tipo === "Splitter" ? 0 : undefined,
       });
-      await refreshInfra(); // el nuevo activo aparece donde hiciste clic; el modo sigue activo para ubicar más.
+      if (placeParentId) {
+        // Construcción jerárquica: ancla al padre, colocación única y deja el
+        // hijo seleccionado para encadenar (NAP → Splitter → …).
+        await setAssetParent(child.id, placeParentId);
+        setPlaceParentId(null);
+        setPlaceTipo(null);
+        setInfraSelId(child.id);
+      }
+      await refreshInfra(); // el nuevo activo aparece donde hiciste clic.
+      reverseGeocode(lat, lng).then((r) => setPinAddress(r.direccion)).catch(() => {});
     } catch (e: any) { setError(e.message); }
     finally { setPlaceBusy(false); }
   }
@@ -301,9 +337,10 @@ export default function Page() {
   function changeSection(s: Section) {
     setSection(s);
     setFocusPoint(null);
-    if (s !== "infra" && drawing) cancelDraw();
-    if (s !== "infra" && buildMode) { setBuildMode(false); setBuildResult(null); }
-    if (s !== "infra") { setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null); }
+    // Al salir del módulo de Red se cancelan todas las herramientas de edición.
+    if (s !== "red" && drawing) cancelDraw();
+    if (s !== "red" && buildMode) { setBuildMode(false); setBuildResult(null); }
+    if (s !== "red") { setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null); }
   }
   function logout() { socketRef.current?.disconnect(); clearSession(); router.replace("/login"); }
 
@@ -315,14 +352,14 @@ export default function Page() {
     [infra],
   );
 
-  const isMapSection = section === "red" || section === "infra";
+  const isMapSection = section === "red";
 
   return (
     <AppShell section={section} onSection={changeSection} user={user} onLogout={logout} live={live} ipLoc={ipLoc} badges={{ soporte: soportePend, tickets: (tickStats?.porEstado.abierto ?? 0) + (tickStats?.porEstado.en_proceso ?? 0) }}>
       {/* ===== Dashboard ===== */}
       {section === "dashboard" && (
         <div className="h-full overflow-y-auto p-6">
-          <Dashboard cli={cliStats} infra={infra} naps={naps} onGo={changeSection} tick={tickStats} />
+          <Dashboard cli={cliStats} infra={infra} naps={naps} onGo={changeSection} onGoNetwork={goNetwork} tick={tickStats} />
         </div>
       )}
 
@@ -368,129 +405,34 @@ export default function Page() {
         </div>
       )}
 
-      {/* ===== Secciones con mapa ===== */}
+      {/* ===== Módulo de Red (Diseño · Operación · Cobertura) ===== */}
       {isMapSection && (
-        <div className="flex h-full flex-col md:flex-row">
-          <aside className="max-h-[45%] w-full shrink-0 overflow-y-auto border-b border-cica-border/70 bg-cica-navy/40 p-4 md:max-h-none md:w-[336px] md:border-b-0 md:border-r">
-            {section === "red" && (
-              <div className="flex flex-col gap-3">
-                <ClientesPanel onCheckAddress={onCheckAddress} coverage={coverage} checking={checking} pinAddress={pinAddress} pin={pin} />
-                <OperacionPanel infra={infra} visibility={visibility} onToggle={toggle} coverage={coverage} checking={checking} />
-              </div>
-            )}
-            {section === "infra" && (
-              <InfraPanel
-                naps={naps} zones={zones} canEdit={!!canEdit} onFocus={focusOn} onChanged={refreshBundle}
-                drawing={drawing} drawPointsCount={drawPoints.length}
-                onStartDraw={startDraw} onUndoPoint={undoPoint} onCancelDraw={cancelDraw} onSaveZone={saveZone}
-                infra={infra} onInfraChanged={refreshInfra}
-                buildMode={buildMode} buildResult={buildResult} onToggleBuild={toggleBuildMode}
-                routing={routing} routePointsCount={routePoints.length}
-                onStartRoute={startRoute} onUndoRoutePoint={undoRoutePoint} onCancelRoute={cancelRoute} onFinishRoute={finishRoute}
-                placeTipo={placeTipo} onStartPlace={startPlace} onStopPlace={stopPlace}
-              />
-            )}
-          </aside>
-
-          <div className="relative min-w-0 flex-1">
-            {data ? (
-              section === "infra" ? (
-                <InfraMap
-                  assets={infra?.assets ?? { type: "FeatureCollection", features: [] }}
-                  fiber={infra?.fiber ?? { type: "FeatureCollection", features: [] }}
-                  barrios={data.comuna1}
-                  zones={data.zones}
-                  onSelect={(p) => setInfraSelId(p.id)}
-                  selectedId={infraSelId}
-                  focusPoint={focusPoint}
-                  onMapClick={onMapClickRouter}
-                  drawing={drawing}
-                  drawPoints={drawPoints}
-                  routing={routing}
-                  routePoints={routePoints}
-                  placing={!!placeTipo}
-                  onShortcut={onEditorShortcut}
-                  draggablePin={pin}
-                  pinColor={pinColor}
-                  onPinMove={placePin}
-                />
-              ) : (
-                <CoverageMap
-                  data={data} visibility={visibility} onNodeSelect={setSelectedNode}
-                  onMapClick={onMapClickRouter}
-                  focusPoint={focusPoint} drawing={drawing} drawPoints={drawPoints}
-                  draggablePin={pin} pinColor={pinColor} onPinMove={placePin}
-                  infra={infra ? { assets: infra.assets, fiber: infra.fiber } : null}
-                  showOnlyInfra={true}
-                />
-              )
-            ) : (
-              <div className="absolute inset-0 grid place-items-center text-cica-muted">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="h-10 w-10 animate-spin rounded-full border-2 border-cica-border border-t-cica-gold" />
-                  <span className="text-sm">{error ? `Error: ${error}` : "Cargando mapa…"}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Leyenda */}
-            <div className="glass-soft absolute bottom-5 left-5 z-10 px-4 py-3">
-              {section === "infra" ? (
-                <>
-                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Infraestructura</div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-cica-silver">
-                    <LegendDot color="#22D3EE" label="POP / Central" />
-                    <LegendDot color="#3B82F6" label="OLT" />
-                    <LegendDot color="#22E0A1" label="NAP / Caja" />
-                    <LegendDot color="#38BDF8" label="Splitter" />
-                    <LegendDot color="#A3E635" label="Empalme" />
-                    <LegendDot color="#818CF8" label="Fibra" />
-                    <LegendDot color="#2DD4BF" label="Enlace topología" />
-                    <LegendDot color="#38BDF8" label="Cliente" />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Estado de cobertura</div>
-                  <div className="flex flex-col gap-1.5 text-xs text-cica-silver">
-                    <LegendDot color="#22E0A1" label="FTTH disponible" />
-                    <LegendDot color="#FFB02E" label="Cobertura parcial / NAP saturada" />
-                    <LegendDot color="#FF4D6D" label="Sin cobertura / suspendido" />
-                    <LegendDot color="#22D3EE" label="Fibra troncal" />
-                    <LegendDot color="#3B82F6" label="Cliente activo" />
-                  </div>
-                </>
-              )}
+        data ? (
+          <NetworkWorkspace
+            mode={networkMode} onMode={setNetworkMode} canEdit={!!canEdit}
+            data={data} infra={infra} naps={naps} zones={zones} cli={cliStats}
+            visibility={visibility} onToggle={toggle}
+            selectedNode={selectedNode} onNodeSelect={setSelectedNode}
+            infraSelId={infraSelId} onInfraSelect={setInfraSelId}
+            coverage={coverage} checking={checking} pin={pin} pinAddress={pinAddress} pinColor={pinColor} focusPoint={focusPoint}
+            onCheckAddress={onCheckAddress} onPinMove={placePin} onProbe={probePoint} onFocus={focusOn} onMapClick={onMapClickRouter}
+            drawing={drawing} drawPoints={drawPoints}
+            onStartDraw={startDraw} onUndoPoint={undoPoint} onCancelDraw={cancelDraw} onSaveZone={saveZone}
+            routing={routing} routePoints={routePoints}
+            onStartRoute={startRoute} onUndoRoutePoint={undoRoutePoint} onCancelRoute={cancelRoute} onFinishRoute={finishRoute}
+            placeTipo={placeTipo} onStartPlace={startPlace} onStopPlace={stopPlace} onShortcut={onEditorShortcut} onPlaceChild={startPlaceChild}
+            buildMode={buildMode} buildResult={buildResult} onToggleBuild={toggleBuildMode}
+            heatmapOn={heatmapOn} onToggleHeatmap={() => setHeatmapOn((v) => !v)}
+            onInfraChanged={refreshInfra} onBundleChanged={refreshBundle}
+          />
+        ) : (
+          <div className="absolute inset-0 grid place-items-center text-cica-muted">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-10 w-10 animate-spin rounded-full border-2 border-cica-border border-t-cica-gold" />
+              <span className="text-sm">{error ? `Error: ${error}` : "Cargando mapa…"}</span>
             </div>
-
-            {/* Detalle de nodo (solo en Red & Mapa; Infra usa su propio popup/ficha) */}
-            {section === "red" && selectedNode && (
-              <div className="glass absolute bottom-5 right-5 z-10 w-[260px] animate-fadeUp p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-sm font-extrabold text-white">{selectedNode.nombre}</div>
-                    <div className="text-[11px] text-cica-muted">
-                      {selectedNode.tipo} · {selectedNode.estado === "online" ? <span className="text-status-ftth">online</span> : <span className="text-status-parcial">degradado</span>}
-                    </div>
-                  </div>
-                  <button onClick={() => setSelectedNode(null)} className="text-cica-muted hover:text-white">✕</button>
-                </div>
-                {selectedNode.direccion && <div className="mt-1 text-[10px] text-cica-muted line-clamp-2">{selectedNode.direccion}</div>}
-                {"puertos_total" in selectedNode && (
-                  <div className="mt-3">
-                    <div className="mb-1 flex justify-between text-[11px] text-cica-muted">
-                      <span>Ocupación de puertos</span>
-                      <span className="font-semibold text-cica-silver">{selectedNode.puertos_usados}/{selectedNode.puertos_total}</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-cica-border">
-                      <div className="h-full rounded-full bg-gradient-to-r from-cica-amber to-cica-gold" style={{ width: `${(selectedNode.puertos_usados / selectedNode.puertos_total) * 100}%` }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
-        </div>
+        )
       )}
       {/* Asistente virtual flotante (disponible en todo el panel) */}
       <CicaAssistant />
@@ -498,24 +440,16 @@ export default function Page() {
   );
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-2.5 w-2.5 rounded-full" style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
 /* ===================== Dashboard ===================== */
 
 function Dashboard({
-  cli, infra, naps, onGo, tick,
+  cli, infra, naps, onGo, onGoNetwork, tick,
 }: {
   cli: ClienteStats | null;
   infra: InfraBundle | null;
   naps: NapRecord[];
   onGo: (s: Section) => void;
+  onGoNetwork: (mode: NetworkMode) => void;
   tick: TicketStats | null;
 }) {
   const puertosTotal = naps.reduce((s, n) => s + (n.puertos_total || 0), 0);
@@ -534,9 +468,9 @@ function Dashboard({
         <Card label="Servicio activo" value={cli ? String(cli.porServicio.activo || 0) : "—"} sub="conexiones activas" accent="text-status-ftth" onClick={() => onGo("clientes")} />
         <Card label="Ingreso mensual" value={cli ? money(cli.ingresoMensual) : "—"} sub="clientes activos" accent="text-cica-silver" />
         <Card label="Cartera pendiente" value={cli ? money(cli.saldoPendiente) : "—"} sub="por cobrar" accent={cli && cli.saldoPendiente > 0 ? "text-status-sin" : "text-cica-silver"} />
-        <Card label="Equipos de red" value={String(infra?.stats.activos ?? 0)} sub="activos" accent="text-cica-gold" onClick={() => onGo("infra")} />
-        <Card label="NAP / CTO" value={String((infra?.assets.features || []).filter((f: any) => f.properties.tipo === "NAP" || f.properties.tipo === "CTO").length)} sub="puntos de acceso" accent="text-status-ftth" onClick={() => onGo("infra")} />
-        <Card label="Fibra tendida" value={`${km} km`} sub={`${infra?.stats.fibras ?? 0} tramos`} accent="text-cica-glow" onClick={() => onGo("infra")} />
+        <Card label="Equipos de red" value={String(infra?.stats.activos ?? 0)} sub="activos" accent="text-cica-gold" onClick={() => onGoNetwork("design")} />
+        <Card label="NAP / CTO" value={String((infra?.assets.features || []).filter((f: any) => f.properties.tipo === "NAP" || f.properties.tipo === "CTO").length)} sub="puntos de acceso" accent="text-status-ftth" onClick={() => onGoNetwork("design")} />
+        <Card label="Fibra tendida" value={`${km} km`} sub={`${infra?.stats.fibras ?? 0} tramos`} accent="text-cica-glow" onClick={() => onGoNetwork("design")} />
         <Card label="Capacidad libre" value={librePct === null ? "—" : `${librePct}%`} sub="puertos disponibles" accent={librePct !== null && librePct < 20 ? "text-status-sin" : "text-cica-steelLight"} />
         <Card label="Tickets abiertos" value={tick ? String(tick.porEstado.abierto ?? 0) : "—"} sub="pendientes" accent={(tick?.porEstado.abierto ?? 0) > 0 ? "text-status-sin" : "text-cica-muted"} onClick={() => onGo("tickets")} />
       </div>
