@@ -140,28 +140,58 @@ export default function LocationPicker({
   }, [base]);
 
   // Centra en la dirección escrita (geocodificación) para ubicar rápido la zona.
+  // Elige el candidato DENTRO de tu zona de servicio (o el más cercano a ella);
+  // si el mejor queda lejísimos, NO vuela: pide marcar el punto con un clic
+  // (en barrios informales el geocoder no siempre acierta la placa exacta).
   async function buscarDireccion() {
     if (!address || address.trim().length < 3) { setMsg("Escribe primero la dirección arriba."); return; }
     setGeocoding(true); setMsg(null);
     try {
       const cands = await geocode(address.trim());
-      if (!cands.length) { setMsg("No se encontró la dirección; ubícala manualmente con un clic."); return; }
-      const c = cands[0];
+      if (!cands.length) { setMsg("No se encontró la dirección; ubícala manualmente con un clic en el mapa."); return; }
+
+      // Centro de la zona de operación (nororiente: Popular/Santa Cruz…).
+      const CENTER = { lng: -75.555, lat: 6.299 };
+      const dist = (c: { lng: number; lat: number }) => Math.hypot(c.lng - CENTER.lng, c.lat - CENTER.lat);
+      // Prioriza los que caen dentro del barrio; luego, el más cercano a la zona.
+      const sorted = [...cands].sort(
+        (a, b) => Number(!!b.dentroDelBarrio) - Number(!!a.dentroDelBarrio) || dist(a) - dist(b),
+      );
+      const c = sorted[0];
+
+      // ~0.045° ≈ 5 km. Más allá de tu zona, el resultado es ruido del geocoder.
+      const MAX = 0.045;
+      if (!c.dentroDelBarrio && dist(c) > MAX) {
+        setMsg("No pude ubicar esa dirección dentro de tu zona. Marca el punto EXACTO con un clic en el mapa (o usa el GPS en sitio).");
+        return;
+      }
       place(c.lng, c.lat, true);
-      setMsg("Ajusta el pin al punto EXACTO de la casa.");
+      setMsg(c.dentroDelBarrio
+        ? "Aproximado por la dirección. Ajusta el pin al punto EXACTO de la casa."
+        : "Aproximado (fuera del barrio). Verifica y ajusta el pin a la casa exacta.");
     } catch (e: any) {
       setMsg(e.message || "No se pudo geocodificar.");
     } finally { setGeocoding(false); }
   }
 
-  // Usa el GPS del dispositivo (técnico parado frente a la casa = punto exacto).
+  // Usa el GPS del dispositivo. En CELULAR (técnico en sitio) es exacto; en
+  // ESCRITORIO el navegador lo estima por IP/wifi y puede errar cientos de metros,
+  // por eso avisamos la precisión para que se ajuste el pin a mano si hace falta.
   function usarGps() {
     if (!navigator.geolocation) { setMsg("Este dispositivo no soporta geolocalización."); return; }
     setMsg("Obteniendo ubicación GPS…");
     navigator.geolocation.getCurrentPosition(
-      (pos) => { place(pos.coords.longitude, pos.coords.latitude, true); setMsg("Ubicación GPS marcada. Ajústala si hace falta."); },
+      (pos) => {
+        place(pos.coords.longitude, pos.coords.latitude, true);
+        const acc = Math.round(pos.coords.accuracy || 0);
+        if (acc > 80) {
+          setMsg(`GPS poco preciso (~${acc} m, típico en escritorio). Arrastra el pin a la casa exacta.`);
+        } else {
+          setMsg(`Ubicación GPS marcada (~${acc} m). Ajústala si hace falta.`);
+        }
+      },
       () => setMsg("No se pudo obtener el GPS (permiso denegado)."),
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
   }
 
