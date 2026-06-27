@@ -490,6 +490,85 @@ export function coverageIsochrones(metros?: number): Promise<CoverageIsochrones>
   return authFetch(`/infra/coverage/isochrones${qs}`);
 }
 
+// ---- Motor de Red (Network Engine): análisis del Gemelo Digital ----
+// Presupuesto óptico, simulación de fallas, criticidad y caminos.
+
+export type EngineOverview = {
+  nodos: number;
+  fibras: number;
+  aristas: number;
+  islas: number;
+  islasSinRaiz: number;
+};
+
+export type OpticalHealth = "verde" | "amarillo" | "rojo";
+
+export type OpticalBudget = {
+  activo: { id: string; nombre: string; tipo: string };
+  cadena: { id: string; nombre: string; tipo?: string }[];
+  perdidaTotalDb: number;
+  desglose: { etiqueta: string; tipo: "fibra" | "splitter" | "empalme" | "conector"; db: number }[];
+  presupuestoDb: number;
+  potenciaRxDbm: number;
+  margenDb: number;
+  viable: boolean;
+  salud: OpticalHealth;
+};
+
+export type FailureSeverity = "baja" | "media" | "alta" | "critica";
+
+export type FailureImpact = {
+  nodoCaido: string;
+  activosAfectados: string[];
+  clientesAfectados: string[];
+  ingresosEnRiesgo: number;
+  napsAfectadas: number;
+  severidad: FailureSeverity;
+};
+
+export type CriticalityNode = {
+  id: string;
+  nombre: string;
+  tipo?: string;
+  clientesAfectados: number;
+  ingresosEnRiesgo: number;
+  severidad: FailureSeverity;
+};
+
+export type EnginePath = {
+  path: string[];
+  edges: { id: string; from: string; to: string; kind: string; peso: number }[];
+  distancia: number;
+  encontrado: boolean;
+  nodos: { id: string; nombre: string; tipo?: string }[];
+};
+
+export function engineOverview(): Promise<EngineOverview> {
+  return authFetch("/engine/overview");
+}
+export function engineOptical(
+  id: string,
+  opts: { tx?: number; rx?: number; nm?: number } = {},
+): Promise<OpticalBudget> {
+  const qs = new URLSearchParams();
+  if (opts.tx != null) qs.set("tx", String(opts.tx));
+  if (opts.rx != null) qs.set("rx", String(opts.rx));
+  if (opts.nm != null) qs.set("nm", String(opts.nm));
+  return authFetch(`/engine/optical/${encodeURIComponent(id)}${qs.toString() ? `?${qs}` : ""}`);
+}
+export function engineSimulateFailure(id: string): Promise<FailureImpact> {
+  return authFetch(`/engine/simulate/failure/${encodeURIComponent(id)}`);
+}
+export function engineCriticality(limit?: number): Promise<CriticalityNode[]> {
+  return authFetch(`/engine/criticality${limit ? `?limit=${limit}` : ""}`);
+}
+export function enginePath(from: string, to: string): Promise<EnginePath> {
+  return authFetch(`/engine/path?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+}
+export function engineDependencies(id: string): Promise<{ id: string; nombre: string; tipo?: string }[]> {
+  return authFetch(`/engine/dependencies/${encodeURIComponent(id)}`);
+}
+
 // ---- Evidencia fotográfica georreferenciada (vista de calle propia) ----
 export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion" | "pano360";
 

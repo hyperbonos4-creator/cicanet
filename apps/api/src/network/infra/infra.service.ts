@@ -168,6 +168,20 @@ export class InfraService implements OnModuleInit {
   listAssets() {
     return this.assets;
   }
+
+  /**
+   * Instantánea de datos crudos para el Motor de Red (grafo unificado,
+   * simulación e ingeniería óptica). Desacopla el motor del plumbing de datos:
+   * el motor solo consume estructuras, no toca Prisma ni el cache directamente.
+   */
+  snapshot(): { assets: Asset[]; fiber: FiberSegment[]; ports: Port[]; connections: Connection[] } {
+    return {
+      assets: this.assets,
+      fiber: this.fiber,
+      ports: this.ports,
+      connections: this.connections,
+    };
+  }
   listFiber() {
     return this.fiber;
   }

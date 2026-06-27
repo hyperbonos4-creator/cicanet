@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { CoverageResult, InfraBundle } from "../../lib/api";
+import NetworkHealthPanel from "./NetworkHealthPanel";
 
 type LayerKey = "barrios" | "cobertura" | "fibra" | "nodos" | "clientes";
 
@@ -11,12 +12,14 @@ export default function OperacionPanel({
   onToggle,
   coverage,
   checking,
+  onFocus,
 }: {
   infra: InfraBundle | null;
   visibility: Record<LayerKey, boolean>;
   onToggle: (k: LayerKey) => void;
   coverage: CoverageResult | null;
   checking: boolean;
+  onFocus: (lng: number, lat: number, color?: string) => void;
 }) {
   const statCards = useMemo(() => {
     const assets = infra?.assets.features || [];
@@ -66,6 +69,9 @@ export default function OperacionPanel({
           <div className="text-xs text-cica-muted">Haz clic en cualquier punto del mapa para verificar si hay cobertura en esa ubicación.</div>
         )}
       </div>
+
+      {/* Salud de red (Motor): resumen del modelo + puntos críticos de falla. */}
+      <NetworkHealthPanel infra={infra} onFocus={onFocus} />
     </div>
   );
 }

@@ -192,7 +192,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
           )}
 
           {p.mode === "operations" && (
-            <OperacionPanel infra={p.infra} visibility={p.visibility} onToggle={p.onToggle} coverage={p.coverage} checking={p.checking} />
+            <OperacionPanel infra={p.infra} visibility={p.visibility} onToggle={p.onToggle} coverage={p.coverage} checking={p.checking} onFocus={p.onFocus} />
           )}
 
           {p.mode === "coverage" && (

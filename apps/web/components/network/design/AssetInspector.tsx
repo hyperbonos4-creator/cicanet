@@ -16,6 +16,7 @@ import {
   type TraceResult,
   type Cliente,
 } from "../../../lib/api";
+import EngineInsights from "./EngineInsights";
 
 // Tipos que portan puertos asignables.
 const PORT_BEARING = new Set(["NAP", "CTO", "OLT", "Splitter"]);
@@ -85,6 +86,9 @@ export default function AssetInspector({
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
+  // Pestañas del inspector: separan resumen, conectividad e ingeniería para
+  // evitar el "todo apilado" en una sola columna.
+  const [tab, setTab] = useState<"resumen" | "puertos" | "ingenieria">("resumen");
 
   const assets = (infra?.assets.features as AssetFeature[]) || [];
   const asset = assets.find((a) => a.properties.id === assetId) || null;
@@ -104,7 +108,7 @@ export default function AssetInspector({
     try { setTrace(await getAssetTrace(assetId)); } catch { setTrace(null); }
   }, [assetId, tipo]);
 
-  useEffect(() => { setAssignFor(null); setEditingName(false); setConfirmDel(false); reload(); }, [reload]);
+  useEffect(() => { setAssignFor(null); setEditingName(false); setConfirmDel(false); setTab("resumen"); reload(); }, [reload]);
 
   if (!assetId || !asset) return null;
 
@@ -208,91 +212,119 @@ export default function AssetInspector({
         <button onClick={() => onFocus(lng, lat, dot(tipo))} className="btn-cica-ghost flex-1 text-[11px]">Centrar en mapa</button>
       </div>
 
-      {canEdit && onChainFrom && (
-        <button
-          onClick={() => onChainFrom(assetId!, lng, lat, asset!.properties.nombre)}
-          className="rounded-lg border border-cica-glow/50 bg-cica-glow/10 px-3 py-1.5 text-[11px] font-semibold text-cica-glow hover:bg-cica-glow/20"
-          title="Crear un tramo de fibra desde este punto al siguiente poste"
-        >
-          🔗 Iniciar tramo de fibra desde aquí
-        </button>
-      )}
-
-      {/* Activos apilados en este mismo punto (NAP sobre poste, etc.) */}
-      {coLocated.length > 0 && (
-        <div className="rounded-lg border border-cica-glow/30 bg-cica-navy/30 p-2">
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">
-            También en este punto ({coLocated.length})
-          </div>
-          <div className="flex flex-col gap-1">
-            {coLocated.map((a) => (
-              <button
-                key={a.properties.id}
-                onClick={() => onSelect?.(a.properties.id)}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-cica-border/40"
-                title="Editar este activo"
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot(a.properties.tipo) }} />
-                <span className="truncate text-[11px] font-semibold text-cica-silver">{a.properties.nombre}</span>
-                <span className="ml-auto text-[9px] text-cica-muted">{a.properties.tipo}</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 text-[10px] text-cica-muted">Toca uno para renombrarlo, editarlo o eliminarlo.</p>
-        </div>
-      )}
-
       {err && <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-[11px] text-status-sin">{err}</div>}
 
-      {/* Cadena jerárquica (padre) */}
-      {parent && (
-        <button
-          onClick={() => onFocus(parent.geometry.coordinates[0], parent.geometry.coordinates[1], dot(parent.properties.tipo))}
-          className="flex items-center gap-2 rounded-lg border border-cica-border/60 bg-cica-panel/40 px-3 py-2 text-left hover:border-cica-gold/40"
-        >
-          <span className="text-[10px] text-cica-muted">▲ Depende de</span>
-          <span className="h-2 w-2 rounded-full" style={{ background: dot(parent.properties.tipo) }} />
-          <span className="truncate text-[11px] font-semibold text-cica-silver">{parent.properties.nombre}</span>
-        </button>
-      )}
+      {/* Pestañas: separan resumen, conectividad e ingeniería. */}
+      <div className="flex gap-1 rounded-lg border border-cica-border/50 bg-cica-black/30 p-0.5">
+        {([
+          { key: "resumen", label: "Resumen" },
+          ...(bearsPorts ? [{ key: "puertos", label: "Puertos" }] : []),
+          { key: "ingenieria", label: "Ingeniería" },
+        ] as { key: typeof tab; label: string }[]).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors ${
+              tab === t.key ? "bg-cica-gold/15 text-cica-gold" : "text-cica-muted hover:text-cica-silver"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Crear hijos (jerarquía) — se ubican con un clic en el mapa */}
-      {canEdit && CHILD_RULES[tipo] && (
-        <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Agregar a este nodo</div>
-          <div className="flex flex-wrap gap-1.5">
-            {CHILD_RULES[tipo].map((c) => (
-              <button key={c.tipo} disabled={busy} onClick={() => onPlaceChild(c.tipo, assetId!)} className="btn-cica-ghost text-[11px] disabled:opacity-50">
-                {c.label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 text-[10px] text-cica-muted">Luego haz clic en el mapa para ubicarlo.</p>
+      {/* ── Pestaña Resumen ── */}
+      {tab === "resumen" && (
+        <div className="flex flex-col gap-3">
+          {canEdit && onChainFrom && (
+            <button
+              onClick={() => onChainFrom(assetId!, lng, lat, asset!.properties.nombre)}
+              className="rounded-lg border border-cica-glow/50 bg-cica-glow/10 px-3 py-1.5 text-[11px] font-semibold text-cica-glow hover:bg-cica-glow/20"
+              title="Crear un tramo de fibra desde este punto al siguiente poste"
+            >
+              🔗 Iniciar tramo de fibra desde aquí
+            </button>
+          )}
+
+          {/* Activos apilados en este mismo punto (NAP sobre poste, etc.) */}
+          {coLocated.length > 0 && (
+            <div className="rounded-lg border border-cica-glow/30 bg-cica-navy/30 p-2">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">
+                También en este punto ({coLocated.length})
+              </div>
+              <div className="flex flex-col gap-1">
+                {coLocated.map((a) => (
+                  <button
+                    key={a.properties.id}
+                    onClick={() => onSelect?.(a.properties.id)}
+                    className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-cica-border/40"
+                    title="Editar este activo"
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot(a.properties.tipo) }} />
+                    <span className="truncate text-[11px] font-semibold text-cica-silver">{a.properties.nombre}</span>
+                    <span className="ml-auto text-[9px] text-cica-muted">{a.properties.tipo}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-cica-muted">Toca uno para renombrarlo, editarlo o eliminarlo.</p>
+            </div>
+          )}
+
+          {/* Cadena jerárquica (padre) */}
+          {parent && (
+            <button
+              onClick={() => onFocus(parent.geometry.coordinates[0], parent.geometry.coordinates[1], dot(parent.properties.tipo))}
+              className="flex items-center gap-2 rounded-lg border border-cica-border/60 bg-cica-panel/40 px-3 py-2 text-left hover:border-cica-gold/40"
+            >
+              <span className="text-[10px] text-cica-muted">▲ Depende de</span>
+              <span className="h-2 w-2 rounded-full" style={{ background: dot(parent.properties.tipo) }} />
+              <span className="truncate text-[11px] font-semibold text-cica-silver">{parent.properties.nombre}</span>
+            </button>
+          )}
+
+          {/* Crear hijos (jerarquía) — se ubican con un clic en el mapa */}
+          {canEdit && CHILD_RULES[tipo] && (
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Agregar a este nodo</div>
+              <div className="flex flex-wrap gap-1.5">
+                {CHILD_RULES[tipo].map((c) => (
+                  <button key={c.tipo} disabled={busy} onClick={() => onPlaceChild(c.tipo, assetId!)} className="btn-cica-ghost text-[11px] disabled:opacity-50">
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-cica-muted">Luego haz clic en el mapa para ubicarlo.</p>
+            </div>
+          )}
+
+          {/* Hijos directos */}
+          {children.length > 0 && (
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Conectados ({children.length})</div>
+              <div className="flex flex-col gap-1">
+                {children.slice(0, 8).map((c) => (
+                  <button
+                    key={c.properties.id}
+                    onClick={() => onFocus(c.geometry.coordinates[0], c.geometry.coordinates[1], dot(c.properties.tipo))}
+                    className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-cica-border/30"
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ background: dot(c.properties.tipo) }} />
+                    <span className="truncate text-[11px] text-cica-silver">{c.properties.nombre}</span>
+                    <span className="ml-auto text-[9px] text-cica-muted">{c.properties.tipo}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!parent && !children.length && !coLocated.length && !CHILD_RULES[tipo] && (
+            <p className="text-[11px] text-cica-muted">Sin elementos conectados todavía.</p>
+          )}
         </div>
       )}
 
-      {/* Hijos directos */}
-      {children.length > 0 && (
-        <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Conectados ({children.length})</div>
-          <div className="flex flex-col gap-1">
-            {children.slice(0, 8).map((c) => (
-              <button
-                key={c.properties.id}
-                onClick={() => onFocus(c.geometry.coordinates[0], c.geometry.coordinates[1], dot(c.properties.tipo))}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-cica-border/30"
-              >
-                <span className="h-2 w-2 rounded-full" style={{ background: dot(c.properties.tipo) }} />
-                <span className="truncate text-[11px] text-cica-silver">{c.properties.nombre}</span>
-                <span className="ml-auto text-[9px] text-cica-muted">{c.properties.tipo}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Puertos (solo tipos que los portan) */}
-      {bearsPorts && (
+      {/* ── Pestaña Puertos ── */}
+      {tab === "puertos" && bearsPorts && (
         <div>
           <div className="mb-1 flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-cica-muted">Puertos</span>
@@ -340,20 +372,27 @@ export default function AssetInspector({
         </div>
       )}
 
-      {/* Trazado óptico a la raíz */}
-      {trace && trace.saltos.length > 0 && (
-        <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Ruta óptica</div>
-          <div className="flex flex-wrap items-center gap-1 text-[10px] text-cica-silver">
-            {trace.saltos.map((s, i) => (
-              <span key={s.id} className="flex items-center gap-1">
-                {i > 0 && <span className="text-cica-muted">→</span>}
-                <span className="rounded bg-cica-border/40 px-1.5 py-0.5">
-                  {s.tipo}{s.puerto != null ? ` :${s.puerto}` : ""}
-                </span>
-              </span>
-            ))}
-          </div>
+      {/* ── Pestaña Ingeniería (Motor de Red) ── */}
+      {tab === "ingenieria" && (
+        <div className="flex flex-col gap-3">
+          <EngineInsights assetId={assetId} />
+
+          {/* Trazado óptico a la raíz (saltos lógicos) */}
+          {trace && trace.saltos.length > 0 && (
+            <div className="border-t border-cica-border/40 pt-3">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">Ruta óptica (saltos)</div>
+              <div className="flex flex-wrap items-center gap-1 text-[10px] text-cica-silver">
+                {trace.saltos.map((s, i) => (
+                  <span key={s.id} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-cica-muted">→</span>}
+                    <span className="rounded bg-cica-border/40 px-1.5 py-0.5">
+                      {s.tipo}{s.puerto != null ? ` :${s.puerto}` : ""}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

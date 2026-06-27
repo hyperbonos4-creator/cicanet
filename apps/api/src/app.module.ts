@@ -10,6 +10,7 @@ import { DemoModule } from './platform/demo/demo.module';
 // ── network ── GIS / telco digital twin
 import { NetworkModule } from './network/topology/network.module';
 import { InfraModule } from './network/infra/infra.module';
+import { NetworkEngineModule } from './network/engine/network-engine.module';
 import { GeoModule } from './network/geo/geo.module';
 
 // ── crm ── customer relationship & self-service
@@ -65,6 +66,7 @@ import { HealthController } from './health.controller';
     // network
     NetworkModule,
     InfraModule,
+    NetworkEngineModule,
     GeoModule,
     // crm
     ClientesModule,
