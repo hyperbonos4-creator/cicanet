@@ -86,7 +86,7 @@ export class GeoService {
     // Si el proveedor ya acertó la VÍA pedida, eso es lo más fiable: devuélvelo
     // sin gastar más llamadas.
     if (hasStreetMatch(collected, raw)) {
-      return rankColombianResults(collected, raw);
+      return this.canonicalizeLabels(rankColombianResults(collected, raw));
     }
 
     // 2) Geocodificación por INTERSECCIÓN ("Vía A con Vía B # placa"). En barrios
@@ -117,7 +117,35 @@ export class GeoService {
 
     // Fusiona TODAS las fuentes y rankea: vía pedida > dentro del barrio >
     // cercanía a la zona de operación > relevancia del proveedor.
-    return rankColombianResults(collected, raw);
+    return this.canonicalizeLabels(rankColombianResults(collected, raw));
+  }
+
+  /**
+   * Reescribe la etiqueta de los primeros candidatos con el MISMO reverse que usa
+   * el clic del mapa, para que búsqueda y puntero muestren la dirección idéntica
+   * (misma nomenclatura). Acota a los 3 mejores para limitar latencia/costo.
+   */
+  private async canonicalizeLabels(cands: GeocodeCandidate[]): Promise<GeocodeCandidate[]> {
+    if (!cands.length) return cands;
+    const top = cands.slice(0, 3);
+    await Promise.all(
+      top.map(async (c) => {
+        try {
+          const dir = await this.reverse(c.lat, c.lng);
+          if (dir) c.displayName = dir;
+        } catch {
+          /* mantiene la etiqueta del forward */
+        }
+      }),
+    );
+    // Dedup por etiqueta tras canonicalizar (dos puntos pueden mapear al mismo nombre).
+    const seen = new Set<string>();
+    return top.filter((c) => {
+      const k = (c.displayName || '').toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
   }
 
   /** Geocodificación con Mapbox (datos comerciales, precisión a nivel de casa). */
