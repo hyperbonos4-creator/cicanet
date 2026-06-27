@@ -25,6 +25,7 @@ import {
   type ConstructionResult,
 } from "../../lib/api";
 import type { PlaceMeta } from "./types";
+import AssetPalette, { DEVICE_META } from "./design/AssetPalette";
 
 const ASSET_TYPES = ["POP", "OLT", "Switch", "Router", "NAP", "Splitter", "UPS", "Servidor", "Camara", "Empalme", "Poste", "ONU", "Cliente"];
 const TIPO_COLOR: Record<string, string> = {
@@ -197,6 +198,10 @@ export default function InfraPanel({
           placeTipo={placeTipo}
           onStartPlace={onStartPlace}
           onStopPlace={onStopPlace}
+          fibras={fibras}
+          onFocus={onFocus}
+          onInfraChanged={onInfraChanged}
+          setNetErr={setNetErr}
         />
       )}
       {tab === "topologia" && (
@@ -310,30 +315,10 @@ function ActivosView({
       {canEdit && (
         <div className="glass animate-fadeUp p-4">
           <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cica-gold">Colocar en el mapa</div>
-          <p className="mb-2 text-[11px] leading-relaxed text-cica-muted">
-            Elige el tipo y haz clic en el poste exacto del mapa. Puedes ubicar varios seguidos.
+          <p className="mb-2.5 text-[11px] leading-relaxed text-cica-muted">
+            Elige el dispositivo y haz clic en el punto exacto del mapa. Puedes ubicar varios seguidos.
           </p>
-          {!placeTipo ? (
-            <div className="grid grid-cols-2 gap-2">
-              {["NAP", "Poste", "Empalme", "Splitter"].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => onStartPlace(t)}
-                  className="flex items-center gap-2 rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-2 text-xs font-semibold text-cica-silver transition-colors hover:border-cica-gold/40"
-                >
-                  <span className="h-2 w-2 rounded-full" style={{ background: dotColor(t), boxShadow: `0 0 6px ${dotColor(t)}` }} />
-                  {t}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-3 py-2 text-[11px]">
-              <span className="text-cica-silver">
-                Clic en el mapa para ubicar <strong className="text-cica-gold">{placeTipo}</strong>…
-              </span>
-              <button onClick={onStopPlace} className="shrink-0 font-semibold text-cica-muted hover:text-status-sin">Terminar</button>
-            </div>
-          )}
+          <AssetPalette placeTipo={placeTipo} onStartPlace={onStartPlace} onStopPlace={onStopPlace} />
         </div>
       )}
 
@@ -349,7 +334,7 @@ function ActivosView({
               </div>
               <div className="flex gap-2">
                 <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="rounded-lg border border-cica-border bg-cica-navy/80 px-2 py-2 text-xs text-cica-silver outline-none focus:border-cica-gold">
-                  {ASSET_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {ASSET_TYPES.map((t) => <option key={t} value={t}>{DEVICE_META[t]?.label ?? t}</option>)}
                 </select>
                 <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre (opcional)" className={inputCls + " flex-1"} />
               </div>
@@ -399,7 +384,7 @@ function ActivosView({
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar…" className={inputCls + " flex-1"} />
           <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="rounded-lg border border-cica-border bg-cica-navy/80 px-2 py-2 text-xs text-cica-silver outline-none focus:border-cica-gold">
             <option value="">Todos</option>
-            {ASSET_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {ASSET_TYPES.map((t) => <option key={t} value={t}>{DEVICE_META[t]?.label ?? t}</option>)}
           </select>
         </div>
         {filtered.length === 0 ? (
@@ -1091,6 +1076,7 @@ function CoberturaView({
 function TrazarView({
   canEdit, routing, routePointsCount, onStartRoute, onUndoRoutePoint, onCancelRoute, onFinishRoute,
   placeTipo, onStartPlace, onStopPlace,
+  fibras, onFocus, onInfraChanged, setNetErr,
 }: {
   canEdit: boolean;
   routing: boolean;
@@ -1102,10 +1088,21 @@ function TrazarView({
   placeTipo: string | null;
   onStartPlace: (tipo: string) => void;
   onStopPlace: () => void;
+  fibras: any[];
+  onFocus: (lng: number, lat: number, color?: string) => void;
+  onInfraChanged: () => void;
+  setNetErr: (s: string | null) => void;
 }) {
   const [nombre, setNombre] = useState("");
   const [tipoFibra, setTipoFibra] = useState<"monomodo" | "multimodo">("monomodo");
   const [hilos, setHilos] = useState("12");
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  async function quitarFibra(id: string) {
+    setNetErr(null);
+    try { await deleteInfraFiber(id); setConfirmDel(null); onInfraChanged(); }
+    catch (e: any) { setNetErr(e.message); }
+  }
 
   if (!canEdit) {
     return (
@@ -1119,30 +1116,12 @@ function TrazarView({
     <div className="flex flex-col gap-3">
       {/* Paso 1: postes */}
       <div className="glass animate-fadeUp p-4">
-        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cica-gold">1 · Ubica tus postes</div>
-        <p className="mb-2 text-[11px] leading-relaxed text-cica-muted">
-          Marca el poste donde irá cada NAP/empalme. Haz clic en el punto exacto del mapa (usa la base
+        <div className="mb-1 text-xs font-bold uppercase tracking-wider text-cica-gold">1 · Ubica tus dispositivos</div>
+        <p className="mb-2.5 text-[11px] leading-relaxed text-cica-muted">
+          Marca dónde va cada equipo. Haz clic en el punto exacto del mapa (usa la base
           <strong className="text-cica-silver"> Ortofoto/Satélite</strong> para verlos).
         </p>
-        {!placeTipo ? (
-          <div className="grid grid-cols-2 gap-2">
-            {["Poste", "NAP", "Empalme", "Splitter"].map((t) => (
-              <button
-                key={t}
-                onClick={() => onStartPlace(t)}
-                className="flex items-center gap-2 rounded-lg border border-cica-border bg-cica-navy/60 px-2 py-2 text-xs font-semibold text-cica-silver transition-colors hover:border-cica-gold/40"
-              >
-                <span className="h-2 w-2 rounded-full" style={{ background: dotColor(t), boxShadow: `0 0 6px ${dotColor(t)}` }} />
-                {t}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-cica-gold/40 bg-cica-gold/10 px-3 py-2 text-[11px]">
-            <span className="text-cica-silver">Clic en el mapa para ubicar <strong className="text-cica-gold">{placeTipo}</strong>…</span>
-            <button onClick={onStopPlace} className="shrink-0 font-semibold text-cica-muted hover:text-status-sin">Terminar</button>
-          </div>
-        )}
+        <AssetPalette placeTipo={placeTipo} onStartPlace={onStartPlace} onStopPlace={onStopPlace} compact />
       </div>
 
       {/* Paso 2: trazar la fibra */}
@@ -1181,6 +1160,47 @@ function TrazarView({
                 className="btn-cica px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
               >Guardar</button>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Paso 3: gestión de tramos (eliminar fibra donde se traza) */}
+      <div className="glass animate-fadeUp p-4">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-bold uppercase tracking-wider text-cica-gold">3 · Tramos de fibra ({fibras.length})</span>
+        </div>
+        {fibras.length === 0 ? (
+          <p className="text-[11px] text-cica-muted">Aún no hay fibra. Traza el primer tramo arriba.</p>
+        ) : (
+          <div className="flex max-h-48 flex-col gap-1.5 overflow-y-auto pr-1">
+            {fibras.map((f) => (
+              <div key={f.properties.id} className="rounded-lg border border-cica-glow/30 bg-cica-navy/40 px-3 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => onFocus(f.geometry.coordinates[0][0], f.geometry.coordinates[0][1], "#6366F1")}
+                    className="truncate text-left text-[11px] font-semibold text-cica-glow hover:underline"
+                    title="Centrar en el mapa"
+                  >
+                    🟡 {f.properties.nombre}
+                    <span className="text-cica-muted"> · {f.properties.longitud} m{f.properties.hilos ? ` · ${f.properties.hilos}h` : ""}</span>
+                  </button>
+                  {confirmDel !== f.properties.id && (
+                    <button
+                      onClick={() => setConfirmDel(f.properties.id)}
+                      className="shrink-0 text-cica-muted hover:text-status-sin"
+                      title="Eliminar tramo"
+                    >🗑</button>
+                  )}
+                </div>
+                {confirmDel === f.properties.id && (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <span className="text-[10px] text-status-sin">¿Eliminar este tramo?</span>
+                    <button onClick={() => quitarFibra(f.properties.id)} className="rounded-md border border-status-sin/60 bg-status-sin/15 px-2 py-0.5 text-[10px] font-bold text-status-sin">Sí, eliminar</button>
+                    <button onClick={() => setConfirmDel(null)} className="rounded-md border border-cica-border/60 px-2 py-0.5 text-[10px] text-cica-silver">Cancelar</button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
