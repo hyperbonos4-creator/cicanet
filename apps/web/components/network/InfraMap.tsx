@@ -48,6 +48,8 @@ type Props = {
     trazado: [number, number][],
     ends: { origenId?: string | null; destinoId?: string | null },
   ) => Promise<void> | void;
+  /** Elimina por completo un tramo de fibra (desde la barra de edición). */
+  onDeleteFiber?: (id: string) => Promise<void> | void;
 };
 
 /** FeatureCollection para el dibujo en vivo de una zona (vértices + línea + polígono). */
@@ -171,7 +173,7 @@ const BLUEPRINT: maplibregl.StyleSpecification = {
   ],
 };
 
-export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber }: Props) {
+export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber, onDeleteFiber }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const labelsRef = useRef<Marker[]>([]);
@@ -198,12 +200,15 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   canEditRef.current = canEdit;
   const onSaveFiberRef = useRef(onSaveFiber);
   onSaveFiberRef.current = onSaveFiber;
+  const onDeleteFiberRef = useRef(onDeleteFiber);
+  onDeleteFiberRef.current = onDeleteFiber;
 
   // ---- estado de edición de un tramo de fibra (arrastrar vértices) ----
-  const editRef = useRef<{ id: string; points: [number, number][]; snapIds: (string | null | undefined)[] } | null>(null);
+  const editRef = useRef<{ id: string; points: [number, number][]; snapIds: (string | null | undefined)[]; sel: number | null } | null>(null);
   const vtxMarkersRef = useRef<Marker[]>([]);
+  const lastDragRef = useRef(0);
   const startEditRef = useRef<(id: string) => void>(() => {});
-  const [editFiber, setEditFiber] = useState<{ id: string; count: number; longitudM: number } | null>(null);
+  const [editFiber, setEditFiber] = useState<{ id: string; count: number; longitudM: number; sel: number | null } | null>(null);
 
   const [basemap, setBasemap] = useState<Basemap>("blueprint");
   const [show, setShow] = useState({ enlaces: true, fibra: true, clientes: true, etiquetas: true });
@@ -222,21 +227,54 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     src.setData({ type: "FeatureCollection", features: feats });
   }
 
+  // Sincroniza la barra (toolbar) con el estado interno de edición.
+  function syncToolbar() {
+    const ed = editRef.current;
+    setEditFiber((f) => (f && ed ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points), sel: ed.sel } : f));
+  }
+
   // Construye un marcador arrastrable por cada vértice. Al soltar, si hay un
   // poste/activo cerca, el vértice se ancla EXACTO a su coordenada. Entre cada
   // par de vértices hay un handle "+" para INSERTAR un vértice intermedio (así
-  // la fibra puede doblarse por los postes exactos sin desviarse).
+  // la fibra puede doblarse por los postes exactos sin desviarse). Un clic
+  // simple sobre el vértice lo SELECCIONA (para poder eliminarlo desde la barra).
   function buildVtxMarkers() {
     const map = mapRef.current; const ed = editRef.current;
     if (!map || !ed) return;
     vtxMarkersRef.current.forEach((m) => m.remove());
     vtxMarkersRef.current = [];
 
-    // Vértices reales (arrastrables; doble clic los elimina).
-    ed.points.forEach((p, i) => {
+    // Handles intermedios "+": se dibujan PRIMERO para que queden debajo de los
+    // vértices reales (los vértices tienen prioridad de clic).
+    for (let i = 0; i < ed.points.length - 1; i++) {
+      const a = ed.points[i];
+      const b = ed.points[i + 1];
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       const el = document.createElement("div");
-      el.style.cssText = "width:15px;height:15px;border-radius:50%;background:#22D3EE;border:2px solid #fff;box-shadow:0 0 8px #22D3EE;cursor:grab;";
-      el.title = "Arrastra para mover · doble clic para eliminar";
+      el.style.cssText = "width:16px;height:16px;border-radius:50%;background:rgba(34,211,238,0.3);border:1.5px dashed #22D3EE;cursor:copy;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;line-height:1;font-weight:700;";
+      el.textContent = "+";
+      el.title = "Insertar un vértice aquí";
+      const mk = new maplibregl.Marker({ element: el }).setLngLat(mid).addTo(map);
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        ed.points.splice(i + 1, 0, mid);
+        ed.snapIds.splice(i + 1, 0, undefined);
+        ed.sel = i + 1; // selecciona el nuevo vértice para moverlo enseguida
+        buildVtxMarkers();
+        redrawEdit();
+        syncToolbar();
+      });
+      vtxMarkersRef.current.push(mk);
+    }
+
+    // Vértices reales (arrastrables; clic = seleccionar).
+    ed.points.forEach((p, i) => {
+      const selected = ed.sel === i;
+      const el = document.createElement("div");
+      const size = selected ? 20 : 16;
+      const bg = selected ? "#FFB02E" : "#22D3EE";
+      el.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:3px solid #fff;box-shadow:0 0 10px ${bg};cursor:grab;`;
+      el.title = "Arrastra para mover · clic para seleccionar y eliminar";
       const mk = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(p).addTo(map);
       const apply = () => {
         const ll = mk.getLngLat();
@@ -259,43 +297,32 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       mk.on("drag", apply);
       mk.on("dragend", () => {
         apply();
+        lastDragRef.current = Date.now();
         (map.getSource("infra-snap") as any)?.setData(emptyFC());
-        setEditFiber((f) => (f ? { ...f, longitudM: lineLengthM(ed.points) } : f));
+        syncToolbar();
       });
-      // Doble clic: elimina el vértice (deja al menos 2).
-      el.addEventListener("dblclick", (ev) => {
+      // Clic simple (no arrastre) selecciona el vértice.
+      el.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        if (ed.points.length <= 2) return;
-        ed.points.splice(i, 1);
-        ed.snapIds.splice(i, 1);
+        if (Date.now() - lastDragRef.current < 250) return; // fue el final de un arrastre
+        ed.sel = ed.sel === i ? null : i;
         buildVtxMarkers();
-        redrawEdit();
-        setEditFiber((f) => (f ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points) } : f));
+        syncToolbar();
       });
       vtxMarkersRef.current.push(mk);
     });
+  }
 
-    // Handles intermedios "+": insertan un vértice nuevo en el punto medio del
-    // segmento, que el usuario puede arrastrar al poste correcto.
-    for (let i = 0; i < ed.points.length - 1; i++) {
-      const a = ed.points[i];
-      const b = ed.points[i + 1];
-      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      const el = document.createElement("div");
-      el.style.cssText = "width:13px;height:13px;border-radius:50%;background:rgba(34,211,238,0.25);border:1.5px dashed #22D3EE;cursor:copy;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;line-height:1;font-weight:700;";
-      el.textContent = "+";
-      el.title = "Insertar un vértice aquí";
-      const mk = new maplibregl.Marker({ element: el }).setLngLat(mid).addTo(map);
-      el.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        ed.points.splice(i + 1, 0, mid);
-        ed.snapIds.splice(i + 1, 0, undefined);
-        buildVtxMarkers();
-        redrawEdit();
-        setEditFiber((f) => (f ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points) } : f));
-      });
-      vtxMarkersRef.current.push(mk);
-    }
+  // Elimina el vértice seleccionado (deja al menos 2).
+  function deleteSelectedVtx() {
+    const ed = editRef.current;
+    if (!ed || ed.sel == null || ed.points.length <= 2) return;
+    ed.points.splice(ed.sel, 1);
+    ed.snapIds.splice(ed.sel, 1);
+    ed.sel = null;
+    buildVtxMarkers();
+    redrawEdit();
+    syncToolbar();
   }
 
   function startEditFiber(id: string) {
@@ -306,10 +333,13 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       id,
       points: coords.map((c) => [c[0], c[1]] as [number, number]),
       snapIds: coords.map(() => undefined),
+      sel: null,
     };
+    // Mientras se edita, el doble clic NO debe hacer zoom (estorba al editar).
+    mapRef.current?.doubleClickZoom.disable();
     buildVtxMarkers();
     redrawEdit();
-    setEditFiber({ id, count: coords.length, longitudM: lineLengthM(editRef.current.points) });
+    setEditFiber({ id, count: coords.length, longitudM: lineLengthM(editRef.current.points), sel: null });
   }
   startEditRef.current = startEditFiber;
 
@@ -318,6 +348,7 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     vtxMarkersRef.current = [];
     editRef.current = null;
     const map = mapRef.current;
+    map?.doubleClickZoom.enable();
     (map?.getSource("infra-fiber-edit") as any)?.setData(emptyFC());
     (map?.getSource("infra-snap") as any)?.setData(emptyFC());
     setEditFiber(null);
@@ -329,6 +360,15 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     const origenId = ed.snapIds[0];
     const destinoId = ed.snapIds[ed.snapIds.length - 1];
     await onSaveFiberRef.current?.(ed.id, ed.points.map((p) => [p[0], p[1]] as [number, number]), { origenId, destinoId });
+    clearEditFiber();
+  }
+
+  // Elimina por completo el tramo en edición (tras confirmar) y vuelve a trazarlo.
+  async function deleteWholeFiber() {
+    const ed = editRef.current;
+    if (!ed) return;
+    if (!window.confirm(`¿Eliminar por completo el tramo ${ed.id}? Esta acción no se puede deshacer.`)) return;
+    await onDeleteFiberRef.current?.(ed.id);
     clearEditFiber();
   }
 
@@ -699,11 +739,24 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     <div ref={containerRef} className="absolute inset-0">
       {/* Barra de edición de fibra: aparece al seleccionar un tramo en el mapa. */}
       {editFiber && (
-        <div className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-cica-glow/40 bg-black/80 px-4 py-2 shadow-2xl backdrop-blur">
+        <div className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 flex-wrap items-center gap-2.5 rounded-xl border border-cica-glow/40 bg-black/85 px-4 py-2 shadow-2xl backdrop-blur">
           <div className="text-[11px] leading-tight">
             <div className="font-bold text-white">Editando fibra · {editFiber.id}</div>
-            <div className="text-cica-muted">Arrastra los vértices (se anclan al poste) · «+» inserta · doble clic elimina · {editFiber.longitudM} m</div>
+            <div className="text-cica-muted">
+              {editFiber.sel != null
+                ? `Vértice ${editFiber.sel + 1}/${editFiber.count} seleccionado`
+                : "Clic en un vértice para seleccionarlo · arrastra para moverlo · «+» inserta"} · {editFiber.longitudM} m
+            </div>
           </div>
+          <button
+            onClick={deleteSelectedVtx}
+            disabled={editFiber.sel == null || editFiber.count <= 2}
+            title={editFiber.count <= 2 ? "Un tramo necesita al menos 2 vértices" : "Eliminar el vértice seleccionado"}
+            className="rounded-lg border border-status-sin/50 bg-status-sin/15 px-3 py-1.5 text-[11px] font-semibold text-status-sin hover:bg-status-sin/25 disabled:opacity-40"
+          >
+            Eliminar vértice
+          </button>
+          <button onClick={deleteWholeFiber} title="Eliminar el tramo completo" className="rounded-lg border border-status-sin/50 px-3 py-1.5 text-[11px] font-semibold text-status-sin hover:bg-status-sin/20">🗑 Tramo</button>
           <button onClick={saveEditFiber} className="rounded-lg bg-cica-gold px-3 py-1.5 text-[11px] font-bold text-black hover:opacity-90">Guardar</button>
           <button onClick={clearEditFiber} className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px] font-semibold text-cica-silver hover:bg-white/10">Cancelar</button>
         </div>

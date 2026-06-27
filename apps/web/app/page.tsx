@@ -35,6 +35,7 @@ import {
   coverageIsochrones,
   getAssetIsochrone,
   updateInfraFiber,
+  deleteInfraFiber,
   listTickets,
   ticketStats,
   whatsappHandoffsResumen,
@@ -302,6 +303,14 @@ export default function Page() {
     } catch (e: any) { setError(e.message); }
   }
 
+  // Elimina por completo un tramo de fibra (desde la barra de edición del mapa).
+  async function removeFiber(id: string) {
+    try {
+      await deleteInfraFiber(id);
+      await refreshInfra();
+    } catch (e: any) { setError(e.message); }
+  }
+
   // Dibuja el alcance de tendido (Isochrone) de UNA NAP al pulsar ◎ en Cobertura.
   async function showReach(napId: string, metros?: number) {
     try {
@@ -510,7 +519,7 @@ export default function Page() {
             heatmapOn={heatmapOn} onToggleHeatmap={() => setHeatmapOn((v) => !v)}
             reachArea={reachArea} onShowReach={showReach}
             onInfraChanged={refreshInfra} onBundleChanged={refreshBundle}
-            onSaveFiber={saveFiber}
+            onSaveFiber={saveFiber} onDeleteFiber={removeFiber}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-cica-muted">

@@ -103,6 +103,8 @@ export interface NetworkWorkspaceProps {
     trazado: [number, number][],
     ends: { origenId?: string | null; destinoId?: string | null },
   ) => Promise<void> | void;
+  /** Elimina por completo un tramo de fibra desde la barra de edición. */
+  onDeleteFiber: (id: string) => Promise<void> | void;
 }
 
 /**
@@ -206,6 +208,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
               onPinMove={p.onProbe}
               canEdit={p.canEdit}
               onSaveFiber={p.onSaveFiber}
+              onDeleteFiber={p.onDeleteFiber}
             />
           ) : (
             <CoverageMap
