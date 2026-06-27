@@ -48,47 +48,56 @@ export class GeoService {
     const raw = (query || '').trim();
     if (raw.length < 3) return [];
 
-    // 0a) Google: idéntico a Google Maps (placa exacta colombiana).
-    if (config.geo.geocoder === 'google' && config.geo.googleKey) {
-      try {
-        const g = await this.googleForward(raw);
-        if (g.length) return g;
-      } catch (e: any) {
-        this.logger.warn(`Google forward falló (${raw}): ${e.message} — uso OSM`);
+    const collected: GeocodeCandidate[] = [];
+
+    // 1) Proveedor comercial (el MISMO que usa el mapa para el reverse del clic:
+    //    Mapbox/Google). Así la búsqueda por texto y el puntero hablan el mismo
+    //    idioma de direcciones.
+    try {
+      if (config.geo.geocoder === 'google' && config.geo.googleKey) {
+        collected.push(...(await this.googleForward(raw)));
+      } else if (config.geo.geocoder === 'mapbox' && config.geo.mapboxToken) {
+        collected.push(...(await this.mapboxForward(raw)));
       }
+    } catch (e: any) {
+      this.logger.warn(`Forward proveedor falló (${raw}): ${e.message} — sigo con OSM`);
     }
 
-    // 0b) Mapbox: preciso a nivel de casa/cuadra.
-    if (config.geo.geocoder === 'mapbox' && config.geo.mapboxToken) {
-      try {
-        const mb = await this.mapboxForward(raw);
-        if (mb.length) return mb;
-      } catch (e: any) {
-        this.logger.warn(`Mapbox forward falló (${raw}): ${e.message} — uso OSM`);
-      }
+    // Si el proveedor ya acertó la VÍA pedida, eso es lo más fiable: devuélvelo
+    // sin gastar más llamadas.
+    if (hasStreetMatch(collected, raw)) {
+      return rankColombianResults(collected, raw);
     }
 
-    // 1) Geocodificación por INTERSECCIÓN (nomenclatura colombiana "Vía A # Vía B - placa").
+    // 2) Geocodificación por INTERSECCIÓN ("Vía A con Vía B # placa"). En barrios
+    //    informales (Popular/Santa Cruz) es la MÁS fiable: usa la geometría real
+    //    de las calles de OSM, no una base de placas que no existe ahí.
     const parsed = parseColombianAddress(raw);
     if (parsed?.secondaryNum) {
       try {
-        const corner = await this.geocodeIntersection(parsed);
-        if (corner.length) return corner;
+        collected.push(...(await this.geocodeIntersection(parsed)));
       } catch (e: any) {
         this.logger.warn(`Intersección falló (${raw}): ${e.message}`);
       }
     }
 
-    // 2) Fallback: búsqueda de texto por variantes, ordenada por relevancia real.
-    const variants = buildQueryVariants(raw);
-    for (const v of variants) {
-      const candidatos = await this.nominatimSearch(v);
-      if (candidatos.length > 0) {
-        candidatos.sort((a, b) => b.importancia - a.importancia);
-        return candidatos;
+    // 3) Texto libre en OSM por variantes (calle real del barrio).
+    try {
+      const variants = buildQueryVariants(raw);
+      for (const v of variants) {
+        const candidatos = await this.nominatimSearch(v);
+        if (candidatos.length) {
+          collected.push(...candidatos);
+          break;
+        }
       }
+    } catch (e: any) {
+      this.logger.warn(`Nominatim falló (${raw}): ${e.message}`);
     }
-    return [];
+
+    // Fusiona TODAS las fuentes y rankea: vía pedida > dentro del barrio >
+    // cercanía a la zona de operación > relevancia del proveedor.
+    return rankColombianResults(collected, raw);
   }
 
   /** Geocodificación con Mapbox (datos comerciales, precisión a nivel de casa). */
@@ -697,29 +706,65 @@ function rankColombianResults(
   const m = norm.match(
     /^(calle|carrera|diagonal|transversal|avenida|circular)\s+\d+[a-z]{0,3}/i,
   );
-  // dedup por displayName
+
+  // Sesgo de cercanía a la zona de operación de la ISP (lng,lat).
+  const [pxLng, pxLat] = (config.geo.proximity || '0,0').split(',').map(Number);
+  const proxDist = (r: GeocodeCandidate) =>
+    Math.hypot((r.lng ?? 0) - pxLng, (r.lat ?? 0) - pxLat);
+
+  // Dedup por displayName Y por coordenada redondeada (~11 m): proveedor + OSM
+  // suelen devolver el mismo punto con nombres distintos.
   const seen = new Set<string>();
   const uniq = results.filter((r) => {
-    const k = (r.displayName || '').toLowerCase();
+    if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return false;
+    const k = `${(r.displayName || '').toLowerCase()}|${r.lat.toFixed(4)},${r.lng.toFixed(4)}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
 
-  if (!m) {
-    return uniq.sort((a, b) => b.importancia - a.importancia).slice(0, 6);
-  }
+  // ¿Coincide la VÍA pedida? Se normaliza el texto del candidato para que las
+  // abreviaturas del proveedor ("Cl. 120A", "Cra 48") también casen.
+  const re = m
+    ? new RegExp('\\b' + m[0].trim().toLowerCase().replace(/\s+/g, '\\s+') + '\\b', 'i')
+    : null;
+  const matches = (r: GeocodeCandidate) =>
+    re ? re.test(normalizeColombianAddress(r.displayName || '')) : false;
 
-  const primary = m[0].trim().toLowerCase(); // ej. "calle 126"
-  const re = new RegExp('\\b' + primary.replace(/\s+/g, '\\s+') + '\\b', 'i');
-  const scored = uniq.map((r) => ({ r, match: re.test((r.displayName || '').toLowerCase()) }));
-  scored.sort((a, b) => Number(b.match) - Number(a.match) || b.r.importancia - a.r.importancia);
+  const scored = uniq.map((r) => ({ r, match: matches(r) }));
+  scored.sort(
+    (a, b) =>
+      Number(b.match) - Number(a.match) ||
+      Number(b.r.dentroDelBarrio) - Number(a.r.dentroDelBarrio) ||
+      proxDist(a.r) - proxDist(b.r) ||
+      (b.r.importancia ?? 0) - (a.r.importancia ?? 0),
+  );
+
+  if (!re) {
+    // Sin vía explícita: prioriza barrio y cercanía.
+    return scored.map((s) => s.r).slice(0, 6);
+  }
 
   const anyMatch = scored.some((s) => s.match);
   // Si hay resultados en la calle correcta, mostramos SOLO esos (sin ruido).
-  // Si ninguno coincide, mostramos los más relevantes para no dejar vacío.
-  const kept = scored.filter((s) => (anyMatch ? s.match : s.r.importancia >= 0.5));
+  // Si ninguno coincide, conservamos los que caen dentro del barrio o son
+  // razonablemente relevantes para no dejar la búsqueda vacía.
+  const kept = scored.filter((s) =>
+    anyMatch ? s.match : s.r.dentroDelBarrio || (s.r.importancia ?? 0) >= 0.6,
+  );
   return (kept.length ? kept : scored).map((s) => s.r).slice(0, 6);
+}
+
+/** ¿Algún candidato cae en la VÍA principal pedida (normalizando abreviaturas)? */
+function hasStreetMatch(results: GeocodeCandidate[], query: string): boolean {
+  if (!results.length) return false;
+  const norm = normalizeColombianAddress(query);
+  const m = norm.match(
+    /^(calle|carrera|diagonal|transversal|avenida|circular)\s+\d+[a-z]{0,3}/i,
+  );
+  if (!m) return false;
+  const re = new RegExp('\\b' + m[0].trim().toLowerCase().replace(/\s+/g, '\\s+') + '\\b', 'i');
+  return results.some((r) => re.test(normalizeColombianAddress(r.displayName || '')));
 }
 
 function shortName(displayName: string): string {
