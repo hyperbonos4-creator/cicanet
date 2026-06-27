@@ -38,7 +38,7 @@ const cop = (n: number) =>
  * para ver el impacto aguas abajo (clientes e ingresos en riesgo). Es la capa
  * "nivel operador" que valida la red más allá de dibujarla.
  */
-export default function EngineInsights({ assetId, onImpact }: { assetId: string | null; onImpact?: (ids: string[]) => void }) {
+export default function EngineInsights({ assetId, onImpact, onSimEvent }: { assetId: string | null; onImpact?: (ids: string[]) => void; onSimEvent?: (impact: FailureImpact) => void }) {
   const [budget, setBudget] = useState<OpticalBudget | null>(null);
   const [loadingB, setLoadingB] = useState(false);
   const [errB, setErrB] = useState<string | null>(null);
@@ -70,10 +70,11 @@ export default function EngineInsights({ assetId, onImpact }: { assetId: string 
       const r = await engineSimulateFailure(assetId);
       setImpact(r);
       onImpact?.(r.activosAfectados); // pinta la cascada en el mapa
+      onSimEvent?.(r); // registra el evento en el timeline
     }
     catch { /* silencioso: el panel sigue usable */ }
     finally { setLoadingS(false); }
-  }, [assetId, loadingS, onImpact]);
+  }, [assetId, loadingS, onImpact, onSimEvent]);
 
   if (!assetId) return null;
 

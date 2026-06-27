@@ -540,6 +540,19 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       map.on("mouseenter", "infra-assets-dot", () => (map.getCanvas().style.cursor = "pointer"));
       map.on("mouseleave", "infra-assets-dot", () => (map.getCanvas().style.cursor = ""));
 
+      // Clic en un tramo de fibra: lo SELECCIONA y abre la barra de edición
+      // (mover vértices, extender el recorrido, eliminar vértice o el tramo
+      // completo). Solo fuera de los modos de construcción (trazar/colocar/
+      // encadenar/dibujar) para no interferir con esos flujos.
+      map.on("click", "infra-fiber-hit", (e) => {
+        const m = modeRef.current;
+        if (!canEditRef.current || m.routing || m.placing || m.chaining || m.drawing) return;
+        if (editRef.current) return;
+        const f = e.features?.[0];
+        if (!f) return;
+        startEditRef.current((f.properties as any).id);
+      });
+
       // Capa de dibujo en vivo (pestaña Cobertura).
       map.addSource("infra-draw", { type: "geojson", data: emptyFC() });
       map.addLayer({ id: "infra-draw-fill", type: "fill", source: "infra-draw", filter: ["==", "$type", "Polygon"], paint: { "fill-color": "#22D3EE", "fill-opacity": 0.15 } });

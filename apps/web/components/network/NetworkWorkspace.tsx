@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import type { MapData } from "./CoverageMap";
 import NetworkModeSwitch from "./NetworkModeSwitch";
@@ -126,6 +126,30 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
   // Cascada de afectados al simular una falla (estado local: el mapa y el
   // inspector viven aquí, no hace falta subirlo al orquestador page.tsx).
   const [affectedIds, setAffectedIds] = useState<string[]>([]);
+  // Timeline de actividad de red (registro de la sesión: simulaciones, etc.).
+  const [events, setEvents] = useState<NetEvent[]>([]);
+  const pushEvent = useCallback((e: Omit<NetEvent, "id" | "ts">) => {
+    setEvents((prev) => [{ ...e, id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, ts: Date.now() }, ...prev].slice(0, 40));
+  }, []);
+
+  // Resuelve el nombre legible de un activo desde el bundle.
+  const assetName = useCallback(
+    (id: string) => (p.infra?.assets.features as any[])?.find((f) => f.properties.id === id)?.properties?.nombre ?? id,
+    [p.infra],
+  );
+
+  const onSimEvent = useCallback(
+    (imp: import("../../lib/api").FailureImpact) => {
+      const sev = SEVERITY_COLOR[imp.severidad] ?? "#FFB02E";
+      pushEvent({
+        kind: "sim",
+        color: sev,
+        title: `Simulación de falla · ${assetName(imp.nodoCaido)}`,
+        detail: `${imp.clientesAfectados.length} cliente(s) · ${imp.napsAfectadas} NAP · ${COP.format(imp.ingresosEnRiesgo)} en riesgo · severidad ${imp.severidad}`,
+      });
+    },
+    [assetName, pushEvent],
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -184,6 +208,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
                   onSelect={(id) => p.onInfraSelect(id)}
                   onChainFrom={p.onChainFrom}
                   onImpact={setAffectedIds}
+                  onSimEvent={onSimEvent}
                 />
               </div>
               <InfraPanel
@@ -345,10 +370,84 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
               onSelect={(id) => p.onInfraSelect(id)}
               onChainFrom={p.onChainFrom}
               onImpact={setAffectedIds}
+              onSimEvent={onSimEvent}
             />
           </aside>
         )}
       </div>
+
+      {/* ── Dock inferior: timeline de actividad de red (Diseño) ── */}
+      {isDesign && <TimelineDock events={events} onClear={() => setEvents([])} />}
+    </div>
+  );
+}
+
+type NetEvent = {
+  id: string;
+  ts: number;
+  kind: "sim" | "info";
+  title: string;
+  detail?: string;
+  color?: string;
+};
+
+const SEVERITY_COLOR: Record<string, string> = {
+  baja: "#22E0A1", media: "#FFB02E", alta: "#FF8A3D", critica: "#FF4D6D",
+};
+const COP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+
+/** Dock inferior colapsable con el registro de eventos de la sesión. */
+function TimelineDock({ events, onClear }: { events: NetEvent[]; onClear: () => void }) {
+  const [open, setOpen] = useState(false);
+  const last = events[0];
+  return (
+    <div className="shrink-0 border-t border-cica-border/70 bg-cica-navy/60">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-3 px-4 py-2 text-left"
+      >
+        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-cica-muted">
+          <span className={`h-1.5 w-1.5 rounded-full ${events.length ? "bg-cica-gold" : "bg-cica-border"}`} />
+          Actividad de red
+        </span>
+        <span className="rounded-full bg-cica-border/50 px-2 py-0.5 text-[10px] font-semibold text-cica-silver">{events.length}</span>
+        {last && !open && (
+          <span className="truncate text-[11px] text-cica-muted">
+            <span style={{ color: last.color || "#E6EDF7" }}>●</span> {last.title}
+          </span>
+        )}
+        <span className="ml-auto text-[11px] text-cica-muted">{open ? "▾ Ocultar" : "▸ Ver registro"}</span>
+      </button>
+
+      {open && (
+        <div className="max-h-44 overflow-y-auto border-t border-cica-border/50 px-4 py-2">
+          {events.length === 0 ? (
+            <p className="py-3 text-center text-[11px] text-cica-muted">
+              Sin actividad todavía. Simula la caída de un nodo (pestaña Ingeniería) para registrar su impacto aquí.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-end">
+                <button onClick={onClear} className="text-[10px] text-cica-muted hover:text-status-sin">Limpiar registro</button>
+              </div>
+              {events.map((e) => (
+                <div key={e.id} className="flex items-start gap-2.5 rounded-lg border border-cica-border/40 bg-cica-black/30 px-3 py-1.5">
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: e.color || "#8B96AC" }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-[11px] font-semibold text-cica-silver">{e.title}</span>
+                      <span className="ml-auto shrink-0 font-mono text-[9px] text-cica-muted">
+                        {new Date(e.ts).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      </span>
+                    </div>
+                    {e.detail && <div className="text-[10px] text-cica-muted">{e.detail}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
