@@ -24,6 +24,7 @@ import {
   type InfraBundle,
   type ConstructionResult,
 } from "../../lib/api";
+import type { PlaceMeta } from "./types";
 
 const ASSET_TYPES = ["POP", "OLT", "Switch", "Router", "NAP", "Splitter", "UPS", "Servidor", "Camara", "Empalme", "Poste", "ONU", "Cliente"];
 const TIPO_COLOR: Record<string, string> = {
@@ -113,7 +114,7 @@ export default function InfraPanel({
   onCancelRoute: () => void;
   onFinishRoute: (opts: { nombre?: string; tipoFibra?: "monomodo" | "multimodo"; hilos?: number }) => void;
   placeTipo: string | null;
-  onStartPlace: (tipo: string) => void;
+  onStartPlace: (tipo: string, meta?: PlaceMeta) => void;
   onStopPlace: () => void;
   /** Subconjunto de pestañas a mostrar (por defecto todas). Permite separar las
    *  pestañas de ingeniería (Diseño) de las comerciales (Cobertura) por modo. */
@@ -230,7 +231,7 @@ function ActivosView({
   assets: AssetFeature[]; canEdit: boolean; naps: NapRecord[];
   onFocus: (lng: number, lat: number, color?: string) => void;
   onInfraChanged: () => void; setNetErr: (s: string | null) => void;
-  placeTipo: string | null; onStartPlace: (tipo: string) => void; onStopPlace: () => void;
+  placeTipo: string | null; onStartPlace: (tipo: string, meta?: PlaceMeta) => void; onStopPlace: () => void;
 }) {
   const [showNew, setShowNew] = useState(false);
   const [tipo, setTipo] = useState("NAP");
@@ -274,6 +275,23 @@ function ActivosView({
       onFocus(a.lng, a.lat, "#22E0A1");
     } catch (e: any) { setNetErr(e.message || "No se pudo crear el activo"); }
     finally { setBusy(false); }
+  }
+
+  // Ubicar por CLIC en el mapa: el punto es exacto y la dirección queda como la
+  // escribiste (sin geocodificar, que es lo que mandaba a otro lugar).
+  function ubicarEnMapa() {
+    const meta: PlaceMeta = {
+      nombre: nombre.trim() || undefined,
+      direccion: dir.trim() || undefined,
+      marca: marca.trim() || undefined,
+      modelo: modelo.trim() || undefined,
+      serie: serie.trim() || undefined,
+      puertosTotal: tipo === "NAP" ? parseInt(puertosTotal, 10) || undefined : undefined,
+      puertosUsados: tipo === "NAP" ? parseInt(puertosUsados, 10) || 0 : undefined,
+      planMensual: tipo === "Cliente" ? parseInt(planMensual, 10) || undefined : undefined,
+    };
+    onStartPlace(tipo, meta);
+    setNombre(""); setDir(""); setMarca(""); setModelo(""); setSerie(""); setPlanMensual(""); setShowNew(false);
   }
 
   async function eliminar(id: string) {
@@ -335,7 +353,7 @@ function ActivosView({
                 </select>
                 <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre (opcional)" className={inputCls + " flex-1"} />
               </div>
-              <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="Dirección o coordenada (geocodifica)" className={inputCls} />
+              <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="Dirección (la escribes tú; es etiqueta, no se geocodifica)" className={inputCls} />
               <div className="grid grid-cols-3 gap-2">
                 <input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Marca" className={inputCls} />
                 <input value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="Modelo" className={inputCls} />
@@ -359,8 +377,14 @@ function ActivosView({
                   <input type="number" min={0} value={planMensual} onChange={(e) => setPlanMensual(e.target.value)} placeholder="Ej: 70000" className={inputCls} />
                 </label>
               )}
-              <button onClick={crear} disabled={busy || dir.trim().length < 3} className="btn-cica text-xs disabled:opacity-50">
-                {busy ? "Guardando…" : "Crear activo"}
+              <button onClick={ubicarEnMapa} disabled={!nombre.trim()} className="btn-cica text-xs disabled:opacity-50">
+                📍 Ubicar en el mapa (clic exacto)
+              </button>
+              <p className="text-[10px] leading-relaxed text-cica-muted">
+                Escribe el nombre y la dirección, luego haz clic en el punto exacto del mapa. La posición será EXACTAMENTE donde hagas clic.
+              </p>
+              <button onClick={crear} disabled={busy || dir.trim().length < 3} className="btn-cica-ghost text-[11px] disabled:opacity-50">
+                {busy ? "Buscando…" : "o buscar la dirección automáticamente (geocodificar)"}
               </button>
             </div>
           )}

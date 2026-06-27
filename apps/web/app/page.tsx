@@ -6,7 +6,7 @@ import { io, Socket } from "socket.io-client";
 import type { MapData } from "../components/network/CoverageMap";
 import AppShell, { type Section } from "../components/shell/AppShell";
 import NetworkWorkspace from "../components/network/NetworkWorkspace";
-import { type NetworkMode } from "../components/network/types";
+import { type NetworkMode, type PlaceMeta } from "../components/network/types";
 import OrdenesPanel from "../components/operations/OrdenesPanel";
 import ContabilidadModule from "../components/finance/ContabilidadModule";
 import SoportePanel from "../components/operations/SoportePanel";
@@ -85,6 +85,8 @@ export default function Page() {
   const [placeTipo, setPlaceTipo] = useState<string | null>(null);
   // Si está definido, el activo colocado se ancla a este padre (construcción jerárquica).
   const [placeParentId, setPlaceParentId] = useState<string | null>(null);
+  // Datos (nombre/dirección/…) que el operador escribió para el activo a colocar.
+  const [placeMeta, setPlaceMeta] = useState<PlaceMeta | null>(null);
   const [placeBusy, setPlaceBusy] = useState(false);
   const [ipLoc, setIpLoc] = useState<IpLocation | null>(null);
   // Modo construcción / simulador de venta
@@ -297,10 +299,11 @@ export default function Page() {
   }
 
   // ---- Colocar activo (poste/NAP) con un clic en el mapa ----
-  function startPlace(tipo: string) {
+  function startPlace(tipo: string, meta?: PlaceMeta) {
     setSection("red"); setNetworkMode("design");
     setPlaceTipo(tipo);
     setPlaceParentId(null);
+    setPlaceMeta(meta ?? null);
     setRouting(false); setRoutePoints([]); setDrawing(false);
     setBuildMode(false); setBuildResult(null);
     setFocusPoint(null); setCoverage(null); setPin(null);
@@ -310,15 +313,23 @@ export default function Page() {
     startPlace(tipo);
     setPlaceParentId(parentId);
   }
-  function stopPlace() { setPlaceTipo(null); setPlaceParentId(null); }
+  function stopPlace() { setPlaceTipo(null); setPlaceParentId(null); setPlaceMeta(null); }
   async function placeAssetAt(lng: number, lat: number, tipo: string) {
     if (placeBusy) return;
     setPlaceBusy(true);
     try {
       const child = await createInfraAsset({
         tipo, lng, lat,
-        puertosTotal: tipo === "NAP" ? 16 : tipo === "Splitter" ? 8 : undefined,
-        puertosUsados: tipo === "NAP" || tipo === "Splitter" ? 0 : undefined,
+        // Nombre y dirección los escribe el operador (no se geocodifica): el punto
+        // es EXACTAMENTE donde hizo clic, y la dirección queda como etiqueta.
+        nombre: placeMeta?.nombre,
+        direccion: placeMeta?.direccion,
+        marca: placeMeta?.marca,
+        modelo: placeMeta?.modelo,
+        serie: placeMeta?.serie,
+        planMensual: placeMeta?.planMensual,
+        puertosTotal: placeMeta?.puertosTotal ?? (tipo === "NAP" ? 16 : tipo === "Splitter" ? 8 : undefined),
+        puertosUsados: placeMeta?.puertosUsados ?? (tipo === "NAP" || tipo === "Splitter" ? 0 : undefined),
       });
       if (placeParentId) {
         // Construcción jerárquica: ancla al padre, colocación única y deja el
@@ -327,9 +338,13 @@ export default function Page() {
         setPlaceParentId(null);
         setPlaceTipo(null);
         setInfraSelId(child.id);
+      } else if (placeMeta) {
+        // Colocación con datos propios = una sola pieza: termina y la selecciona.
+        setPlaceTipo(null);
+        setPlaceMeta(null);
+        setInfraSelId(child.id);
       }
       await refreshInfra(); // el nuevo activo aparece donde hiciste clic.
-      reverseGeocode(lat, lng).then((r) => setPinAddress(r.direccion)).catch(() => {});
     } catch (e: any) { setError(e.message); }
     finally { setPlaceBusy(false); }
   }

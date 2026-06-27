@@ -26,3 +26,16 @@ export const NETWORK_MODE_BY_KEY: Record<NetworkMode, NetworkModeMeta> = Object.
 
 /** Capas activables del mapa de operación/cobertura. */
 export type LayerKey = "barrios" | "cobertura" | "fibra" | "nodos" | "clientes";
+
+/** Datos que acompañan a un activo colocado por clic (nombre/dirección propios,
+ *  sin depender del geocoder). La posición la fija el clic en el mapa. */
+export type PlaceMeta = {
+  nombre?: string;
+  direccion?: string;
+  marca?: string;
+  modelo?: string;
+  serie?: string;
+  puertosTotal?: number;
+  puertosUsados?: number;
+  planMensual?: number;
+};

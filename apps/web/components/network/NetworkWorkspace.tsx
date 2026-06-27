@@ -8,7 +8,7 @@ import InfraPanel from "./InfraPanel";
 import AssetInspector from "./design/AssetInspector";
 import CoveragePanel from "./coverage/CoveragePanel";
 import ClientesPanel from "../crm/ClientesPanel";
-import type { NetworkMode, LayerKey } from "./types";
+import type { NetworkMode, LayerKey, PlaceMeta } from "./types";
 import type {
   CoverageResult,
   InfraBundle,
@@ -75,7 +75,7 @@ export interface NetworkWorkspaceProps {
 
   // colocar activos (diseño)
   placeTipo: string | null;
-  onStartPlace: (tipo: string) => void;
+  onStartPlace: (tipo: string, meta?: PlaceMeta) => void;
   onStopPlace: () => void;
   onShortcut: (action: "poste" | "nap" | "empalme" | "splitter" | "cable" | "cancel" | "undo") => void;
   /** Coloca un hijo anclado al activo seleccionado con el siguiente clic. */
