@@ -32,6 +32,7 @@ import {
   createInfraAsset,
   createInfraFiber,
   setAssetParent,
+  getAssetIsochrone,
   listTickets,
   ticketStats,
   whatsappHandoffsResumen,
@@ -94,6 +95,8 @@ export default function Page() {
   const [buildResult, setBuildResult] = useState<ConstructionResult | null>(null);
   // Mapa de calor de densidad de clientes (modo Cobertura).
   const [heatmapOn, setHeatmapOn] = useState(true);
+  // Polígono de alcance de tendido (Isochrone) de la NAP seleccionada en Cobertura.
+  const [reachArea, setReachArea] = useState<{ type: "FeatureCollection"; features: any[] } | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -218,6 +221,21 @@ export default function Page() {
   function goNetwork(mode: NetworkMode) {
     setSection("red");
     setNetworkMode(mode);
+  }
+
+  // Cambia de modo dentro de Red; al salir de Cobertura limpia el alcance dibujado.
+  function changeNetworkMode(mode: NetworkMode) {
+    setNetworkMode(mode);
+    if (mode !== "coverage") setReachArea(null);
+  }
+
+  // Alcance de tendido (Isochrone) de una NAP, dibujado en el mapa de Cobertura.
+  async function showReach(napId: string, metros?: number) {
+    try {
+      const r = await getAssetIsochrone(napId, metros);
+      setReachArea(r.isochrone);
+      if (!r.isochrone) setError("No se pudo calcular el alcance (revisa el token de Mapbox).");
+    } catch (e: any) { setError(e.message); }
   }
 
   const pinColor = buildResult
@@ -356,6 +374,7 @@ export default function Page() {
     if (s !== "red" && drawing) cancelDraw();
     if (s !== "red" && buildMode) { setBuildMode(false); setBuildResult(null); }
     if (s !== "red") { setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null); }
+    if (s !== "red") setReachArea(null);
   }
   function logout() { socketRef.current?.disconnect(); clearSession(); router.replace("/login"); }
 
@@ -424,7 +443,7 @@ export default function Page() {
       {isMapSection && (
         data ? (
           <NetworkWorkspace
-            mode={networkMode} onMode={setNetworkMode} canEdit={!!canEdit}
+            mode={networkMode} onMode={changeNetworkMode} canEdit={!!canEdit}
             data={data} infra={infra} naps={naps} zones={zones} cli={cliStats}
             visibility={visibility} onToggle={toggle}
             selectedNode={selectedNode} onNodeSelect={setSelectedNode}
@@ -438,6 +457,7 @@ export default function Page() {
             placeTipo={placeTipo} onStartPlace={startPlace} onStopPlace={stopPlace} onShortcut={onEditorShortcut} onPlaceChild={startPlaceChild}
             buildMode={buildMode} buildResult={buildResult} onToggleBuild={toggleBuildMode}
             heatmapOn={heatmapOn} onToggleHeatmap={() => setHeatmapOn((v) => !v)}
+            reachArea={reachArea} onShowReach={showReach}
             onInfraChanged={refreshInfra} onBundleChanged={refreshBundle}
           />
         ) : (

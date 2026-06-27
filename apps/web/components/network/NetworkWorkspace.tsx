@@ -90,6 +90,10 @@ export interface NetworkWorkspaceProps {
   heatmapOn: boolean;
   onToggleHeatmap: () => void;
 
+  /** Alcance de tendido (Isochrone) de la NAP seleccionada en Cobertura. */
+  reachArea: { type: "FeatureCollection"; features: any[] } | null;
+  onShowReach: (napId: string, metros?: number) => void;
+
   onInfraChanged: () => void;
   onBundleChanged: () => void;
 }
@@ -156,7 +160,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
           {p.mode === "coverage" && (
             <div className="flex flex-col gap-3">
               <ClientesPanel onCheckAddress={p.onCheckAddress} coverage={p.coverage} checking={p.checking} pinAddress={p.pinAddress} pin={p.pin} />
-              <CoveragePanel naps={p.naps} zones={p.zones} cli={p.cli} onFocus={p.onFocus} heatmapOn={p.heatmapOn} onToggleHeatmap={p.onToggleHeatmap} />
+              <CoveragePanel naps={p.naps} zones={p.zones} cli={p.cli} onFocus={p.onFocus} heatmapOn={p.heatmapOn} onToggleHeatmap={p.onToggleHeatmap} onShowReach={p.onShowReach} />
               <InfraPanel
                 tabs={["cobertura", "construccion"]}
                 showKpis={false}
@@ -203,6 +207,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
               infra={p.infra ? { assets: p.infra.assets, fiber: p.infra.fiber } : null}
               showOnlyInfra={true}
               heatmap={p.mode === "coverage" && p.heatmapOn}
+              reachArea={p.mode === "coverage" ? p.reachArea : null}
             />
           )}
 

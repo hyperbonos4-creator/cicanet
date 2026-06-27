@@ -54,6 +54,8 @@ type Props = {
   showOnlyInfra?: boolean;
   /** Muestra el mapa de calor de densidad de clientes (modo Cobertura). */
   heatmap?: boolean;
+  /** Polígono de alcance de tendido de una NAP (Isochrone) a dibujar. */
+  reachArea?: FC | null;
 };
 
 const DARK_STYLE: maplibregl.StyleSpecification = {
@@ -153,6 +155,7 @@ export default function CoverageMap({
   infra,
   showOnlyInfra,
   heatmap,
+  reachArea,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -407,6 +410,21 @@ export default function CoverageMap({
         type: "line",
         source: "zones",
         paint: { "line-color": "#22E0A1", "line-width": 2, "line-opacity": 0.85 },
+      });
+
+      // Alcance de tendido de una NAP (Isochrone) — polígono temporal.
+      map.addSource("reach", { type: "geojson", data: emptyFC() });
+      map.addLayer({
+        id: "reach-fill",
+        type: "fill",
+        source: "reach",
+        paint: { "fill-color": "#A855F7", "fill-opacity": 0.18 },
+      });
+      map.addLayer({
+        id: "reach-line",
+        type: "line",
+        source: "reach",
+        paint: { "line-color": "#A855F7", "line-width": 2, "line-opacity": 0.9, "line-dasharray": [2, 1] },
       });
 
       // Capa de dibujo en vivo (mientras el operador define una zona)
@@ -797,6 +815,26 @@ export default function CoverageMap({
       map.setLayoutProperty("clients-heat", "visibility", heatmap ? "visible" : "none");
     }
   }, [heatmap]);
+
+  // Alcance de tendido (Isochrone) de una NAP: dibuja el polígono y encuadra.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const src = map.getSource("reach") as any;
+    if (!src) return;
+    if (!reachArea || !reachArea.features?.length) { src.setData(emptyFC()); return; }
+    src.setData(reachArea as any);
+    try {
+      const b = new maplibregl.LngLatBounds();
+      for (const f of reachArea.features) {
+        const polys = f.geometry?.type === "Polygon" ? [f.geometry.coordinates] : f.geometry?.coordinates || [];
+        for (const ring of polys.flat(1) as any[]) {
+          if (Array.isArray(ring) && typeof ring[0] === "number") b.extend(ring as [number, number]);
+        }
+      }
+      if (!b.isEmpty()) map.fitBounds(b, { padding: 80, maxZoom: 17, duration: 600 });
+    } catch { /* sin encuadre si la geometría es inesperada */ }
+  }, [reachArea]);
 
   // Conmuta entre base oscura y las distintas imágenes (satélite/ortofoto).
   // Esri siempre actúa de respaldo bajo Mapbox/Ortofoto para que nunca quede en

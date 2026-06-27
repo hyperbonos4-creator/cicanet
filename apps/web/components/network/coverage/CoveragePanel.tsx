@@ -28,6 +28,7 @@ export default function CoveragePanel({
   onFocus,
   heatmapOn,
   onToggleHeatmap,
+  onShowReach,
 }: {
   naps: NapRecord[];
   zones: ZoneRecord[];
@@ -35,6 +36,7 @@ export default function CoveragePanel({
   onFocus: (lng: number, lat: number, color?: string) => void;
   heatmapOn: boolean;
   onToggleHeatmap: () => void;
+  onShowReach: (napId: string, metros?: number) => void;
 }) {
   const m = useMemo(() => {
     const total = naps.reduce((s, n) => s + (n.puertos_total || 0), 0);
@@ -115,11 +117,14 @@ export default function CoveragePanel({
         ) : (
           <div className="flex flex-col gap-1">
             {m.vender.map((n) => (
-              <button key={n.id} onClick={() => onFocus(n.lng, n.lat, SEM_COLOR[n.sem])} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-cica-border/30">
-                <span className="h-2 w-2 rounded-full" style={{ background: SEM_COLOR[n.sem] }} />
-                <span className="truncate text-[11px] text-cica-silver">{n.nombre}</span>
-                <span className="ml-auto text-[11px] font-bold text-status-ftth">{n.libres} libres</span>
-              </button>
+              <div key={n.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-cica-border/30">
+                <button onClick={() => onFocus(n.lng, n.lat, SEM_COLOR[n.sem])} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: SEM_COLOR[n.sem] }} />
+                  <span className="truncate text-[11px] text-cica-silver">{n.nombre}</span>
+                  <span className="ml-auto text-[11px] font-bold text-status-ftth">{n.libres} libres</span>
+                </button>
+                <button onClick={() => onShowReach(n.id)} title="Ver alcance de tendido por calles" className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-cica-glow hover:bg-cica-glow/15">◎</button>
+              </div>
             ))}
           </div>
         )}

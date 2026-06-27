@@ -382,6 +382,72 @@ export class GeoService {
   }
 
   /**
+   * Polígono de ALCANCE (Isochrone) a `metros` siguiendo las calles desde un
+   * punto — útil para el área real que una NAP puede servir por longitud de
+   * tendido. Devuelve un FeatureCollection GeoJSON o null (respaldo del llamador).
+   */
+  async isochrone(
+    lng: number,
+    lat: number,
+    metros: number,
+    profile: 'walking' | 'driving' | 'cycling' = 'walking',
+  ): Promise<any | null> {
+    const token = config.geo.mapboxToken;
+    if (!token) return null;
+    const m = Math.max(50, Math.min(100000, Math.round(metros)));
+    const url =
+      `https://api.mapbox.com/isochrone/v1/mapbox/${profile}/${lng},${lat}` +
+      `?contours_meters=${m}&polygons=true&denoise=1&access_token=${encodeURIComponent(token)}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) {
+        this.logger.warn(`Isochrone respondió ${res.status}.`);
+        return null;
+      }
+      const data: any = await res.json();
+      if (!data?.features?.length) return null;
+      return data;
+    } catch (e: any) {
+      this.logger.warn(`Isochrone falló: ${e.message}.`);
+      return null;
+    }
+  }
+
+  /**
+   * Distancias por carretera/calle desde un origen a varios destinos (Matrix).
+   * Devuelve metros por destino (null si inalcanzable) o null si no hay token /
+   * falla. Mapbox Matrix admite 25 coordenadas: se limita a 24 destinos.
+   */
+  async travelDistances(
+    origin: { lng: number; lat: number },
+    dests: { lng: number; lat: number }[],
+    profile: 'walking' | 'driving' | 'cycling' = 'walking',
+  ): Promise<(number | null)[] | null> {
+    const token = config.geo.mapboxToken;
+    if (!token || dests.length === 0) return null;
+    const limited = dests.slice(0, 24);
+    const coords = [origin, ...limited].map((p) => `${p.lng},${p.lat}`).join(';');
+    const destIdx = limited.map((_, i) => i + 1).join(';');
+    const url =
+      `https://api.mapbox.com/directions-matrix/v1/mapbox/${profile}/${coords}` +
+      `?sources=0&destinations=${destIdx}&annotations=distance&access_token=${encodeURIComponent(token)}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        this.logger.warn(`Matrix respondió ${res.status}.`);
+        return null;
+      }
+      const data: any = await res.json();
+      const row = data?.distances?.[0];
+      if (!Array.isArray(row)) return null;
+      return row.map((d: any) => (typeof d === 'number' ? Math.round(d) : null));
+    } catch (e: any) {
+      this.logger.warn(`Matrix falló: ${e.message}.`);
+      return null;
+    }
+  }
+
+  /**
    * Geolocaliza una IP pública real. Para IPs privadas/localhost (desarrollo)
    * devuelve el centro del barrio como fallback honesto (fuente: 'fallback').
    */

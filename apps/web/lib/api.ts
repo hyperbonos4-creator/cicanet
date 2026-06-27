@@ -397,6 +397,18 @@ export function getAssetTrace(id: string): Promise<TraceResult> {
   return authFetch(`/infra/assets/${encodeURIComponent(id)}/trace`);
 }
 
+export type IsochroneResult = {
+  id: string;
+  metros: number;
+  centro: { lng: number; lat: number };
+  isochrone: { type: "FeatureCollection"; features: any[] } | null;
+};
+/** Polígono de alcance de tendido (Isochrone) de una NAP/activo. */
+export function getAssetIsochrone(id: string, metros?: number): Promise<IsochroneResult> {
+  const qs = metros ? `?metros=${metros}` : "";
+  return authFetch(`/infra/assets/${encodeURIComponent(id)}/isochrone${qs}`);
+}
+
 // ---- Evidencia fotográfica georreferenciada (vista de calle propia) ----
 export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion" | "pano360";
 

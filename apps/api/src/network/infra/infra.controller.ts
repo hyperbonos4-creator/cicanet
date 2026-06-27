@@ -250,6 +250,12 @@ export class InfraController {
     return this.infra.tracePath(id);
   }
 
+  /** Polígono de alcance de tendido (Isochrone) de una NAP/activo. */
+  @Get('assets/:id/isochrone')
+  isochrone(@Param('id') id: string, @Query('metros') metros?: string) {
+    return this.infra.isochroneForAsset(id, metros ? parseInt(metros, 10) : undefined);
+  }
+
   /** Exporta la red en formato OFDS (Open Fibre Data Standard). */
   @Get('export/ofds')
   exportOfds() {

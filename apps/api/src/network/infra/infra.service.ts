@@ -237,26 +237,38 @@ export class InfraService implements OnModuleInit {
 
   /**
    * Modo construcción / simulador de venta: evalúa un punto contra las NAP
-   * reales. Devuelve la NAP más cercana, viabilidad, costo y tiempo estimados.
+   * reales. Prefiltra por cercanía (haversine) y refina con distancia REAL por
+   * calle (Matrix) para una viabilidad fiel. Devuelve NAP, viabilidad y costos.
    */
-  evaluateConstruction(lng: number, lat: number) {
+  async evaluateConstruction(lng: number, lat: number) {
     const DEFAULT_DISTANCIA_MAX = 300; // metros (longitud típica de acometida FTTH)
-    const candidates: (NapCandidate & { nombre: string; lng: number; lat: number })[] = this.assets
-      .filter((a) => a.tipo === 'NAP')
-      .map((a) => {
-        const cap = this.capacityOf(a);
-        const distanciaTendido = Math.round(haversine(lat, lng, a.lat, a.lng));
-        const distanciaMax = Number(a.atributos?.distanciaMax) || DEFAULT_DISTANCIA_MAX;
-        return {
-          id: a.id,
-          nombre: a.nombre,
-          lng: a.lng,
-          lat: a.lat,
-          puertosLibres: cap?.libres ?? 0,
-          distanciaTendido,
-          distanciaMax,
-        };
-      });
+    const naps = this.assets.filter((a) => a.tipo === 'NAP');
+    // Prefiltro barato: las 8 NAP más cercanas en línea recta.
+    const top = naps
+      .map((a) => ({ a, h: haversine(lat, lng, a.lat, a.lng) }))
+      .sort((x, y) => x.h - y.h)
+      .slice(0, 8);
+
+    // Distancia REAL por calle a las candidatas (Matrix). Si falla, usa haversine.
+    let roads: (number | null)[] | null = null;
+    try {
+      roads = await this.geo.travelDistances({ lng, lat }, top.map((t) => ({ lng: t.a.lng, lat: t.a.lat })));
+    } catch { roads = null; }
+
+    const candidates: (NapCandidate & { nombre: string; lng: number; lat: number })[] = top.map((t, i) => {
+      const cap = this.capacityOf(t.a);
+      const road = roads && typeof roads[i] === 'number' ? (roads[i] as number) : null;
+      const distanciaMax = Number(t.a.atributos?.distanciaMax) || DEFAULT_DISTANCIA_MAX;
+      return {
+        id: t.a.id,
+        nombre: t.a.nombre,
+        lng: t.a.lng,
+        lat: t.a.lat,
+        puertosLibres: cap?.libres ?? 0,
+        distanciaTendido: road ?? Math.round(t.h),
+        distanciaMax,
+      };
+    });
 
     const evalr = evalConstruction(candidates);
     const nap = evalr.nap ? candidates.find((c) => c.id === evalr.nap!.id) || null : null;
@@ -274,6 +286,16 @@ export class InfraService implements OnModuleInit {
         : null,
     };
   }
+
+  /** Polígono de alcance de tendido (Isochrone) de una NAP/activo. */
+  async isochroneForAsset(id: string, metros?: number) {
+    const a = this.assets.find((x) => x.id === id);
+    if (!a) throw new NotFoundException('Activo no encontrado.');
+    const m = metros || Number(a.atributos?.distanciaMax) || 300;
+    const isochrone = await this.geo.isochrone(a.lng, a.lat, m);
+    return { id, metros: m, centro: { lng: a.lng, lat: a.lat }, isochrone };
+  }
+
 
   /**
    * Motor de asignación: rankea las NAP candidatas para un punto (alta de
