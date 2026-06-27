@@ -7,6 +7,7 @@ import NetworkModeSwitch from "./NetworkModeSwitch";
 import OperacionPanel from "./OperacionPanel";
 import InfraPanel from "./InfraPanel";
 import AssetInspector from "./design/AssetInspector";
+import UndoBar from "./design/UndoBar";
 import CoveragePanel from "./coverage/CoveragePanel";
 import ClientesPanel from "../crm/ClientesPanel";
 import type { NetworkMode, LayerKey, PlaceMeta } from "./types";
@@ -162,6 +163,8 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
         <aside className="max-h-[45%] w-full shrink-0 overflow-y-auto border-b border-cica-border/70 bg-cica-navy/40 p-4 md:max-h-none md:w-[336px] md:border-b-0 md:border-r">
           {p.mode === "design" && (
             <div className="flex flex-col gap-3">
+              {/* Deshacer: revierte tarea por tarea lo construido (Ctrl+Z). */}
+              <UndoBar />
               {/* Conectar postes: el flujo simple de tendido pole-a-pole. */}
               <div className={`rounded-xl border p-3 ${p.chaining ? "border-cica-glow/60 bg-cica-glow/10" : "border-cica-border/70 bg-cica-navy/40"}`}>
                 <div className="flex items-center justify-between gap-2">

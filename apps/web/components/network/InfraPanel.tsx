@@ -26,6 +26,7 @@ import {
 } from "../../lib/api";
 import type { PlaceMeta } from "./types";
 import AssetPalette, { DEVICE_META } from "./design/AssetPalette";
+import { undoStack } from "../../lib/undoStack";
 
 const ASSET_TYPES = ["POP", "OLT", "Switch", "Router", "NAP", "Splitter", "UPS", "Servidor", "Camara", "Empalme", "Poste", "ONU", "Cliente"];
 const TIPO_COLOR: Record<string, string> = {
@@ -278,6 +279,7 @@ function ActivosView({
       setNombre(""); setDir(""); setMarca(""); setModelo(""); setSerie(""); setPlanMensual(""); setShowNew(false);
       onInfraChanged();
       onFocus(a.lng, a.lat, "#22E0A1");
+      undoStack.push(`${tipo} creado: ${a.nombre || a.id}`, async () => { await deleteInfraAsset(a.id); onInfraChanged(); });
     } catch (e: any) { setNetErr(e.message || "No se pudo crear el activo"); }
     finally { setBusy(false); }
   }
@@ -886,6 +888,7 @@ function TopologiaView({  assets, fibras, canEdit, onFocus, onInfraChanged, setN
       setOrigenId(""); setDestinoId("");
       onInfraChanged();
       onFocus(f.origen.lng, f.origen.lat, "#6366F1");
+      undoStack.push(`Tramo de fibra: ${f.nombre || f.id}`, async () => { await deleteInfraFiber(f.id); onInfraChanged(); });
     } catch (e: any) { setNetErr(e.message || "No se pudo crear el tramo"); }
     finally { setBusy(false); }
   }

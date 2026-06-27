@@ -36,6 +36,7 @@ import {
   getAssetIsochrone,
   updateInfraFiber,
   deleteInfraFiber,
+  deleteInfraAsset,
   listTickets,
   ticketStats,
   whatsappHandoffsResumen,
@@ -49,6 +50,7 @@ import {
   type ConstructionResult,
   type TicketStats,
 } from "../lib/api";
+import { undoStack } from "../lib/undoStack";
 
 type LayerKey = "barrios" | "cobertura" | "fibra" | "nodos" | "clientes";
 
@@ -381,8 +383,12 @@ export default function Page() {
     if (!chainFrom) { setChainFrom({ id: snappedId, lng, lat, nombre }); setInfraSelId(snappedId); return; }
     if (chainFrom.id === snappedId) return; // mismo poste: ignora
     try {
-      await createInfraFiber({ origenId: chainFrom.id, destinoId: snappedId });
+      const f = await createInfraFiber({ origenId: chainFrom.id, destinoId: snappedId });
       await refreshInfra();
+      undoStack.push(`Tramo de fibra: ${chainFrom.nombre} → ${nombre}`, async () => {
+        await deleteInfraFiber(f.id);
+        await refreshInfra();
+      });
       setChainFrom({ id: snappedId, lng, lat, nombre }); // continúa desde el destino
       setInfraSelId(snappedId);
     } catch (e: any) { setError(e.message); }
@@ -393,9 +399,13 @@ export default function Page() {
     const origenId = routeSnaps[0] || undefined;
     const destinoId = routeSnaps[routeSnaps.length - 1] || undefined;
     try {
-      await createInfraFiber({ trazado: routePoints, origenId, destinoId, ...opts });
+      const f = await createInfraFiber({ trazado: routePoints, origenId, destinoId, ...opts });
       setRouting(false); setRoutePoints([]); setRouteSnaps([]);
       await refreshInfra();
+      undoStack.push(opts.nombre ? `Fibra: ${opts.nombre}` : "Tramo de fibra trazado", async () => {
+        await deleteInfraFiber(f.id);
+        await refreshInfra();
+      });
     } catch (e: any) { setError(e.message); }
   }
 
@@ -459,6 +469,11 @@ export default function Page() {
         setInfraSelId(child.id);
       }
       await refreshInfra(); // el nuevo activo aparece donde hiciste clic.
+      undoStack.push(`${tipo} colocado: ${child.nombre || child.id}`, async () => {
+        await deleteInfraAsset(child.id);
+        setInfraSelId((cur) => (cur === child.id ? null : cur));
+        await refreshInfra();
+      });
     } catch (e: any) { setError(e.message); }
     finally { setPlaceBusy(false); }
   }
