@@ -15,6 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -69,6 +70,8 @@ class CreateFiberDto {
   @IsOptional() destino?: { lng: number; lat: number };
   /** Trazado real poste a poste: arreglo de [lng,lat]. */
   @IsOptional() @IsArray() trazado?: number[][];
+  /** Rutea el tramo siguiendo las calles (Mapbox Directions) si no hay trazado manual. */
+  @IsOptional() @IsBoolean() rutearPorCalle?: boolean;
 }
 
 class GeneratePortsDto {

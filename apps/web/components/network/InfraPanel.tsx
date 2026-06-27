@@ -890,13 +890,14 @@ function TopologiaView({  assets, fibras, canEdit, onFocus, onInfraChanged, setN
   const [destinoId, setDestinoId] = useState("");
   const [tipoFibra, setTipoFibra] = useState<"monomodo" | "multimodo">("monomodo");
   const [hilos, setHilos] = useState("12");
+  const [porCalle, setPorCalle] = useState(true);
   const [busy, setBusy] = useState(false);
 
   async function crearTramo() {
     if (!origenId || !destinoId || origenId === destinoId) return;
     setBusy(true); setNetErr(null);
     try {
-      const f = await createInfraFiber({ origenId, destinoId, tipoFibra, hilos: parseInt(hilos, 10) || undefined });
+      const f = await createInfraFiber({ origenId, destinoId, tipoFibra, hilos: parseInt(hilos, 10) || undefined, rutearPorCalle: porCalle });
       setOrigenId(""); setDestinoId("");
       onInfraChanged();
       onFocus(f.origen.lng, f.origen.lat, "#6366F1");
@@ -944,6 +945,10 @@ function TopologiaView({  assets, fibras, canEdit, onFocus, onInfraChanged, setN
                   {["6", "12", "24", "48", "96", "144"].map((h) => <option key={h} value={h}>{h} hilos</option>)}
                 </select>
               </div>
+              <label className="flex items-center gap-2 text-[11px] text-cica-silver">
+                <input type="checkbox" checked={porCalle} onChange={(e) => setPorCalle(e.target.checked)} className="accent-cica-gold" />
+                Seguir las calles (ruta y longitud reales)
+              </label>
               <button onClick={crearTramo} disabled={busy || !origenId || !destinoId || origenId === destinoId} className="btn-cica text-xs disabled:opacity-50">
                 {busy ? "Guardando…" : "Crear tramo"}
               </button>

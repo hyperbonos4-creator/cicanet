@@ -347,6 +347,41 @@ export class GeoService {
   }
 
   /**
+   * Ruta REAL siguiendo las calles entre dos puntos (Mapbox Directions). Para
+   * tendido de fibra se usa el perfil peatonal (`walking`), el más flexible para
+   * seguir vías sin la restricción de sentidos del tráfico. Devuelve la polilínea
+   * [[lng,lat],…] y la distancia en metros. Si no hay token o el servicio falla,
+   * devuelve null para que el llamador use la línea recta como respaldo.
+   */
+  async routeAlongStreets(
+    o: { lng: number; lat: number },
+    d: { lng: number; lat: number },
+    profile: 'walking' | 'driving' | 'cycling' = 'walking',
+  ): Promise<{ coords: number[][]; distancia: number } | null> {
+    const token = config.geo.mapboxToken;
+    if (!token) return null;
+    const coordsParam = `${o.lng},${o.lat};${d.lng},${d.lat}`;
+    const url =
+      `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coordsParam}` +
+      `?geometries=geojson&overview=full&access_token=${encodeURIComponent(token)}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) {
+        this.logger.warn(`Directions respondió ${res.status}; uso recta.`);
+        return null;
+      }
+      const data: any = await res.json();
+      const route = data?.routes?.[0];
+      const coords = route?.geometry?.coordinates;
+      if (!Array.isArray(coords) || coords.length < 2) return null;
+      return { coords, distancia: Math.round(route.distance ?? 0) };
+    } catch (e: any) {
+      this.logger.warn(`Directions falló: ${e.message}; uso recta.`);
+      return null;
+    }
+  }
+
+  /**
    * Geolocaliza una IP pública real. Para IPs privadas/localhost (desarrollo)
    * devuelve el centro del barrio como fallback honesto (fuente: 'fallback').
    */

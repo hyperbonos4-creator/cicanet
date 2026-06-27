@@ -327,6 +327,8 @@ export function createInfraFiber(input: {
   destino?: { lng: number; lat: number };
   /** Trazado real poste a poste: arreglo de [lng,lat]. */
   trazado?: number[][];
+  /** Rutea el tramo siguiendo las calles (Mapbox Directions) si no hay trazado manual. */
+  rutearPorCalle?: boolean;
 }): Promise<InfraFiber> {
   return authFetch("/infra/fiber", { method: "POST", body: JSON.stringify(input) });
 }

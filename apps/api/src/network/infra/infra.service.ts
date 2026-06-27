@@ -526,6 +526,8 @@ export class InfraService implements OnModuleInit {
     destino?: { lng: number; lat: number };
     /** Trazado real poste a poste [[lng,lat], ...]. Si llega, manda sobre los extremos rectos. */
     trazado?: number[][];
+    /** Si true y no hay trazado manual, rutea el tramo siguiendo las calles (Directions). */
+    rutearPorCalle?: boolean;
     creadoPor?: string;
   }): Promise<FiberSegment> {
     // Polilínea trazada en el mapa (poste a poste). Sanitiza y descarta duplicados consecutivos.
@@ -544,13 +546,24 @@ export class InfraService implements OnModuleInit {
       if (input.destinoId) { const e = await this.resolveEndpoint(input.destinoId); d = e; path[path.length - 1] = [e.lng, e.lat]; }
       coords = path;
     } else {
-      // Modo clásico: dos extremos (activo / dirección / coordenada) unidos por una recta.
+      // Modo clásico: dos extremos (activo / dirección / coordenada).
       o = await this.resolveEndpoint(input.origenId, input.origenDireccion, input.origen);
       d = await this.resolveEndpoint(input.destinoId, input.destinoDireccion, input.destino);
       coords = [
         [o.lng, o.lat],
         [d.lng, d.lat],
       ];
+      // Ruteo por calles: la fibra sigue las vías reales (longitud y trazado
+      // realistas) en vez de una recta. Los extremos se fijan a los activos.
+      if (input.rutearPorCalle) {
+        const r = await this.geo.routeAlongStreets({ lng: o.lng, lat: o.lat }, { lng: d.lng, lat: d.lat });
+        if (r && r.coords.length >= 2) {
+          const c = r.coords.map((p) => [p[0], p[1]]);
+          c[0] = [o.lng, o.lat];
+          c[c.length - 1] = [d.lng, d.lat];
+          coords = c;
+        }
+      }
     }
 
     if (o.lng === d.lng && o.lat === d.lat && coords.length < 2) {
