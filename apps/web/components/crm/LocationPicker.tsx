@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map as MlMap, Marker } from "maplibre-gl";
-import { API_URL, geocode } from "../../lib/api";
+import { API_URL, geocode, reverseGeocodeDetailed, type ReverseDetailed } from "../../lib/api";
 
 type Base = "satelite" | "ortofoto" | "mapa";
 
@@ -37,11 +37,14 @@ export default function LocationPicker({
   lng,
   address,
   onChange,
+  onResolved,
 }: {
   lat?: number;
   lng?: number;
   address?: string;
   onChange: (lat: number, lng: number) => void;
+  /** Reporta las partes de la dirección al marcar el punto (autocompletar). */
+  onResolved?: (parts: ReverseDetailed) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
@@ -49,6 +52,23 @@ export default function LocationPicker({
   const loadedRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onResolvedRef = useRef(onResolved);
+  onResolvedRef.current = onResolved;
+  const resolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reverse geocoding (con debounce) para autocompletar la dirección del punto.
+  function resolveAddress(latV: number, lngV: number) {
+    if (!onResolvedRef.current) return;
+    if (resolveTimer.current) clearTimeout(resolveTimer.current);
+    resolveTimer.current = setTimeout(async () => {
+      try {
+        const parts = await reverseGeocodeDetailed(latV, lngV);
+        onResolvedRef.current?.(parts);
+      } catch {
+        /* silencioso: el operador siempre puede escribir a mano */
+      }
+    }, 450);
+  }
 
   const [base, setBase] = useState<Base>("satelite");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
@@ -58,7 +78,9 @@ export default function LocationPicker({
   const [msg, setMsg] = useState<string | null>(null);
 
   // Coloca/mueve el marcador exacto y reporta la coordenada hacia el formulario.
-  function place(lngV: number, latV: number, fly = false) {
+  // `resolve` = true cuando es una acción del usuario (clic/arrastre/GPS/centrar):
+  // dispara el autocompletado de la dirección. En el montaje inicial es false.
+  function place(lngV: number, latV: number, fly = false, resolve = false) {
     const map = mapRef.current;
     if (!map) return;
     if (!markerRef.current) {
@@ -70,6 +92,7 @@ export default function LocationPicker({
         const ll = m.getLngLat();
         setCoords({ lat: ll.lat, lng: ll.lng });
         onChangeRef.current(ll.lat, ll.lng);
+        resolveAddress(ll.lat, ll.lng);
       });
       markerRef.current = m;
       m.setLngLat([lngV, latV]).addTo(map);
@@ -78,6 +101,7 @@ export default function LocationPicker({
     }
     setCoords({ lat: latV, lng: lngV });
     onChangeRef.current(latV, lngV);
+    if (resolve) resolveAddress(latV, lngV);
     if (fly) map.flyTo({ center: [lngV, latV], zoom: Math.max(map.getZoom(), 18), speed: 0.9 });
   }
 
@@ -121,8 +145,8 @@ export default function LocationPicker({
       if (lng != null && lat != null) place(lng, lat);
     });
 
-    // Clic en el mapa = ubicar la casa EXACTA en ese punto.
-    map.on("click", (e) => { place(e.lngLat.lng, e.lngLat.lat); });
+    // Clic en el mapa = ubicar la casa EXACTA en ese punto (y autocompletar).
+    map.on("click", (e) => { place(e.lngLat.lng, e.lngLat.lat, false, true); });
     map.getCanvas().style.cursor = "crosshair";
 
     return () => {
@@ -165,7 +189,7 @@ export default function LocationPicker({
         setMsg("No pude ubicar esa dirección dentro de tu zona. Marca el punto EXACTO con un clic en el mapa (o usa el GPS en sitio).");
         return;
       }
-      place(c.lng, c.lat, true);
+      place(c.lng, c.lat, true, true);
       setMsg(c.dentroDelBarrio
         ? "Aproximado por la dirección. Ajusta el pin al punto EXACTO de la casa."
         : "Aproximado (fuera del barrio). Verifica y ajusta el pin a la casa exacta.");
@@ -182,7 +206,7 @@ export default function LocationPicker({
     setMsg("Obteniendo ubicación GPS…");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        place(pos.coords.longitude, pos.coords.latitude, true);
+        place(pos.coords.longitude, pos.coords.latitude, true, true);
         const acc = Math.round(pos.coords.accuracy || 0);
         if (acc > 80) {
           setMsg(`GPS poco preciso (~${acc} m, típico en escritorio). Arrastra el pin a la casa exacta.`);

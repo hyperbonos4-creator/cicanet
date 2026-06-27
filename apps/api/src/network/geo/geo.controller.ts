@@ -52,6 +52,13 @@ export class GeoController {
     return { direccion };
   }
 
+  /** Coordenadas -> dirección ESTRUCTURADA (calle/barrio/comuna/ciudad/depto)
+   *  para autocompletar el formulario al marcar el punto en el mapa. */
+  @Post('reverse-detailed')
+  reverseDetailed(@Body() dto: ReverseDto) {
+    return this.geo.reverseDetailed(dto.lat, dto.lng);
+  }
+
   /** ¿Hay Street View cerca de este punto? (metadata gratuita de Google). */
   @Get('streetview')
   streetview(@Query('lat') lat: string, @Query('lng') lng: string) {

@@ -412,6 +412,90 @@ export class GeoService {
   }
 
   /**
+   * Reverse geocoding ESTRUCTURADO: dado un punto del mapa devuelve las partes
+   * de la dirección (calle, barrio, comuna, ciudad, departamento) para
+   * autocompletar el formulario. Prefiere Mapbox; si falla, OSM/Nominatim; y
+   * como último recurso, la cadena simple del reverse normal.
+   */
+  async reverseDetailed(
+    lat: number,
+    lng: number,
+  ): Promise<{
+    direccion: string | null;
+    barrio: string | null;
+    comuna: string | null;
+    ciudad: string | null;
+    departamento: string | null;
+  }> {
+    if (config.geo.mapboxToken) {
+      try {
+        const r = await this.mapboxReverseDetailed(lat, lng);
+        if (r?.direccion) return r;
+      } catch (e: any) {
+        this.logger.warn(`Mapbox reverse detallado falló: ${e.message}`);
+      }
+    }
+    try {
+      const r = await this.nominatimReverseDetailed(lat, lng);
+      if (r?.direccion) return r;
+    } catch (e: any) {
+      this.logger.warn(`Nominatim reverse detallado falló: ${e.message}`);
+    }
+    const direccion = await this.reverse(lat, lng).catch(() => null);
+    return { direccion, barrio: null, comuna: null, ciudad: null, departamento: null };
+  }
+
+  private async mapboxReverseDetailed(lat: number, lng: number) {
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+      `?access_token=${encodeURIComponent(config.geo.mapboxToken)}&language=es&limit=1`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const f = data.features?.[0];
+    if (!f) return null;
+    const ctx: { id?: string; text?: string }[] = f.context || [];
+    const byPrefix = (p: string) => ctx.find((c) => (c.id || '').startsWith(p))?.text || null;
+    const calle = f.text || null;
+    const placa = f.address ? ` ${f.address}` : '';
+    const direccion = calle
+      ? `${calle}${placa}`
+      : (f.place_name ? String(f.place_name).split(',')[0] : null);
+    return {
+      direccion: direccion || f.place_name || null,
+      barrio: byPrefix('neighborhood') || byPrefix('locality') || null,
+      comuna: byPrefix('district') || null,
+      ciudad: byPrefix('place') || null,
+      departamento: byPrefix('region') || null,
+    };
+  }
+
+  private async nominatimReverseDetailed(lat: number, lng: number) {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lon: String(lng),
+      format: 'jsonv2',
+      'accept-language': 'es',
+      addressdetails: '1',
+    });
+    const res = await fetch(`${config.geo.nominatimUrl}/reverse?${params.toString()}`, {
+      headers: { 'User-Agent': config.geo.userAgent, 'Accept-Language': 'es' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    const a = d.address || {};
+    const calle = [a.road, a.house_number].filter(Boolean).join(' ') || null;
+    return {
+      direccion: calle || (d.display_name ? String(d.display_name).split(',')[0] : null),
+      barrio: a.neighbourhood || a.suburb || a.quarter || null,
+      comuna: a.city_district || null,
+      ciudad: a.city || a.town || a.village || a.municipality || null,
+      departamento: a.state || null,
+    };
+  }
+
+  /**
    * Ruta REAL siguiendo las calles entre dos puntos (Mapbox Directions). Para
    * tendido de fibra se usa el perfil peatonal (`walking`), el más flexible para
    * seguir vías sin la restricción de sentidos del tráfico. Devuelve la polilínea

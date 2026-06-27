@@ -146,6 +146,18 @@ export default function ClienteForm({
               lng={f.lng}
               address={[f.direccion, f.barrio, f.ciudad].filter(Boolean).join(", ")}
               onChange={(lat, lng) => setF((s) => ({ ...s, lat, lng }))}
+              onResolved={(p) =>
+                setF((s) => ({
+                  ...s,
+                  // Al marcar el punto, la dirección del mapa manda: rellena lo que
+                  // el reverse devuelva (sin borrar lo que ya esté si viene vacío).
+                  direccion: p.direccion || s.direccion,
+                  barrio: p.barrio || s.barrio,
+                  comuna: p.comuna || s.comuna,
+                  ciudad: p.ciudad || s.ciudad,
+                  departamento: p.departamento || s.departamento,
+                }))
+              }
             />
           </div>
         </Section>

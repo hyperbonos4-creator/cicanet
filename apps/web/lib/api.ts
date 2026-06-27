@@ -208,6 +208,21 @@ export function reverseGeocode(lat: number, lng: number): Promise<{ direccion: s
   });
 }
 
+export type ReverseDetailed = {
+  direccion: string | null;
+  barrio: string | null;
+  comuna: string | null;
+  ciudad: string | null;
+  departamento: string | null;
+};
+/** Reverse geocoding estructurado para autocompletar el formulario al marcar el punto. */
+export function reverseGeocodeDetailed(lat: number, lng: number): Promise<ReverseDetailed> {
+  return authFetch("/geo/reverse-detailed", {
+    method: "POST",
+    body: JSON.stringify({ lat, lng }),
+  });
+}
+
 // ---- Street View (Google, gateado por disponibilidad) ----
 export type StreetViewMeta = {
   disponible: boolean;
