@@ -96,6 +96,13 @@ export interface NetworkWorkspaceProps {
 
   onInfraChanged: () => void;
   onBundleChanged: () => void;
+
+  /** Guarda el trazado reeditado de un tramo de fibra (arrastre de vértices). */
+  onSaveFiber: (
+    id: string,
+    trazado: [number, number][],
+    ends: { origenId?: string | null; destinoId?: string | null },
+  ) => Promise<void> | void;
 }
 
 /**
@@ -197,6 +204,8 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
               draggablePin={p.pin}
               pinColor={p.pinColor}
               onPinMove={p.onProbe}
+              canEdit={p.canEdit}
+              onSaveFiber={p.onSaveFiber}
             />
           ) : (
             <CoverageMap
@@ -222,7 +231,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
                   <LegendDot color="#22E0A1" label="NAP / Caja" />
                   <LegendDot color="#38BDF8" label="Splitter" />
                   <LegendDot color="#A3E635" label="Empalme" />
-                  <LegendDot color="#818CF8" label="Fibra" />
+                  <LegendDot color="#3B82F6" label="Fibra" />
                   <LegendDot color="#2DD4BF" label="Enlace topología" />
                   <LegendDot color="#38BDF8" label="Cliente" />
                 </div>

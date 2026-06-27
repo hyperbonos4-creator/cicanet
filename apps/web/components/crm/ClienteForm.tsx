@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import type { Cliente, ClienteInput, NapSuggestion } from "../../lib/api";
 import { geocode, suggestNaps } from "../../lib/api";
 import { inputCls } from "./ClientesModule";
+
+const LocationPicker = dynamic(() => import("./LocationPicker"), { ssr: false });
 
 const num = (v: string): number | undefined => (v.trim() === "" ? undefined : Number(v));
 
@@ -133,6 +136,18 @@ export default function ClienteForm({
             <Select value={String(f.estrato ?? "")} onChange={(v) => set("estrato")(num(v))} options={[["", "—"], ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"], ["6", "6"]]} />
           </Field>
           <Field label="Referencias" wide><input className={inputCls} value={f.referencias || ""} onChange={(e) => set("referencias")(e.target.value)} placeholder="Casa esquinera, portón verde…" /></Field>
+          <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-4">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-cica-muted">
+              Ubicación exacta de la casa
+              {f.lat != null && f.lng != null && <span className="ml-1 text-status-ftth">· marcada ✓</span>}
+            </span>
+            <LocationPicker
+              lat={f.lat}
+              lng={f.lng}
+              address={[f.direccion, f.barrio, f.ciudad].filter(Boolean).join(", ")}
+              onChange={(lat, lng) => setF((s) => ({ ...s, lat, lng }))}
+            />
+          </div>
         </Section>
 
         {/* 3. Plan y datos técnicos */}

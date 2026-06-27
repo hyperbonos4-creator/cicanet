@@ -32,7 +32,9 @@ import {
   createInfraAsset,
   createInfraFiber,
   setAssetParent,
+  coverageIsochrones,
   getAssetIsochrone,
+  updateInfraFiber,
   listTickets,
   ticketStats,
   whatsappHandoffsResumen,
@@ -157,6 +159,44 @@ export default function Page() {
 
   const toggle = (k: LayerKey) => setVisibility((v) => ({ ...v, [k]: !v[k] }));
 
+  // Cierre de sesión por INACTIVIDAD: tras 30 min sin actividad del usuario
+  // (mouse/teclado/scroll/touch) se cierra la sesión. Cualquier interacción
+  // reinicia el contador, así que mientras se trabaja la sesión nunca cae.
+  useEffect(() => {
+    if (!user) return;
+    const INACTIVITY_MS = 30 * 60 * 1000; // 30 minutos
+    let timer: ReturnType<typeof setTimeout>;
+    const cerrarPorInactividad = () => {
+      socketRef.current?.disconnect();
+      clearSession();
+      router.replace("/login");
+    };
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(cerrarPorInactividad, INACTIVITY_MS);
+    };
+    const eventos: (keyof WindowEventMap)[] = [
+      "mousemove", "mousedown", "keydown", "scroll", "touchstart", "click",
+    ];
+    eventos.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset(); // arranca el contador
+    return () => {
+      clearTimeout(timer);
+      eventos.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [user, router]);
+
+  // Cobertura: al entrar al modo, dibuja AUTOMÁTICAMENTE el alcance (150 m por
+  // calle) de TODAS las NAP. Se refresca si cambia el número de NAP.
+  useEffect(() => {
+    if (section === "red" && networkMode === "coverage") {
+      coverageIsochrones(150).then((r) => setReachArea(r.isochrones)).catch(() => {});
+    } else {
+      setReachArea(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, networkMode, naps.length]);
+
   async function runCheck(lng: number, lat: number) {
     setChecking(true);
     try { setCoverage(await checkCoverage(lng, lat)); }
@@ -229,15 +269,6 @@ export default function Page() {
     if (mode !== "coverage") setReachArea(null);
   }
 
-  // Alcance de tendido (Isochrone) de una NAP, dibujado en el mapa de Cobertura.
-  async function showReach(napId: string, metros?: number) {
-    try {
-      const r = await getAssetIsochrone(napId, metros);
-      setReachArea(r.isochrone);
-      if (!r.isochrone) setError("No se pudo calcular el alcance (revisa el token de Mapbox).");
-    } catch (e: any) { setError(e.message); }
-  }
-
   const pinColor = buildResult
     ? buildResult.resultado === "instalable" ? "#22E0A1" : "#FF4D6D"
     : !coverage
@@ -257,6 +288,26 @@ export default function Page() {
   }
   async function refreshInfra() {
     try { setInfra(await infraBundle()); } catch (e: any) { setError(e.message); }
+  }
+
+  // Guarda el trazado reeditado de un tramo de fibra (arrastre de vértices en el mapa).
+  async function saveFiber(
+    id: string,
+    trazado: [number, number][],
+    ends: { origenId?: string | null; destinoId?: string | null },
+  ) {
+    try {
+      await updateInfraFiber(id, { trazado, ...ends });
+      await refreshInfra();
+    } catch (e: any) { setError(e.message); }
+  }
+
+  // Dibuja el alcance de tendido (Isochrone) de UNA NAP al pulsar ◎ en Cobertura.
+  async function showReach(napId: string, metros?: number) {
+    try {
+      const r = await getAssetIsochrone(napId, metros);
+      setReachArea(r.isochrone);
+    } catch (e: any) { setError(e.message); }
   }
   function refreshCliStats() { clientesStats().then(setCliStats).catch(() => {}); ticketStats().then(setTickStats).catch(() => {}); }
 
@@ -459,6 +510,7 @@ export default function Page() {
             heatmapOn={heatmapOn} onToggleHeatmap={() => setHeatmapOn((v) => !v)}
             reachArea={reachArea} onShowReach={showReach}
             onInfraChanged={refreshInfra} onBundleChanged={refreshBundle}
+            onSaveFiber={saveFiber}
           />
         ) : (
           <div className="absolute inset-0 grid place-items-center text-cica-muted">

@@ -53,6 +53,15 @@ class SetParentDto {
   @IsOptional() @IsString() parentId?: string | null;
 }
 
+class UpdateAssetDto {
+  @IsOptional() @IsString() nombre?: string;
+  @IsOptional() @IsString() direccion?: string;
+  @IsOptional() @IsString() estado?: string;
+  @IsOptional() @IsString() marca?: string;
+  @IsOptional() @IsString() modelo?: string;
+  @IsOptional() @IsString() serie?: string;
+}
+
 class EvaluateConstructionDto {
   @IsNumber() lng: number;
   @IsNumber() lat: number;
@@ -72,6 +81,13 @@ class CreateFiberDto {
   @IsOptional() @IsArray() trazado?: number[][];
   /** Rutea el tramo siguiendo las calles (Mapbox Directions) si no hay trazado manual. */
   @IsOptional() @IsBoolean() rutearPorCalle?: boolean;
+}
+
+class UpdateFiberDto {
+  /** Polilínea completa reeditada: arreglo de [lng,lat]. */
+  @IsArray() trazado: number[][];
+  @IsOptional() @IsString() origenId?: string | null;
+  @IsOptional() @IsString() destinoId?: string | null;
 }
 
 class GeneratePortsDto {
@@ -124,6 +140,14 @@ export class InfraController {
   @Roles('admin', 'operador')
   setParent(@Param('id') id: string, @Body() dto: SetParentDto) {
     return this.infra.setParent(id, dto.parentId ?? null);
+  }
+
+  /** Edición puntual de un activo (renombrar, corregir dirección/estado/placa). */
+  @Put('assets/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  updateAsset(@Param('id') id: string, @Body() dto: UpdateAssetDto) {
+    return this.infra.updateAsset(id, dto);
   }
 
   @Post('assets')
@@ -205,6 +229,14 @@ export class InfraController {
     return this.infra.createFiber({ ...dto, creadoPor: (req as any).user?.username });
   }
 
+  /** Reedita el trazado de un tramo de fibra (mover vértices / reanclar a postes). */
+  @Put('fiber/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operador')
+  updateFiber(@Param('id') id: string, @Body() dto: UpdateFiberDto) {
+    return this.infra.updateFiber(id, dto);
+  }
+
   @Delete('fiber/:id')
   @UseGuards(RolesGuard)
   @Roles('admin', 'operador')
@@ -254,6 +286,12 @@ export class InfraController {
   @Get('assets/:id/isochrone')
   isochrone(@Param('id') id: string, @Query('metros') metros?: string) {
     return this.infra.isochroneForAsset(id, metros ? parseInt(metros, 10) : undefined);
+  }
+
+  /** Cobertura real de toda la planta: alcance (Isochrone 150 m) de todas las NAP. */
+  @Get('coverage/isochrones')
+  coverageIsochrones(@Query('metros') metros?: string) {
+    return this.infra.coverageIsochrones(metros ? parseInt(metros, 10) : undefined);
   }
 
   /** Exporta la red en formato OFDS (Open Fibre Data Standard). */

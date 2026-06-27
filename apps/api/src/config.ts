@@ -109,7 +109,9 @@ export const config = {
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || 'cicanet-dev-access-secret-change-me',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'cicanet-dev-refresh-secret-change-me',
-    accessTtl: process.env.JWT_ACCESS_TTL || '15m',
+    // 30 min: la sesión web se cierra tras 30 min de INACTIVIDAD (el front
+    // refresca el token mientras el usuario trabaja; al quedar inactivo, expira).
+    accessTtl: process.env.JWT_ACCESS_TTL || '30m',
     refreshTtl: process.env.JWT_REFRESH_TTL || '7d',
   },
 

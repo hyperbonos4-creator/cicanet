@@ -71,6 +71,11 @@ export class InfraService implements OnModuleInit {
   private ports: Port[] = [];
   private connections: Connection[] = [];
 
+  /** Tope DURO de longitud de acometida FTTH (metros). Más allá no hay cobertura. */
+  private static readonly MAX_TENDIDO_M = 150;
+  /** Caché de polígonos de alcance (Isochrone) por activo+coord+metros. */
+  private readonly isochroneCache = new Map<string, any>();
+
   private readonly dir = resolve(process.cwd(), config.geo.dataDir);
   private readonly uploadsDir = resolve(this.dir, 'uploads');
 
@@ -241,7 +246,7 @@ export class InfraService implements OnModuleInit {
    * calle (Matrix) para una viabilidad fiel. Devuelve NAP, viabilidad y costos.
    */
   async evaluateConstruction(lng: number, lat: number) {
-    const DEFAULT_DISTANCIA_MAX = 300; // metros (longitud típica de acometida FTTH)
+    const MAX = InfraService.MAX_TENDIDO_M; // tope duro de tendido (150 m)
     const naps = this.assets.filter((a) => a.tipo === 'NAP');
     // Prefiltro barato: las 8 NAP más cercanas en línea recta.
     const top = naps
@@ -258,7 +263,8 @@ export class InfraService implements OnModuleInit {
     const candidates: (NapCandidate & { nombre: string; lng: number; lat: number })[] = top.map((t, i) => {
       const cap = this.capacityOf(t.a);
       const road = roads && typeof roads[i] === 'number' ? (roads[i] as number) : null;
-      const distanciaMax = Number(t.a.atributos?.distanciaMax) || DEFAULT_DISTANCIA_MAX;
+      // distanciaMax SIEMPRE acotada al tope duro de 150 m (aunque la NAP declare más).
+      const distanciaMax = Math.min(MAX, Number(t.a.atributos?.distanciaMax) || MAX);
       return {
         id: t.a.id,
         nombre: t.a.nombre,
@@ -278,6 +284,7 @@ export class InfraService implements OnModuleInit {
       resultado: evalr.resultado,
       causa: evalr.causa,
       distanciaTendido: evalr.distanciaTendido,
+      maxTendido: MAX,
       puertosLibres: evalr.puertosLibres,
       costoEstimado: evalr.costoEstimado,
       tiempoEstimadoDias: evalr.tiempoEstimadoDias,
@@ -287,13 +294,53 @@ export class InfraService implements OnModuleInit {
     };
   }
 
-  /** Polígono de alcance de tendido (Isochrone) de una NAP/activo. */
+  /** Polígono de alcance de tendido (Isochrone) de una NAP/activo, acotado a 150 m. */
   async isochroneForAsset(id: string, metros?: number) {
     const a = this.assets.find((x) => x.id === id);
     if (!a) throw new NotFoundException('Activo no encontrado.');
-    const m = metros || Number(a.atributos?.distanciaMax) || 300;
-    const isochrone = await this.geo.isochrone(a.lng, a.lat, m);
+    const m = Math.min(InfraService.MAX_TENDIDO_M, metros || Number(a.atributos?.distanciaMax) || InfraService.MAX_TENDIDO_M);
+    const isochrone = await this.isochroneCached(a.id, a.lng, a.lat, m);
     return { id, metros: m, centro: { lng: a.lng, lat: a.lat }, isochrone };
+  }
+
+  /** Isochrone con caché por activo+coord+metros (estable mientras la NAP no se mueva). */
+  private async isochroneCached(id: string, lng: number, lat: number, metros: number): Promise<any | null> {
+    const key = `${id}|${lng.toFixed(6)}|${lat.toFixed(6)}|${metros}`;
+    if (this.isochroneCache.has(key)) return this.isochroneCache.get(key);
+    const fc = await this.geo.isochrone(lng, lat, metros);
+    if (fc) this.isochroneCache.set(key, fc);
+    return fc;
+  }
+
+  /**
+   * Cobertura REAL de toda la planta: une los polígonos de alcance (Isochrone a
+   * 150 m por calle) de TODAS las NAP. Cada feature trae napId, nombre, puertos
+   * libres y semáforo, para pintar disponibilidad. Resultado cacheado por NAP.
+   */
+  async coverageIsochrones(metros?: number) {
+    const m = Math.min(InfraService.MAX_TENDIDO_M, metros || InfraService.MAX_TENDIDO_M);
+    const naps = this.assets.filter((a) => a.tipo === 'NAP').slice(0, 80);
+    const features: any[] = [];
+    const results = await Promise.all(
+      naps.map(async (a) => {
+        const cap = this.capacityOf(a);
+        const fc = await this.isochroneCached(a.id, a.lng, a.lat, m);
+        return { a, cap, fc };
+      }),
+    );
+    for (const { a, cap, fc } of results) {
+      if (!fc?.features?.length) continue;
+      const libres = cap?.libres ?? 0;
+      const total = cap?.total ?? 0;
+      const sem = total === 0 || libres <= 0 ? 'rojo' : libres / total <= 0.25 ? 'amarillo' : 'verde';
+      for (const f of fc.features) {
+        features.push({
+          ...f,
+          properties: { ...(f.properties || {}), napId: a.id, nombre: a.nombre, libres, total, sem },
+        });
+      }
+    }
+    return { metros: m, naps: naps.length, isochrones: { type: 'FeatureCollection', features } };
   }
 
 
@@ -303,13 +350,16 @@ export class InfraService implements OnModuleInit {
    * tendido), luego por distancia. Cada candidata trae su causa de inviabilidad.
    */
   suggestNaps(lng: number, lat: number, limit = 6) {
-    const DEFAULT_DISTANCIA_MAX = 300;
     const naps = this.assets
       .filter((a) => a.tipo === 'NAP')
       .map((a) => {
         const cap = this.capacityOf(a);
         const distancia = Math.round(haversine(lat, lng, a.lat, a.lng));
-        const distanciaMax = Number(a.atributos?.distanciaMax) || DEFAULT_DISTANCIA_MAX;
+        // distanciaMax SIEMPRE acotada al tope duro de 150 m (aunque la NAP declare más).
+        const distanciaMax = Math.min(
+          InfraService.MAX_TENDIDO_M,
+          Number(a.atributos?.distanciaMax) || InfraService.MAX_TENDIDO_M,
+        );
         const libres = cap?.libres ?? 0;
         const dentroAlcance = distancia <= distanciaMax;
         const viable = libres >= 1 && dentroAlcance;
@@ -449,6 +499,49 @@ export class InfraService implements OnModuleInit {
 
     this.logger.log(`Activo creado ${id} (${asset.tipo}) @ [${lng}, ${lat}]`);
     return asset;
+  }
+
+  /**
+   * Edición puntual de un activo (renombrar, corregir dirección/estado o datos
+   * de placa). Solo toca los campos enviados; el resto queda intacto. Persiste
+   * en BD y refresca la copia en memoria.
+   */
+  async updateAsset(
+    id: string,
+    patch: {
+      nombre?: string;
+      direccion?: string;
+      estado?: string;
+      marca?: string;
+      modelo?: string;
+      serie?: string;
+    },
+  ): Promise<Asset> {
+    const a = this.assets.find((x) => x.id === id);
+    if (!a) throw new NotFoundException('Activo no encontrado.');
+
+    const data: Record<string, any> = {};
+    if (patch.nombre !== undefined) {
+      const nombre = patch.nombre.trim();
+      if (!nombre) throw new BadRequestException('El nombre no puede quedar vacío.');
+      a.nombre = nombre;
+      data.nombre = nombre;
+    }
+    if (patch.direccion !== undefined) {
+      const dir = patch.direccion.trim() || null;
+      a.direccion = dir ?? undefined;
+      data.direccion = dir;
+    }
+    if (patch.estado !== undefined) { a.estado = patch.estado as any; data.estado = patch.estado; }
+    if (patch.marca !== undefined) { a.marca = patch.marca || undefined; data.marca = patch.marca || null; }
+    if (patch.modelo !== undefined) { a.modelo = patch.modelo || undefined; data.modelo = patch.modelo || null; }
+    if (patch.serie !== undefined) { a.serie = patch.serie || undefined; data.serie = patch.serie || null; }
+
+    if (Object.keys(data).length) {
+      await this.prisma.activo.update({ where: { id }, data });
+      this.logger.log(`Activo actualizado ${id} (${Object.keys(data).join(', ')})`);
+    }
+    return a;
   }
 
   async deleteAsset(id: string) {
@@ -622,6 +715,54 @@ export class InfraService implements OnModuleInit {
     await this.prisma.segmentoFibra.delete({ where: { id } });
     this.fiber.splice(i, 1);
     return { id };
+  }
+
+  /**
+   * Reedita el TRAZADO de un tramo de fibra (mover vértices / reanclar a postes).
+   * Recibe la polilínea completa [[lng,lat],…]. Si un extremo está enlazado a un
+   * activo (origenId/destinoId), ese vértice se fija a la coordenada exacta del
+   * activo. Recalcula la longitud real y persiste.
+   */
+  async updateFiber(
+    id: string,
+    input: { trazado: number[][]; origenId?: string | null; destinoId?: string | null },
+  ): Promise<FiberSegment> {
+    const seg = this.fiber.find((f) => f.id === id);
+    if (!seg) throw new NotFoundException('Fibra no encontrada.');
+
+    const path = sanitizePath(input.trazado);
+    if (path.length < 2) {
+      throw new BadRequestException('El trazado debe tener al menos dos vértices.');
+    }
+
+    // Reanclaje de extremos: si se enlaza a un activo, el vértice se pega a él.
+    const origenId = input.origenId === undefined ? seg.origenId : input.origenId;
+    const destinoId = input.destinoId === undefined ? seg.destinoId : input.destinoId;
+    if (origenId) { const e = await this.resolveEndpoint(origenId); path[0] = [e.lng, e.lat]; }
+    if (destinoId) { const e = await this.resolveEndpoint(destinoId); path[path.length - 1] = [e.lng, e.lat]; }
+
+    seg.trazado = path;
+    seg.origen = { lng: path[0][0], lat: path[0][1] };
+    seg.destino = { lng: path[path.length - 1][0], lat: path[path.length - 1][1] };
+    seg.origenId = origenId ?? null;
+    seg.destinoId = destinoId ?? null;
+    seg.longitud = Math.round(pathLength(path));
+
+    await this.prisma.segmentoFibra.update({
+      where: { id },
+      data: {
+        trazado: path as any,
+        longitud: seg.longitud,
+        origenId: seg.origenId,
+        destinoId: seg.destinoId,
+        origenLng: seg.origen.lng,
+        origenLat: seg.origen.lat,
+        destinoLng: seg.destino.lng,
+        destinoLat: seg.destino.lat,
+      },
+    });
+    this.logger.log(`Fibra actualizada ${id} (${seg.longitud} m · ${path.length} vértices)`);
+    return seg;
   }
 
   // ---- topología (relaciones de dependencia) ----

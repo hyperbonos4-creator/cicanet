@@ -55,6 +55,45 @@ export function getUser(): SessionUser | null {
   return raw ? (JSON.parse(raw) as SessionUser) : null;
 }
 
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+// Refresco de access token compartido: si varias llamadas reciben 401 a la vez,
+// todas esperan al MISMO refresh (no se dispara uno por petición).
+let refreshInFlight: Promise<string | null> | null = null;
+
+/**
+ * Renueva el access token con el refresh token guardado. Devuelve el nuevo
+ * token o null si el refresh ya no es válido (sesión realmente terminada).
+ * Mientras el usuario trabaja, esto mantiene viva la sesión; cuando queda
+ * inactivo el tiempo suficiente, el refresh caduca y la sesión se cierra.
+ */
+async function refreshSession(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      setSession(data.accessToken, data.refreshToken, data.user);
+      return data.accessToken as string;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
 // ---- llamadas ----
 export async function login(username: string, password: string) {
   const res = await fetch(`${API_URL}/auth/login`, {
@@ -72,21 +111,32 @@ export async function login(username: string, password: string) {
 }
 
 async function authFetch(path: string, init: RequestInit = {}) {
-  const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      // Evita la página de advertencia de ngrok en respuestas XHR/JSON.
-      "ngrok-skip-browser-warning": "true",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init.headers || {}),
-    },
-  });
+  const doFetch = (token: string | null) =>
+    fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        // Evita la página de advertencia de ngrok en respuestas XHR/JSON.
+        "ngrok-skip-browser-warning": "true",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init.headers || {}),
+      },
+    });
+
+  let res = await doFetch(getToken());
+
+  // 401: el access token expiró. Intenta renovarlo UNA vez con el refresh token
+  // y reintenta la petición. Solo si el refresh falla se cierra la sesión.
   if (res.status === 401) {
-    clearSession();
-    if (typeof window !== "undefined") window.location.href = "/login";
-    throw new Error("Sesión expirada");
+    const fresh = await refreshSession();
+    if (fresh) {
+      res = await doFetch(fresh);
+    }
+    if (res.status === 401) {
+      clearSession();
+      if (typeof window !== "undefined") window.location.href = "/login";
+      throw new Error("Sesión expirada");
+    }
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -315,6 +365,16 @@ export function createInfraAsset(input: {
 export function deleteInfraAsset(id: string): Promise<{ id: string }> {
   return authFetch(`/infra/assets/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+/** Edición puntual de un activo (renombrar, corregir dirección/estado/placa). */
+export function updateInfraAsset(
+  id: string,
+  patch: { nombre?: string; direccion?: string; estado?: string; marca?: string; modelo?: string; serie?: string },
+): Promise<InfraAsset> {
+  return authFetch(`/infra/assets/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
 export function createInfraFiber(input: {
   nombre?: string;
   tipoFibra?: "monomodo" | "multimodo";
@@ -334,6 +394,16 @@ export function createInfraFiber(input: {
 }
 export function deleteInfraFiber(id: string): Promise<{ id: string }> {
   return authFetch(`/infra/fiber/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+/** Reedita el trazado de un tramo de fibra (mover vértices / reanclar a postes). */
+export function updateInfraFiber(
+  id: string,
+  input: { trazado: number[][]; origenId?: string | null; destinoId?: string | null },
+): Promise<InfraFiber> {
+  return authFetch(`/infra/fiber/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export function setAssetParent(id: string, parentId: string | null): Promise<InfraAsset> {
@@ -409,6 +479,17 @@ export function getAssetIsochrone(id: string, metros?: number): Promise<Isochron
   return authFetch(`/infra/assets/${encodeURIComponent(id)}/isochrone${qs}`);
 }
 
+export type CoverageIsochrones = {
+  metros: number;
+  naps: number;
+  isochrones: { type: "FeatureCollection"; features: any[] };
+};
+/** Cobertura real de toda la planta: alcance (Isochrone 150 m) de todas las NAP. */
+export function coverageIsochrones(metros?: number): Promise<CoverageIsochrones> {
+  const qs = metros ? `?metros=${metros}` : "";
+  return authFetch(`/infra/coverage/isochrones${qs}`);
+}
+
 // ---- Evidencia fotográfica georreferenciada (vista de calle propia) ----
 export type PhotoCategory = "vista_general" | "frontal" | "placa_serial" | "instalacion" | "pano360";
 
@@ -471,6 +552,7 @@ export type ConstructionResult = {
   resultado: "instalable" | "no_instalable";
   causa: "sin_puertos" | "fuera_de_alcance" | null;
   distanciaTendido: number | null;
+  maxTendido?: number;
   puertosLibres: number | null;
   costoEstimado: number | null;
   tiempoEstimadoDias: number | null;

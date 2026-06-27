@@ -41,6 +41,13 @@ type Props = {
   draggablePin?: { lng: number; lat: number } | null;
   pinColor?: string;
   onPinMove?: (lng: number, lat: number) => void;
+  // Edición de fibra: clic en un tramo => arrastrar sus vértices y anclarlos a postes.
+  canEdit?: boolean;
+  onSaveFiber?: (
+    id: string,
+    trazado: [number, number][],
+    ends: { origenId?: string | null; destinoId?: string | null },
+  ) => Promise<void> | void;
 };
 
 /** FeatureCollection para el dibujo en vivo de una zona (vértices + línea + polígono). */
@@ -75,6 +82,23 @@ function findSnap(map: MlMap, assets: FC, pt: { x: number; y: number }, maxPx = 
     if (d <= bestD) { bestD = d; best = { lng: c[0], lat: c[1], id: f.properties.id, tipo: f.properties.tipo }; }
   }
   return best;
+}
+
+/** Longitud aproximada (m) de una polilínea [[lng,lat],…] por haversine. */
+function lineLengthM(pts: [number, number][]): number {
+  let m = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [lng1, lat1] = pts[i - 1];
+    const [lng2, lat2] = pts[i];
+    const R = 6371000;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    m += 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+  return Math.round(m);
 }
 
 /** Estilo visual por tipo de activo (color + radio del punto + etiqueta legible). */
@@ -147,7 +171,7 @@ const BLUEPRINT: maplibregl.StyleSpecification = {
   ],
 };
 
-export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove }: Props) {
+export default function InfraMap({ assets, fiber, barrios, zones, onSelect, selectedId, focusPoint, onMapClick, drawing, drawPoints, routing, routePoints, placing, onShortcut, draggablePin, pinColor, onPinMove, canEdit, onSaveFiber }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
   const labelsRef = useRef<Marker[]>([]);
@@ -163,14 +187,150 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   // Refs espejo para los handlers registrados una sola vez en el init.
   const assetsRef = useRef(assets);
   assetsRef.current = assets;
+  const fiberRef = useRef(fiber);
+  fiberRef.current = fiber;
   const modeRef = useRef({ drawing, routing, placing });
   modeRef.current = { drawing: !!drawing, routing: !!routing, placing: !!placing };
   const snapRef = useRef<{ lng: number; lat: number; id: string } | null>(null);
   const onShortcutRef = useRef(onShortcut);
   onShortcutRef.current = onShortcut;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+  const onSaveFiberRef = useRef(onSaveFiber);
+  onSaveFiberRef.current = onSaveFiber;
+
+  // ---- estado de edición de un tramo de fibra (arrastrar vértices) ----
+  const editRef = useRef<{ id: string; points: [number, number][]; snapIds: (string | null | undefined)[] } | null>(null);
+  const vtxMarkersRef = useRef<Marker[]>([]);
+  const startEditRef = useRef<(id: string) => void>(() => {});
+  const [editFiber, setEditFiber] = useState<{ id: string; count: number; longitudM: number } | null>(null);
 
   const [basemap, setBasemap] = useState<Basemap>("blueprint");
   const [show, setShow] = useState({ enlaces: true, fibra: true, clientes: true, etiquetas: true });
+
+  // Redibuja la previsualización (línea + vértices) del tramo en edición.
+  function redrawEdit() {
+    const map = mapRef.current;
+    const src = map?.getSource("infra-fiber-edit") as any;
+    if (!src) return;
+    const ed = editRef.current;
+    if (!ed) { src.setData(emptyFC()); return; }
+    const feats: any[] = ed.points.map((p, i) => ({
+      type: "Feature", properties: { idx: i }, geometry: { type: "Point", coordinates: p },
+    }));
+    if (ed.points.length >= 2) feats.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ed.points } });
+    src.setData({ type: "FeatureCollection", features: feats });
+  }
+
+  // Construye un marcador arrastrable por cada vértice. Al soltar, si hay un
+  // poste/activo cerca, el vértice se ancla EXACTO a su coordenada. Entre cada
+  // par de vértices hay un handle "+" para INSERTAR un vértice intermedio (así
+  // la fibra puede doblarse por los postes exactos sin desviarse).
+  function buildVtxMarkers() {
+    const map = mapRef.current; const ed = editRef.current;
+    if (!map || !ed) return;
+    vtxMarkersRef.current.forEach((m) => m.remove());
+    vtxMarkersRef.current = [];
+
+    // Vértices reales (arrastrables; doble clic los elimina).
+    ed.points.forEach((p, i) => {
+      const el = document.createElement("div");
+      el.style.cssText = "width:15px;height:15px;border-radius:50%;background:#22D3EE;border:2px solid #fff;box-shadow:0 0 8px #22D3EE;cursor:grab;";
+      el.title = "Arrastra para mover · doble clic para eliminar";
+      const mk = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(p).addTo(map);
+      const apply = () => {
+        const ll = mk.getLngLat();
+        const snap = findSnap(map, assetsRef.current, map.project([ll.lng, ll.lat]), 18);
+        const snapSrc = map.getSource("infra-snap") as any;
+        let coord: [number, number];
+        if (snap) {
+          coord = [snap.lng, snap.lat];
+          mk.setLngLat(coord);
+          ed.snapIds[i] = snap.id;
+          snapSrc?.setData({ type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: coord } }] });
+        } else {
+          coord = [ll.lng, ll.lat];
+          ed.snapIds[i] = null;
+          snapSrc?.setData(emptyFC());
+        }
+        ed.points[i] = coord;
+        redrawEdit();
+      };
+      mk.on("drag", apply);
+      mk.on("dragend", () => {
+        apply();
+        (map.getSource("infra-snap") as any)?.setData(emptyFC());
+        setEditFiber((f) => (f ? { ...f, longitudM: lineLengthM(ed.points) } : f));
+      });
+      // Doble clic: elimina el vértice (deja al menos 2).
+      el.addEventListener("dblclick", (ev) => {
+        ev.stopPropagation();
+        if (ed.points.length <= 2) return;
+        ed.points.splice(i, 1);
+        ed.snapIds.splice(i, 1);
+        buildVtxMarkers();
+        redrawEdit();
+        setEditFiber((f) => (f ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points) } : f));
+      });
+      vtxMarkersRef.current.push(mk);
+    });
+
+    // Handles intermedios "+": insertan un vértice nuevo en el punto medio del
+    // segmento, que el usuario puede arrastrar al poste correcto.
+    for (let i = 0; i < ed.points.length - 1; i++) {
+      const a = ed.points[i];
+      const b = ed.points[i + 1];
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const el = document.createElement("div");
+      el.style.cssText = "width:13px;height:13px;border-radius:50%;background:rgba(34,211,238,0.25);border:1.5px dashed #22D3EE;cursor:copy;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;line-height:1;font-weight:700;";
+      el.textContent = "+";
+      el.title = "Insertar un vértice aquí";
+      const mk = new maplibregl.Marker({ element: el }).setLngLat(mid).addTo(map);
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        ed.points.splice(i + 1, 0, mid);
+        ed.snapIds.splice(i + 1, 0, undefined);
+        buildVtxMarkers();
+        redrawEdit();
+        setEditFiber((f) => (f ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points) } : f));
+      });
+      vtxMarkersRef.current.push(mk);
+    }
+  }
+
+  function startEditFiber(id: string) {
+    const feat = (fiberRef.current.features as any[]).find((f) => f.properties?.id === id);
+    const coords = feat?.geometry?.coordinates as number[][] | undefined;
+    if (!coords || coords.length < 2) return;
+    editRef.current = {
+      id,
+      points: coords.map((c) => [c[0], c[1]] as [number, number]),
+      snapIds: coords.map(() => undefined),
+    };
+    buildVtxMarkers();
+    redrawEdit();
+    setEditFiber({ id, count: coords.length, longitudM: lineLengthM(editRef.current.points) });
+  }
+  startEditRef.current = startEditFiber;
+
+  function clearEditFiber() {
+    vtxMarkersRef.current.forEach((m) => m.remove());
+    vtxMarkersRef.current = [];
+    editRef.current = null;
+    const map = mapRef.current;
+    (map?.getSource("infra-fiber-edit") as any)?.setData(emptyFC());
+    (map?.getSource("infra-snap") as any)?.setData(emptyFC());
+    setEditFiber(null);
+  }
+
+  async function saveEditFiber() {
+    const ed = editRef.current;
+    if (!ed) return;
+    const origenId = ed.snapIds[0];
+    const destinoId = ed.snapIds[ed.snapIds.length - 1];
+    await onSaveFiberRef.current?.(ed.id, ed.points.map((p) => [p[0], p[1]] as [number, number]), { origenId, destinoId });
+    clearEditFiber();
+  }
 
   // ---- init (una vez) ----
   useEffect(() => {
@@ -238,10 +398,12 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         paint: { "line-color": "#2DD4BF", "line-width": 1.1, "line-opacity": 0.5, "line-dasharray": [2, 1.5] },
       });
 
-      // 2) Fibra real (con glow).
+      // 2) Fibra real (con glow). Más visible: línea más gruesa que escala con el zoom.
       map.addSource("infra-fiber", { type: "geojson", data: fiber as any });
-      map.addLayer({ id: "infra-fiber-glow", type: "line", source: "infra-fiber", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#6366F1", "line-width": 7, "line-opacity": 0.18, "line-blur": 4 } });
-      map.addLayer({ id: "infra-fiber-line", type: "line", source: "infra-fiber", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#818CF8", "line-width": 2.2, "line-opacity": 0.95 } });
+      map.addLayer({ id: "infra-fiber-glow", type: "line", source: "infra-fiber", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#60A5FA", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 6, 16, 11, 20, 18], "line-opacity": 0.3, "line-blur": 4 } });
+      map.addLayer({ id: "infra-fiber-line", type: "line", source: "infra-fiber", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#3B82F6", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2.4, 16, 4, 20, 6], "line-opacity": 1 } });
+      // Línea de toque INVISIBLE y ancha: facilita seleccionar el tramo con el clic.
+      map.addLayer({ id: "infra-fiber-hit", type: "line", source: "infra-fiber", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#000000", "line-width": 16, "line-opacity": 0.01 } });
 
       // 3) Activos: glow + punto tipado + anillo de capacidad (NAP) + badge cámara.
       map.addSource("infra-assets", { type: "geojson", data: assets as any });
@@ -314,6 +476,25 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         paint: { "circle-radius": 11, "circle-color": "rgba(255,176,46,0.12)", "circle-stroke-width": 2.5, "circle-stroke-color": "#FFB02E", "circle-stroke-opacity": 0.95 },
       });
 
+      // Edición de fibra: previsualización (línea punteada + vértices) del tramo
+      // que se está reeditando arrastrando sus vértices.
+      map.addSource("infra-fiber-edit", { type: "geojson", data: emptyFC() });
+      map.addLayer({ id: "infra-fiber-edit-line", type: "line", source: "infra-fiber-edit", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#22D3EE", "line-width": 3, "line-dasharray": [1.5, 1], "line-opacity": 0.95 } });
+      map.addLayer({ id: "infra-fiber-edit-vtx", type: "circle", source: "infra-fiber-edit", filter: ["==", "$type", "Point"], paint: { "circle-radius": 5, "circle-color": "#22D3EE", "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
+
+      // Cursor de mano sobre un tramo de fibra (solo si se puede editar y no se
+      // está trazando/colocando/dibujando), para invitar a seleccionarlo.
+      map.on("mouseenter", "infra-fiber-hit", () => {
+        const m = modeRef.current;
+        if (canEditRef.current && !m.routing && !m.placing && !m.drawing && !editRef.current) {
+          map.getCanvas().style.cursor = "pointer";
+        }
+      });
+      map.on("mouseleave", "infra-fiber-hit", () => {
+        const m = modeRef.current;
+        if (!m.routing && !m.placing && !m.drawing) map.getCanvas().style.cursor = "";
+      });
+
       // Clic en zona vacía -> enrutado (modo Vender / dibujo de zona / trazado / colocar).
       // En modo trazar/colocar aplica SNAPPING: si hay un activo cercano, el punto
       // se "pega" a su coordenada exacta y se reporta su id (para conectar la fibra).
@@ -325,8 +506,15 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
           else onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
           return;
         }
+        // Editando un tramo: el arrastre lo manejan los marcadores de vértice.
+        if (editRef.current) return;
         const hits = map.queryRenderedFeatures(e.point, { layers: ["infra-assets-dot"] });
         if (hits.length) return; // fue clic en un activo
+        // Clic en un tramo de fibra (si se puede editar) -> abre edición de vértices.
+        if (canEditRef.current && !m.drawing) {
+          const fib = map.queryRenderedFeatures(e.point, { layers: ["infra-fiber-hit"] });
+          if (fib.length) { startEditRef.current?.(fib[0].properties.id); return; }
+        }
         onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
       });
 
@@ -354,6 +542,9 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     return () => {
       labelsRef.current.forEach((m) => m.remove());
       labelsRef.current = [];
+      vtxMarkersRef.current.forEach((m) => m.remove());
+      vtxMarkersRef.current = [];
+      editRef.current = null;
       focusRef.current?.remove(); focusRef.current = null;
       pinRef.current?.remove(); pinRef.current = null;
       map.remove(); mapRef.current = null; loadedRef.current = false;
@@ -472,6 +663,14 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
     }
   }, [routing, placing]);
 
+  // ---- cancelar la edición de fibra si se entra a trazar/colocar/dibujar ----
+  useEffect(() => {
+    if (routing || placing || drawing) {
+      if (editRef.current) clearEditFiber();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routing, placing, drawing]);
+
   // ---- pin arrastrable (modo Vender / consulta) ----
   useEffect(() => {
     const map = mapRef.current;
@@ -498,6 +697,18 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
 
   return (
     <div ref={containerRef} className="absolute inset-0">
+      {/* Barra de edición de fibra: aparece al seleccionar un tramo en el mapa. */}
+      {editFiber && (
+        <div className="pointer-events-auto absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-cica-glow/40 bg-black/80 px-4 py-2 shadow-2xl backdrop-blur">
+          <div className="text-[11px] leading-tight">
+            <div className="font-bold text-white">Editando fibra · {editFiber.id}</div>
+            <div className="text-cica-muted">Arrastra los vértices (se anclan al poste) · «+» inserta · doble clic elimina · {editFiber.longitudM} m</div>
+          </div>
+          <button onClick={saveEditFiber} className="rounded-lg bg-cica-gold px-3 py-1.5 text-[11px] font-bold text-black hover:opacity-90">Guardar</button>
+          <button onClick={clearEditFiber} className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px] font-semibold text-cica-silver hover:bg-white/10">Cancelar</button>
+        </div>
+      )}
+
       {/* Selector de base + capas (estilo ingenieria) */}
       <div className="pointer-events-auto absolute left-3 top-3 z-10 flex flex-wrap items-center gap-2">
         <div className="flex overflow-hidden rounded-lg border border-white/10 bg-black/55 text-[11px] font-semibold shadow-lg backdrop-blur">

@@ -8,6 +8,8 @@ import {
   disconnectPort,
   getAssetTrace,
   listClientes,
+  deleteInfraAsset,
+  updateInfraAsset,
   type InfraBundle,
   type PortsDetail,
   type InfraPort,
@@ -75,6 +77,10 @@ export default function AssetInspector({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [assignFor, setAssignFor] = useState<string | null>(null);
+  // Renombrado inline y confirmación de borrado del activo.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [confirmDel, setConfirmDel] = useState(false);
 
   const assets = (infra?.assets.features as AssetFeature[]) || [];
   const asset = assets.find((a) => a.properties.id === assetId) || null;
@@ -94,7 +100,7 @@ export default function AssetInspector({
     try { setTrace(await getAssetTrace(assetId)); } catch { setTrace(null); }
   }, [assetId, tipo]);
 
-  useEffect(() => { setAssignFor(null); reload(); }, [reload]);
+  useEffect(() => { setAssignFor(null); setEditingName(false); setConfirmDel(false); reload(); }, [reload]);
 
   if (!assetId || !asset) return null;
 
@@ -108,22 +114,80 @@ export default function AssetInspector({
     finally { setBusy(false); }
   }
 
+  // Renombra el activo (NAP, poste, etc.) y refresca el bundle.
+  async function saveName() {
+    const nombre = nameDraft.trim();
+    if (!nombre || nombre === asset!.properties.nombre) { setEditingName(false); return; }
+    await run(async () => { await updateInfraAsset(assetId!, { nombre }); setEditingName(false); });
+  }
+
+  // Elimina el activo y cierra el inspector (ya no existe en el mapa).
+  async function eliminar() {
+    if (busy) return;
+    setBusy(true); setErr(null);
+    try { await deleteInfraAsset(assetId!); onInfraChanged(); onClear(); }
+    catch (e: any) { setErr(e.message); setConfirmDel(false); }
+    finally { setBusy(false); }
+  }
+
   return (
     <div className="glass animate-fadeUp flex flex-col gap-3 p-4">
       {/* Cabecera */}
       <div className="flex items-start justify-between">
-        <div className="flex items-start gap-2">
+        <div className="flex min-w-0 items-start gap-2">
           <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ background: dot(tipo), boxShadow: `0 0 8px ${dot(tipo)}` }} />
           <div className="min-w-0">
-            <div className="truncate text-sm font-extrabold text-white">{asset.properties.nombre}</div>
+            {editingName ? (
+              <input
+                autoFocus
+                value={nameDraft}
+                disabled={busy}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
+                onBlur={saveName}
+                className="w-full rounded-md border border-cica-gold/50 bg-cica-black/50 px-2 py-1 text-sm font-extrabold text-white outline-none"
+              />
+            ) : (
+              <div className="truncate text-sm font-extrabold text-white">{asset.properties.nombre}</div>
+            )}
             <div className="text-[11px] text-cica-muted">
               {tipo}{asset.properties.estado ? ` · ${asset.properties.estado}` : ""}
             </div>
             {asset.properties.direccion && <div className="mt-0.5 text-[10px] text-cica-muted line-clamp-2">{asset.properties.direccion}</div>}
           </div>
         </div>
-        <button onClick={onClear} className="text-cica-muted hover:text-white" title="Cerrar">✕</button>
+        <div className="flex shrink-0 items-center gap-1">
+          {canEdit && !editingName && (
+            <button
+              onClick={() => { setNameDraft(asset!.properties.nombre); setEditingName(true); }}
+              className="text-cica-muted hover:text-cica-gold"
+              title="Renombrar"
+            >✎</button>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => setConfirmDel(true)}
+              disabled={busy}
+              className="text-cica-muted hover:text-status-sin disabled:opacity-50"
+              title="Eliminar activo"
+            >🗑</button>
+          )}
+          <button onClick={onClear} className="text-cica-muted hover:text-white" title="Cerrar">✕</button>
+        </div>
       </div>
+
+      {/* Confirmación de borrado */}
+      {confirmDel && (
+        <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2">
+          <p className="text-[11px] text-status-sin">¿Eliminar <strong>{asset.properties.nombre}</strong>? Se quitará del mapa y se liberarán sus puertos y conexiones.</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={eliminar} disabled={busy} className="flex-1 rounded-md border border-status-sin/60 bg-status-sin/20 px-2 py-1 text-[11px] font-bold text-status-sin disabled:opacity-50">
+              {busy ? "Eliminando…" : "Sí, eliminar"}
+            </button>
+            <button onClick={() => setConfirmDel(false)} disabled={busy} className="flex-1 rounded-md border border-cica-border/60 px-2 py-1 text-[11px] text-cica-silver">Cancelar</button>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2">
         <button onClick={() => onFocus(lng, lat, dot(tipo))} className="btn-cica-ghost flex-1 text-[11px]">Centrar en mapa</button>
