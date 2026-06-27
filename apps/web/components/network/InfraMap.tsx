@@ -197,6 +197,10 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   fiberRef.current = fiber;
   const modeRef = useRef({ drawing, routing, placing, chaining });
   modeRef.current = { drawing: !!drawing, routing: !!routing, placing: !!placing, chaining: !!chaining };
+  // Último punto enfocado conocido, para poder aplicarlo cuando el mapa termine
+  // de cargar (p. ej. "Ver en mapa" del cliente llega antes de que cargue).
+  const focusPointRef = useRef(focusPoint);
+  focusPointRef.current = focusPoint;
   const snapRef = useRef<{ lng: number; lat: number; id: string } | null>(null);
   const onShortcutRef = useRef(onShortcut);
   onShortcutRef.current = onShortcut;
@@ -548,6 +552,17 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         const m = modeRef.current;
         if (!canEditRef.current || m.routing || m.placing || m.chaining || m.drawing) return;
         if (editRef.current) return;
+        // PRIORIDAD AL ACTIVO: si hay un nodo (NAP/poste/splitter…) bajo el clic,
+        // gana la selección del activo, no la fibra. Evita que la línea de fibra
+        // (con área de toque ancha) "robe" los clics dirigidos a una NAP.
+        const near = map.queryRenderedFeatures(
+          [
+            [e.point.x - 9, e.point.y - 9],
+            [e.point.x + 9, e.point.y + 9],
+          ],
+          { layers: ["infra-assets-dot"] },
+        );
+        if (near.length) return;
         const f = e.features?.[0];
         if (!f) return;
         startEditRef.current((f.properties as any).id);
@@ -638,6 +653,20 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       rebuildLabels(map, assets, labelsRef, show.etiquetas);
       fitToNetwork(map, assets);
       applyVisibility(map, show, labelsRef.current);
+
+      // Si llegamos con un punto enfocado (p. ej. "Ver en mapa" del cliente) antes
+      // de que el mapa cargara, lo aplicamos ahora que ya está listo.
+      const fp = focusPointRef.current;
+      if (fp) {
+        const color = fp.color || "#22D3EE";
+        const el = document.createElement("div");
+        el.style.cssText = `width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #fff;box-shadow:0 0 18px ${color};`;
+        focusRef.current?.remove();
+        focusRef.current = new maplibregl.Marker({ element: el, anchor: "bottom" })
+          .setLngLat([fp.lng, fp.lat])
+          .addTo(map);
+        map.flyTo({ center: [fp.lng, fp.lat], zoom: 17, speed: 0.8 });
+      }
     });
 
     return () => {

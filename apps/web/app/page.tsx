@@ -254,11 +254,14 @@ export default function Page() {
   }
 
   // Abre el mapa centrado en un punto (desde el Customer 360 → "Ver en mapa").
+  // Va al modo DISEÑO (InfraMap) donde se ve la NAP/infra a la que se conecta el
+  // cliente. El foco se aplica aunque el mapa aún esté montándose.
   function verEnMapa(lng: number, lat: number) {
     setSection("red");
-    setNetworkMode("operations");
+    setNetworkMode("design");
     setDrawing(false); setBuildMode(false); setBuildResult(null);
     setRouting(false); setRoutePoints([]); setRouteSnaps([]); setPlaceTipo(null);
+    setChaining(false); setChainFrom(null);
     setCoverage(null); setPin(null); setPinAddress(null);
     setFocusPoint({ lng, lat, color: "#22E0A1" });
   }
