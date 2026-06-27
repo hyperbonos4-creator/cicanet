@@ -165,35 +165,24 @@ export class NetworkService implements OnModuleInit {
         prioridad.indexOf(b.properties.estado),
     );
     const best = matches[0];
-    const polyEstado: string | null = best ? best.properties.estado : null;
 
-    // 2) Cobertura por CERCANÍA a una NAP real del editor GIS (fuente de verdad).
-    //    Si el punto está dentro del radio de tendido de una NAP con puertos
-    //    libres → FTTH; si la NAP está saturada → parcial.
-    const RADIO_TENDIDO = 250; // m
-    let infraEstado: string | null = null;
-    for (const n of this.infra.getNapPoints()) {
-      if (haversine(lat, lng, n.lat, n.lng) <= RADIO_TENDIDO) {
-        const est = n.libres > 0 ? 'ftth' : 'parcial';
-        if (!infraEstado || prioridad.indexOf(est) < prioridad.indexOf(infraEstado)) infraEstado = est;
-      }
-    }
-
-    // 3) Mejor estado entre ambas fuentes (ftth > parcial > sin).
-    const estado = [polyEstado, infraEstado]
-      .filter((e): e is string => !!e)
-      .sort((a, b) => prioridad.indexOf(a) - prioridad.indexOf(b))[0] ?? null;
-
+    // 2) Regla física DURA: solo hay servicio FTTH si la NAP más cercana está
+    //    a 150 m o menos (límite real de tendido de acometida). Más allá NO hay
+    //    cobertura, aunque exista una zona comercial dibujada sobre el punto.
+    const MAX_TENDIDO_M = 150;
     const dentroDelBarrio = this.isInServiceArea(lng, lat);
     const napCercano = this.nearestNap(lng, lat);
+    const dentroDeAlcance = !!napCercano && napCercano.metros <= MAX_TENDIDO_M;
 
-    if (!estado) {
+    if (!dentroDeAlcance) {
       return {
         cobertura: false,
         estado: dentroDelBarrio ? 'sin' : 'fuera_de_zona',
-        mensaje: dentroDelBarrio
-          ? 'En tu zona aún no hay red, pero está en el plan de expansión.'
-          : 'El punto está fuera de tu zona de servicio.',
+        mensaje: napCercano
+          ? `Sin cobertura: la NAP más cercana (${napCercano.nombre}) está a ${napCercano.metros} m y supera el límite de 150 m de tendido.`
+          : dentroDelBarrio
+            ? 'En tu zona aún no hay red, pero está en el plan de expansión.'
+            : 'El punto está fuera de tu zona de servicio.',
         dentroDelBarrio,
         napCercano,
         lng,
@@ -201,12 +190,18 @@ export class NetworkService implements OnModuleInit {
       };
     }
 
+    // Dentro de los 150 m: FTTH si la NAP más cercana tiene puertos libres;
+    // si está saturada, cobertura parcial.
+    const estado = napCercano!.libres > 0 ? 'ftth' : 'parcial';
     return {
-      cobertura: estado !== 'sin',
+      cobertura: true,
       estado,
-      tecnologia: best?.properties.tecnologia || (estado === 'sin' ? 'FTTH (planeado)' : 'FTTH'),
+      tecnologia: best?.properties.tecnologia || 'FTTH',
       area: best?.properties.nombre,
-      mensaje: ESTADO_LABEL[estado] || estado,
+      mensaje:
+        estado === 'ftth'
+          ? `FTTH disponible · NAP ${napCercano!.nombre} a ${napCercano!.metros} m (${napCercano!.libres} puertos libres).`
+          : `NAP ${napCercano!.nombre} a ${napCercano!.metros} m, pero saturada (sin puertos libres).`,
       dentroDelBarrio,
       napCercano,
       lng,

@@ -204,11 +204,12 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   onDeleteFiberRef.current = onDeleteFiber;
 
   // ---- estado de edición de un tramo de fibra (arrastrar vértices) ----
-  const editRef = useRef<{ id: string; points: [number, number][]; snapIds: (string | null | undefined)[]; sel: number | null } | null>(null);
+  const editRef = useRef<{ id: string; points: [number, number][]; snapIds: (string | null | undefined)[]; sel: number | null; extend: boolean } | null>(null);
   const vtxMarkersRef = useRef<Marker[]>([]);
   const lastDragRef = useRef(0);
   const startEditRef = useRef<(id: string) => void>(() => {});
-  const [editFiber, setEditFiber] = useState<{ id: string; count: number; longitudM: number; sel: number | null } | null>(null);
+  const appendVertexRef = useRef<(lng: number, lat: number, snapId: string | null) => void>(() => {});
+  const [editFiber, setEditFiber] = useState<{ id: string; count: number; longitudM: number; sel: number | null; extend: boolean } | null>(null);
 
   const [basemap, setBasemap] = useState<Basemap>("blueprint");
   const [show, setShow] = useState({ enlaces: true, fibra: true, clientes: true, etiquetas: true });
@@ -230,8 +231,22 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
   // Sincroniza la barra (toolbar) con el estado interno de edición.
   function syncToolbar() {
     const ed = editRef.current;
-    setEditFiber((f) => (f && ed ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points), sel: ed.sel } : f));
+    setEditFiber((f) => (f && ed ? { ...f, count: ed.points.length, longitudM: lineLengthM(ed.points), sel: ed.sel, extend: ed.extend } : f));
   }
+
+  // Añade un vértice AL FINAL del trazado (modo "Extender"): continúa el
+  // recorrido. Si el clic cae cerca de un poste, el vértice se pega a él.
+  function appendVertex(lng: number, lat: number, snapId: string | null) {
+    const ed = editRef.current;
+    if (!ed) return;
+    ed.points.push([lng, lat]);
+    ed.snapIds.push(snapId ?? null);
+    ed.sel = ed.points.length - 1;
+    buildVtxMarkers();
+    redrawEdit();
+    syncToolbar();
+  }
+  appendVertexRef.current = appendVertex;
 
   // Construye un marcador arrastrable por cada vértice. Al soltar, si hay un
   // poste/activo cerca, el vértice se ancla EXACTO a su coordenada. Entre cada
@@ -278,7 +293,7 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       const mk = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(p).addTo(map);
       const apply = () => {
         const ll = mk.getLngLat();
-        const snap = findSnap(map, assetsRef.current, map.project([ll.lng, ll.lat]), 18);
+        const snap = findSnap(map, assetsRef.current, map.project([ll.lng, ll.lat]), 24);
         const snapSrc = map.getSource("infra-snap") as any;
         let coord: [number, number];
         if (snap) {
@@ -334,12 +349,13 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
       points: coords.map((c) => [c[0], c[1]] as [number, number]),
       snapIds: coords.map(() => undefined),
       sel: null,
+      extend: false,
     };
     // Mientras se edita, el doble clic NO debe hacer zoom (estorba al editar).
     mapRef.current?.doubleClickZoom.disable();
     buildVtxMarkers();
     redrawEdit();
-    setEditFiber({ id, count: coords.length, longitudM: lineLengthM(editRef.current.points), sel: null });
+    setEditFiber({ id, count: coords.length, longitudM: lineLengthM(editRef.current.points), sel: null, extend: false });
   }
   startEditRef.current = startEditFiber;
 
@@ -546,8 +562,16 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
           else onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
           return;
         }
-        // Editando un tramo: el arrastre lo manejan los marcadores de vértice.
-        if (editRef.current) return;
+        // Editando un tramo: en modo "Extender", el clic AÑADE un vértice al
+        // final (continúa el recorrido); si cae cerca de un poste, se pega a él.
+        if (editRef.current) {
+          if (editRef.current.extend) {
+            const snap = findSnap(map, assetsRef.current, e.point, 24);
+            if (snap) appendVertexRef.current(snap.lng, snap.lat, snap.id);
+            else appendVertexRef.current(e.lngLat.lng, e.lngLat.lat, null);
+          }
+          return; // sin extender, el arrastre lo manejan los marcadores
+        }
         const hits = map.queryRenderedFeatures(e.point, { layers: ["infra-assets-dot"] });
         if (hits.length) return; // fue clic en un activo
         // Clic en un tramo de fibra (si se puede editar) -> abre edición de vértices.
@@ -558,16 +582,17 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
         onMapClickRef.current?.(e.lngLat.lng, e.lngLat.lat, null);
       });
 
-      // Mientras se traza/coloca, resalta el activo al que el clic haría snap.
+      // Mientras se traza/coloca/extiende, resalta el activo al que el clic haría snap.
       map.on("mousemove", (e) => {
         const m = modeRef.current;
         const src = map.getSource("infra-snap") as any;
         if (!src) return;
-        if (!m.routing && !m.placing) {
+        const extending = !!editRef.current?.extend;
+        if (!m.routing && !m.placing && !extending) {
           if (snapRef.current) { snapRef.current = null; src.setData(emptyFC()); }
           return;
         }
-        const snap = findSnap(map, assetsRef.current, e.point);
+        const snap = findSnap(map, assetsRef.current, e.point, extending ? 24 : 16);
         snapRef.current = snap;
         src.setData(snap
           ? { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [snap.lng, snap.lat] } }] }
@@ -743,11 +768,20 @@ export default function InfraMap({ assets, fiber, barrios, zones, onSelect, sele
           <div className="text-[11px] leading-tight">
             <div className="font-bold text-white">Editando fibra · {editFiber.id}</div>
             <div className="text-cica-muted">
-              {editFiber.sel != null
+              {editFiber.extend
+                ? "EXTENDER activo: clic en cada poste para continuar el recorrido (se pega solo)"
+                : editFiber.sel != null
                 ? `Vértice ${editFiber.sel + 1}/${editFiber.count} seleccionado`
                 : "Clic en un vértice para seleccionarlo · arrastra para moverlo · «+» inserta"} · {editFiber.longitudM} m
             </div>
           </div>
+          <button
+            onClick={() => { const ed = editRef.current; if (ed) { ed.extend = !ed.extend; ed.sel = null; buildVtxMarkers(); syncToolbar(); } }}
+            title="Continuar el recorrido haciendo clic en cada poste"
+            className={`rounded-lg px-3 py-1.5 text-[11px] font-bold ${editFiber.extend ? "bg-cica-glow text-black" : "border border-cica-glow/50 text-cica-glow hover:bg-cica-glow/15"}`}
+          >
+            {editFiber.extend ? "Extender: ON" : "▶ Extender"}
+          </button>
           <button
             onClick={deleteSelectedVtx}
             disabled={editFiber.sel == null || editFiber.count <= 2}
