@@ -910,7 +910,14 @@ export class InfraService implements OnModuleInit {
     direccion?: string,
   ): Promise<{ lng: number; lat: number; direccion?: string }> {
     if (typeof lng === 'number' && typeof lat === 'number') {
-      return { lng, lat, direccion };
+      // Posición EXACTA del clic. Si el operador no escribió dirección, se captura
+      // automáticamente por reverse-geocoding del punto exacto (Google/Mapbox/OSM).
+      let dir = direccion && direccion.trim() ? direccion.trim() : undefined;
+      if (!dir) {
+        try { dir = (await this.geo.reverse(lat, lng)) ?? undefined; }
+        catch { /* sin dirección si el reverse falla; las coordenadas mandan */ }
+      }
+      return { lng, lat, direccion: dir };
     }
     if (direccion && direccion.trim().length >= 3) {
       const cands = await this.geo.geocode(direccion.trim());

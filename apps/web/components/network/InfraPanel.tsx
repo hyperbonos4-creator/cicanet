@@ -353,7 +353,7 @@ function ActivosView({
                 </select>
                 <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre (opcional)" className={inputCls + " flex-1"} />
               </div>
-              <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="Dirección (la escribes tú; es etiqueta, no se geocodifica)" className={inputCls} />
+              <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="Dirección (opcional; si la dejas vacía se captura del punto)" className={inputCls} />
               <div className="grid grid-cols-3 gap-2">
                 <input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Marca" className={inputCls} />
                 <input value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="Modelo" className={inputCls} />
@@ -377,11 +377,11 @@ function ActivosView({
                   <input type="number" min={0} value={planMensual} onChange={(e) => setPlanMensual(e.target.value)} placeholder="Ej: 70000" className={inputCls} />
                 </label>
               )}
-              <button onClick={ubicarEnMapa} disabled={!nombre.trim()} className="btn-cica text-xs disabled:opacity-50">
+              <button onClick={ubicarEnMapa} className="btn-cica text-xs">
                 📍 Ubicar en el mapa (clic exacto)
               </button>
               <p className="text-[10px] leading-relaxed text-cica-muted">
-                Escribe el nombre y la dirección, luego haz clic en el punto exacto del mapa. La posición será EXACTAMENTE donde hagas clic.
+                Haz clic en el punto exacto del mapa: la posición será EXACTAMENTE donde hagas clic y la dirección se captura sola de ese punto (puedes escribir una propia arriba para sobrescribirla).
               </p>
               <button onClick={crear} disabled={busy || dir.trim().length < 3} className="btn-cica-ghost text-[11px] disabled:opacity-50">
                 {busy ? "Buscando…" : "o buscar la dirección automáticamente (geocodificar)"}
