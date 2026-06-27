@@ -63,6 +63,7 @@ export default function AssetInspector({
   onFocus,
   onClear,
   onPlaceChild,
+  onSelect,
 }: {
   assetId: string | null;
   infra: InfraBundle | null;
@@ -71,6 +72,7 @@ export default function AssetInspector({
   onFocus: (lng: number, lat: number, color?: string) => void;
   onClear: () => void;
   onPlaceChild: (tipo: string, parentId: string) => void;
+  onSelect?: (id: string) => void;
 }) {
   const [ports, setPorts] = useState<PortsDetail | null>(null);
   const [trace, setTrace] = useState<TraceResult | null>(null);
@@ -105,6 +107,17 @@ export default function AssetInspector({
   if (!assetId || !asset) return null;
 
   const [lng, lat] = asset.geometry.coordinates;
+
+  // Activos APILADOS en este mismo punto (p. ej. una NAP montada sobre un poste).
+  // Permite ver y editar toda la estructura que comparte la coordenada, no solo
+  // el que quedó arriba al hacer clic.
+  const EPS = 0.00004; // ~4.5 m
+  const coLocated = assets.filter(
+    (a) =>
+      a.properties.id !== assetId &&
+      Math.abs(a.geometry.coordinates[0] - lng) < EPS &&
+      Math.abs(a.geometry.coordinates[1] - lat) < EPS,
+  );
 
   async function run(fn: () => Promise<any>) {
     if (busy) return;
@@ -192,6 +205,30 @@ export default function AssetInspector({
       <div className="flex gap-2">
         <button onClick={() => onFocus(lng, lat, dot(tipo))} className="btn-cica-ghost flex-1 text-[11px]">Centrar en mapa</button>
       </div>
+
+      {/* Activos apilados en este mismo punto (NAP sobre poste, etc.) */}
+      {coLocated.length > 0 && (
+        <div className="rounded-lg border border-cica-glow/30 bg-cica-navy/30 p-2">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cica-muted">
+            También en este punto ({coLocated.length})
+          </div>
+          <div className="flex flex-col gap-1">
+            {coLocated.map((a) => (
+              <button
+                key={a.properties.id}
+                onClick={() => onSelect?.(a.properties.id)}
+                className="flex items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-cica-border/40"
+                title="Editar este activo"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dot(a.properties.tipo) }} />
+                <span className="truncate text-[11px] font-semibold text-cica-silver">{a.properties.nombre}</span>
+                <span className="ml-auto text-[9px] text-cica-muted">{a.properties.tipo}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-cica-muted">Toca uno para renombrarlo, editarlo o eliminarlo.</p>
+        </div>
+      )}
 
       {err && <div className="rounded-lg border border-status-sin/40 bg-status-sin/10 px-3 py-2 text-[11px] text-status-sin">{err}</div>}
 

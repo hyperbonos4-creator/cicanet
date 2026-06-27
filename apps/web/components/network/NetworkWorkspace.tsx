@@ -147,6 +147,7 @@ export default function NetworkWorkspace(p: NetworkWorkspaceProps) {
                 onFocus={p.onFocus}
                 onClear={() => p.onInfraSelect(null)}
                 onPlaceChild={p.onPlaceChild}
+                onSelect={(id) => p.onInfraSelect(id)}
               />
               <InfraPanel
                 tabs={["activos", "trazar", "topologia"]}
